@@ -6,9 +6,11 @@
 import { existsSync, readdirSync } from "node:fs";
 import {
   API_VERSION,
+  isJsonRecord,
   type AgentLiveSession,
   type ForkPlanInput,
   type KeepDeckPlugin,
+  type NormalizedUsage,
   type PluginManifest,
   type SpawnPlanInput,
   type SpawnPlanOutput,
@@ -46,6 +48,26 @@ export interface StubAgentControl {
   resumePlanFails: string | null;
   /** The agent ignores a polite stop: only the kill ends it. */
   deaf: boolean;
+  /** The agent reports nothing at start — neither its conversation nor
+   * itself at its prompt: what it reports is cued. */
+  unbound: boolean;
+}
+
+/** The stub's own words in a status report: the edges its hooks say. */
+const STATUS_EDGES = ["ready", "turn-start", "turn-end"] as const;
+
+/** The stub's usage report: how full its context is, and of which
+ * conversation, when it says. */
+function stubUsage(payload: unknown, at: number): NormalizedUsage | null {
+  if (!isJsonRecord(payload) || typeof payload.usedPct !== "number") return null;
+  const sessionId = typeof payload.sessionId === "string" ? payload.sessionId : undefined;
+  return { account: null, pane: { agent: STUB_AGENT, reportedAt: at, context: { usedPct: payload.usedPct }, ...(sessionId !== undefined && { sessionId }) } };
+}
+
+/** The edge a stub status report says, if it says one. */
+function stubEdge(payload: unknown): (typeof STATUS_EDGES)[number] | null {
+  const edge = isJsonRecord(payload) ? payload.event : undefined;
+  return STATUS_EDGES.find((known) => known === edge) ?? null;
 }
 
 /** The stub plugin, as the plugin manager installs a built-in. */
@@ -70,6 +92,9 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
             { id: "session.new", label: "New sessions", group: "sessions" },
             { id: "session.resume", label: "Resume saved sessions", group: "sessions" },
             { id: "session.fork", label: "Fork saved sessions", group: "sessions" },
+            { id: "usage.pane", label: "Session analytics", group: "usage" },
+            // Its thin client runs here and attaches to an agent server.
+            { id: "target.remote", label: "Remote targets", group: "execution", parameters: { schemes: ["ws"] } },
           ],
         },
       ],
@@ -77,7 +102,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
   };
   const run = (output: SpawnPlanOutput, args: string[]) => {
     output.command = process.execPath;
-    output.args = [program, ...args, ...(control.deaf ? ["--deaf"] : [])];
+    output.args = [program, ...args, ...(control.deaf ? ["--deaf"] : []), ...(control.unbound ? ["--unbound"] : [])];
   };
   // The registry a CLI keeps of its own runs: read, never guessed — and
   // refusing, when it cannot say, rather than answering empty.
@@ -95,6 +120,20 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
         label: "Stub",
         detect: { bin: "node" },
         ...(control.liveRegistry !== "none" && { liveSessions }),
+        // The stub CLI's words for a session that continues the pane's
+        // conversation rather than starting one.
+        binding: { swapSources: ["resume", "clear", "fork"] },
+        usage: { normalize: stubUsage },
+        status: {
+          normalize: (payload, at) => {
+            const edge = stubEdge(payload);
+            return edge === null ? null : { kind: edge, at };
+          },
+          attribute: (payload) => {
+            const edge = stubEdge(payload);
+            return edge === null ? null : { event: edge, actor: "main", status: true };
+          },
+        },
         hooks: {
           "spawn.plan"(input, output) {
             control.plans.push({ hook: "spawn", input, folderStood: existsSync(input.cwd) });

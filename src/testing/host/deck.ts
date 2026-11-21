@@ -25,12 +25,29 @@ export interface Launch {
   cwd: string | null;
 }
 
-/** An agent to add: its role, and the team it joins or the site it asks for. */
+/** An agent to add: its role, and the team it joins or the site it asks for
+ * — or the agent server it runs on, for one that runs on another machine. */
 export interface AgentAsk {
   role: string;
   team?: string;
   site?: Site;
+  endpoint?: string;
 }
+
+/** One envelope a pane's reporter sends through the bridge: what it leaves
+ * out is the plan's — the pane, its token — and, in the payload, the stub's
+ * name and the sending process. */
+export interface Envelope {
+  type: string;
+  paneId?: string;
+  token?: string;
+  payload?: Record<string, unknown>;
+}
+
+/** Who sends a report for a pane: its agent; a process the agent started in
+ * its terminal; or a reporter outside every pane's terminal, which names no
+ * process — a hook outliving its agent. */
+export type Reporter = "agent" | "child" | "outside";
 
 export interface Deck {
   runtime: AppRuntime;
@@ -48,6 +65,12 @@ export interface Deck {
   workspacePhase(): string | null;
   /** Type a line into the pane's terminal — its process reads it. */
   type(paneId: string, line: string): void;
+  /** Everything the pane's terminals printed, in order. */
+  output(paneId: string): string;
+  /** Send one report for the pane through the bridge, and wait for the
+   * bridge's answer — and, when the bridge took it, for the page to have
+   * heard it. The answer's HTTP status. */
+  report(paneId: string, envelope: Envelope, from?: Reporter): Promise<number>;
   /** Every process the page started for the pane, in order. */
   launches(paneId: string): Launch[];
   /** The deck's first workspace, as the page holds it now. */
@@ -114,18 +137,51 @@ function isIntent(value: unknown): value is Intent {
   return typeof value === "object" && value !== null && typeof Reflect.get(value, "kind") === "string";
 }
 
-function launchOf(line: string): Launch | null {
+/** A process the page asked the host for: its launch, the channel its
+ * terminal speaks on, and the bridge its plan armed, as its env holds it. */
+interface Opened extends Launch {
+  channel: number | null;
+  armed: string | null;
+}
+
+/** The bridge's answer to the post `cue` named, by what the stub printed —
+ * null while it is not in. */
+function answerTo(said: string, cue: string): number | null {
+  const answered = new RegExp(`stub: posted \\S+ (\\d{3}) ${cue}\\b`).exec(said);
+  return answered ? Number(answered[1]) : null;
+}
+
+function openedOf(line: string): Opened | null {
   const said: unknown = JSON.parse(line);
   if (typeof said !== "object" || said === null || Reflect.get(said, "cmd") !== "pty_open") return null;
   const args: unknown = Reflect.get(said, "args");
   if (typeof args !== "object" || args === null) return null;
   const owner: unknown = Reflect.get(args, "owner");
   const spec: unknown = Reflect.get(args, "spec");
+  const events: unknown = Reflect.get(args, "onEvent");
   const pane = typeof owner === "object" && owner !== null ? Reflect.get(owner, "pane") : null;
   const argv = typeof spec === "object" && spec !== null ? Reflect.get(spec, "args") : null;
   const cwd = typeof spec === "object" && spec !== null ? Reflect.get(spec, "cwd") : null;
+  const env: unknown = typeof spec === "object" && spec !== null ? Reflect.get(spec, "env") : null;
   if (typeof pane !== "string" || !Array.isArray(argv)) return null;
-  return { pane, args: argv.map(String), cwd: typeof cwd === "string" ? cwd : null };
+  const armed: unknown = Array.isArray(env) ? env.find((pair) => Array.isArray(pair) && pair[0] === "KEEPDECK_BRIDGE") : undefined;
+  const channel = typeof events === "string" ? Number(events.replace("__CHANNEL__:", "")) : NaN;
+  return {
+    pane,
+    args: argv.map(String),
+    cwd: typeof cwd === "string" ? cwd : null,
+    channel: Number.isInteger(channel) ? channel : null,
+    armed: Array.isArray(armed) && typeof armed[1] === "string" ? armed[1] : null,
+  };
+}
+
+/** The terminal output one channel message carries, if it carries any. */
+function outputOf(line: string, channel: number): string {
+  if (!line.startsWith(`{"channel":${channel},`)) return "";
+  const said: unknown = JSON.parse(line);
+  const message = typeof said === "object" && said !== null ? Reflect.get(said, "message") : null;
+  const data = typeof message === "object" && message !== null ? Reflect.get(message, "data") : null;
+  return typeof data === "string" ? Buffer.from(data, "base64").toString("utf8") : "";
 }
 
 /** Start the page's runtime on `host`, and wait for the machine to open —
@@ -143,6 +199,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     rejectForks: false,
     resumePlanFails: null,
     deaf: false,
+    unbound: false,
     liveRegistry: "files",
     liveDir: join(host.home, "stub-live"),
     ...told,
@@ -163,11 +220,54 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     if (!found) throw new Error(`no pane ${paneId} on the deck`);
     return found;
   };
-  const launches = (paneId: string): Launch[] =>
+  const opened = (paneId: string): Opened[] =>
     host.tape.flatMap(({ way, line }) => {
-      const launch = way === "page →" ? launchOf(line) : null;
-      return launch && launch.pane === paneId ? [launch] : [];
+      const open = way === "page →" ? openedOf(line) : null;
+      return open && open.pane === paneId ? [open] : [];
     });
+  const launches = (paneId: string): Launch[] => opened(paneId).map(({ pane, args, cwd }) => ({ pane, args, cwd }));
+  const output = (paneId: string): string => {
+    const channels = opened(paneId).flatMap(({ channel }) => (channel === null ? [] : [channel]));
+    return host.tape.map(({ way, line }) => (way === "← host" ? channels.map((channel) => outputOf(line, channel)).join("") : "")).join("");
+  };
+  /** Cue a stub in the pane's terminal — its agent, or the process the
+   * agent started — to send the envelope; the bridge's answer. */
+  async function postInTerminal(paneId: string, envelope: Envelope, from: "agent" | "child", cue: string): Promise<number> {
+    sessions.writePane(paneId, `${from === "child" ? "child " : ""}post ${JSON.stringify({ ...envelope, cue })}\r`);
+    let answer: number | null = null;
+    await host.until(`${paneId}'s report ${cue} is answered`, () => (answer = answerTo(output(paneId), cue)) !== null);
+    return answer ?? 0;
+  }
+  /** A stub run outside every pane's terminal, armed with the pane's
+   * bridge, sends the envelope naming no process; the bridge's answer. */
+  async function postOutside(paneId: string, envelope: Envelope, cue: string): Promise<number> {
+    const armed = opened(paneId).pop()?.armed;
+    if (!armed) throw new Error(`no bridge armed for ${paneId}`);
+    const reporter = spawn(process.execPath, [inject("stubAgent"), "--child"], { env: { ...process.env, KEEPDECK_BRIDGE: armed }, stdio: ["pipe", "pipe", "ignore"] });
+    outside.push(reporter);
+    let said = "";
+    reporter.stdout.on("data", (chunk) => (said += String(chunk)));
+    reporter.stdin.write(`post ${JSON.stringify({ ...envelope, payload: { reporter: "", ...envelope.payload }, cue })}\n`);
+    let answer: number | null = null;
+    await host.until(`the outside report ${cue} for ${paneId} is answered`, () => (answer = answerTo(said, cue)) !== null);
+    reporter.kill();
+    return answer ?? 0;
+  }
+  /** Reports sent so far, each named by its own cue. */
+  let reports = 0;
+  async function report(paneId: string, envelope: Envelope, from: Reporter = "agent"): Promise<number> {
+    const mark = host.tape.length;
+    const cue = `r${++reports}`;
+    const answer = from === "outside" ? await postOutside(paneId, envelope, cue) : await postInTerminal(paneId, envelope, from, cue);
+    // The bridge emits what it takes before it answers; the page hears it
+    // on the pipe.
+    if (answer === 204) {
+      const about = `"paneId":"${envelope.paneId ?? paneId}"`;
+      await host.until(`the page heard ${envelope.type} for ${paneId}`, () =>
+        host.tape.slice(mark).some(({ way, line }) => way === "← host" && line.startsWith('{"event":') && line.includes(about)));
+    }
+    return answer;
+  }
   /** The pane is up, its process live, and its conversation bound. */
   async function upAndBound(paneId: string): Promise<string> {
     await host.until(`${paneId} is up and bound`, () => sessions.paneSessionState(paneId).kind === "live" && pane(paneId).session !== undefined, 15_000);
@@ -181,8 +281,9 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     const ws = workspace();
     return { id: ws.id, instance: ws.instance };
   }
-  async function addAgent(ask: AgentAsk): Promise<string> {
-    const added = await runtime.orchestrator.createPane({ workspace: await workspaceUp(), pane: { agentType: STUB_AGENT }, ...ask });
+  async function addAgent({ endpoint, ...ask }: AgentAsk): Promise<string> {
+    const draft = { agentType: STUB_AGENT, ...(endpoint !== undefined && { location: { kind: "remote" as const, endpoint } }) };
+    const added = await runtime.orchestrator.createPane({ workspace: await workspaceUp(), pane: draft, ...ask });
     if (added.kind !== "accepted") throw new Error(`no agent: ${JSON.stringify(added)}`);
     const paneId = added.minted.panes[0];
     if (!paneId) throw new Error("the machine minted no pane");
@@ -211,6 +312,8 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
       return typeof phase === "string" ? phase : null;
     },
     type: (paneId, line) => sessions.writePane(paneId, `${line}\r`),
+    output,
+    report,
     launches,
     workspace,
     pane,
