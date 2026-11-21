@@ -34,6 +34,15 @@ describe("listenPaneCompanions", () => {
     expect(attribution.hasCompanion("pane-1")).toBe(true);
   });
 
+  it("keeps the companion it has when a hello that names no process follows", async () => {
+    // A hello nobody can place says nothing of the process the pane is
+    // pinned to: recorded, it would unset the companion that process has.
+    const { attribution, deliver } = await lane();
+    deliver({ paneId: "pane-1", token: "tok", reporter: "4021", payload: { agent: "claude", reporter: "4021" } });
+    deliver({ paneId: "pane-1", token: "tok", payload: { agent: "claude" } });
+    expect(attribution.hasCompanion("pane-1")).toBe(true);
+  });
+
   it("drops a hello that names no process, carries another secret or comes from elsewhere", async () => {
     for (const report of [
       { paneId: "pane-1", token: "tok", payload: { agent: "claude" } },

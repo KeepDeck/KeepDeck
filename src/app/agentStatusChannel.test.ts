@@ -14,6 +14,7 @@ import type { DeckWatch } from "./deckStore";
 import { deckStateOf } from "./deckStore.testSupport";
 import { createPaneAttribution } from "./paneAttribution";
 import type { BridgeReport } from "../ipc/bridgeReport";
+import type { PaneSessionState } from "./ptyManager";
 import { present } from "@keepdeck/plugin-api/testing";
 import { statusEdge } from "../testing/values.test-support";
 import { maybeRecord } from "../testing/values.test-support";
@@ -30,9 +31,6 @@ const ipc = vi.hoisted(() => ({
 }));
 vi.mock("../ipc/status", () => ({ onAgentStatus: ipc.onAgentStatus }));
 vi.mock("./spawnSpecs", () => ({ peekPaneSpawnSpec: ipc.peekPaneSpawnSpec }));
-vi.mock("./ptyManager", () => ({
-  paneSessionState: () => ({ kind: "live" }),
-}));
 
 const edgeNormalizer = (payload: unknown) =>
   statusEdge(payload);
@@ -95,7 +93,7 @@ const agentsWith = () => {
 describe("createAgentStatusChannel", () => {
   let tracker: AgentStatusTracker;
   let sessionListeners: Set<() => void>;
-  let kinds: Map<string, string>;
+  let kinds: Map<string, PaneSessionState["kind"]>;
   /** Panes launched bare — their plans armed no bridge. */
   let bare: Set<string>;
   let sessions: SessionLivenessPort;

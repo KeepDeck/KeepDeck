@@ -1,10 +1,11 @@
 import type { BridgeReport } from "../ipc/bridgeReport";
 import { log } from "../ipc/log";
 import type { PaneAttribution } from "./paneAttribution";
+import type { PaneSessionState } from "./ptyManager";
 import { isJsonRecord } from "@keepdeck/plugin-api";
 
 /** The state a pane's process is in, as the sessions owner says it. */
-export type ProcessOf = (paneId: string) => string;
+export type ProcessOf = (paneId: string) => PaneSessionState["kind"];
 
 /** What a verified report's lane is told beside its payload. */
 export interface ReportContext {
@@ -40,15 +41,16 @@ export interface VerifiedPaneReports {
 }
 
 /** A process that is up: live, or still starting. */
-const isUp = (kind: string) => kind === "live" || kind === "starting";
+const isUp = (kind: PaneSessionState["kind"]) => kind === "live" || kind === "starting";
 
 /**
  * The one home of "who may report for a pane" — the session-binding rule
  * applied to a report lane: the envelope must echo the pane's bridge secret
  * AND come from the agent the pane runs (a pane the deck no longer holds
- * runs none), and (per lane) the process must be alive. Both bridge lanes verify HERE; a
- * guard growing a condition in one lane but not the other is exactly how a
- * retired generation would keep reporting through the weaker one.
+ * runs none), and (per lane) the process must be alive. Every bridge lane
+ * verifies HERE; a guard growing a condition in one lane but not another is
+ * exactly how a retired generation would keep reporting through the weaker
+ * one.
  *
  * The agent half matters as much as the secret: the secret is inherited by
  * every descendant of the pane's process, so a nested CLI's statusline

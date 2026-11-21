@@ -29,7 +29,6 @@ vi.mock("../src/ipc/status", () => ({ onAgentStatus: async (fn: typeof ipc.handl
   ipc.handler = fn;
   return () => {};
 } }));
-vi.mock("../src/app/ptyManager", () => ({ paneSessionState: () => ({ kind: "live" }) }));
 
 const disposers: (() => void)[] = [];
 afterEach(() => {

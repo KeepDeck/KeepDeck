@@ -3,6 +3,7 @@ import { onAgentStatus } from "../ipc/status";
 import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
+import type { PaneSessionState } from "./ptyManager";
 import { attributedEvent } from "./statusPayloadLabel";
 import { isNavigationKey } from "../domain/terminal";
 import { paneMembership, paneMembershipKey } from "./paneMembership";
@@ -25,7 +26,7 @@ export interface StatusDeclarationsPort {
  * change, whether one is dead — and whether it can speak at all. */
 export interface SessionLivenessPort {
   subscribe(listener: () => void): () => void;
-  state(paneId: string): { kind: string };
+  state(paneId: string): { kind: PaneSessionState["kind"] };
   /** Whether the pane's process was launched able to report: its plan armed
    * the bridge (`planReports`). A bare launch (task-572) was not, and says
    * nothing ever. */
