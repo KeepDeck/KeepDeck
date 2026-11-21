@@ -165,6 +165,27 @@ describe("an agent's operations on the host", () => {
     await host().until("the fork is over", () => d.settled());
   });
 
+  it("restarts a fork's agent whose first launch is not up: the restart ends, and the fork is finished by the relaunch", async () => {
+    const d = await open();
+    const { ws, paneId, session } = await d.agentUp();
+    const teamId = d.pane(paneId).team?.teamId;
+    if (!teamId) throw new Error("the lead is on no team");
+    // The fork's first process is not opened: its pane is never bound by it.
+    const starting = host().hold({ request: "pty_open" });
+    const forked = await d.runtime.orchestrator.forkSession(ws.id, { agent: "stub", sessionId: session, cwd: host().work }, { kind: "dir", cwd: host().work }, { role: "impl-1", team: teamId });
+    if (forked.kind !== "accepted") throw new Error(`no fork: ${JSON.stringify(forked)}`);
+    const fork = forked.minted.panes[0];
+    if (!fork) throw new Error("the fork minted no pane");
+    await starting.caught;
+    expect((await d.runtime.orchestrator.restart(ws.id, fork, "fresh")).kind).toBe("accepted");
+    starting.release();
+    await d.upAndBound(fork);
+    await host().until("nothing holds the pane: the restart and the fork are over", () => d.settled() && readdirSync(join(host().home, "lifecycle")).every((name) => !name.startsWith("op-")), 15_000);
+    // Nothing refuses a close of it afterwards.
+    const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: fork, consent: { stops: [], folders: [], tickets: [] } });
+    expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId: fork, consent })).kind).toBe("accepted");
+  });
+
   it("leaves an agent that ended by itself on its exit card, starting nothing", async () => {
     const d = await open();
     const { paneId } = await d.agentUp();

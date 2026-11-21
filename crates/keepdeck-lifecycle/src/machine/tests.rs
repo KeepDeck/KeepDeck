@@ -2017,6 +2017,34 @@ fn forked_into_its_own_worktree() -> (Sim, OpId, PaneId, Dir) {
     (sim, op, minted.panes[0], checkout.expect("the fork's worktree"))
 }
 
+/// A restart of a fork's pane before its launch is up — none started yet,
+/// or none could — does not end the fork, so it does not wait for it: it
+/// ends, its relaunch goes out, and the fork is finished by that launch's
+/// binding. Nothing is left holding the pane.
+#[test]
+fn a_restart_over_an_unbound_forks_pane_ends_and_the_fork_finishes_on_the_relaunch() {
+    let (mut sim, ask, op) = forking();
+    sim.apply(|cmd| matches!(cmd, Cmd::Fork { .. }));
+    sim.send(Event::HookEnded { op });
+    sim.flush_journals();
+    sim.apply(|cmd| matches!(cmd, Cmd::AddPane { .. }));
+    sim.save();
+    let Some(Answer::Accepted { minted, .. }) = sim.answer(ask) else { panic!() };
+    let pane = minted.panes[0];
+
+    let restart = sim.intent(Intent::Restart { workspace: ws(), pane });
+    sim.drive_leaving(&|cmd| matches!(cmd, Cmd::ReportBinding { .. }));
+    assert!(matches!(sim.answer(restart), Some(Answer::Accepted { .. })));
+    assert!(sim.carried.contains(&Cmd::Release { workspace: ws(), pane, in_place: true }), "the relaunch is let go: {:?}", sim.carried);
+    assert!(sim.state.ops.values().all(|op| op.teardown().is_none()), "the restart is over");
+    assert!(matches!(&sim.state.ops[&op].kind, Kind::Fork(fork) if fork.stage == ForkStage::Binding));
+
+    // The relaunch is bound: the fork is finished, and the pane is free.
+    sim.drive();
+    assert!(sim.state.ops.is_empty(), "{:#?}", sim.state.ops);
+    assert!(sim.state.world.panes.contains_key(&pane));
+}
+
 /// A fork into a worktree of its own that did not finish takes back all it
 /// made, as a creation would: the checkout, then the branch born with it.
 #[test]

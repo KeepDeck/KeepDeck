@@ -106,6 +106,13 @@ impl Teardown {
         matches!(self.kind, model::Teardown::CloseAgent | model::Teardown::Disband | model::Teardown::CloseWorkspace)
     }
 
+    /// Whether it ends a fork waiting to be bound on one of its panes: a
+    /// teardown that takes the pane down does, and waits for that end; a
+    /// restart brings the pane back up, and its relaunch is the binding.
+    pub fn ends_forks(&self) -> bool {
+        self.kind != model::Teardown::Restart
+    }
+
     fn strategy(&self) -> model::Strategy {
         self.kind.strategy()
     }
@@ -436,7 +443,7 @@ fn stopped(state: &State, id: OpId) -> bool {
     let leases = teardown.waited.leases || !leases_out(state, op, teardown);
     let creations = !state.ops.iter().any(|(&other, op)| other != id && super::create::still_creating_for(op, &teardown.teams));
     let joined = teardown.joined.iter().all(|child| joined_done(state, *child));
-    let forks = !super::create::fork_alive_over(state, id, &teardown.panes);
+    let forks = !teardown.ends_forks() || !super::create::fork_alive_over(state, id, &teardown.panes);
     sessions && boundary && leases && creations && joined && forks
 }
 

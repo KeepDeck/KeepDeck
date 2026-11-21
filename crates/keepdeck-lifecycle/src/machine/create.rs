@@ -1325,12 +1325,12 @@ struct Taken {
     close: bool,
 }
 
-/// The teardown under way, if any, that takes `pane`: stops it to end or
-/// keep it down. A restart is not one — it brings the pane back up.
+/// The teardown under way, if any, that takes `pane` down, ending a fork
+/// waiting on it ([`super::Teardown::ends_forks`]).
 fn taken_by_teardown(state: &State, pane: PaneId) -> Option<Taken> {
     state.ops.iter().find_map(|(&by, op)| {
         let teardown = op.teardown()?;
-        let takes = teardown.phase != super::TearPhase::Abandoned && teardown.kind != crate::model::Teardown::Restart && teardown.panes.contains(&pane);
+        let takes = teardown.phase != super::TearPhase::Abandoned && teardown.ends_forks() && teardown.panes.contains(&pane);
         takes.then_some(Taken { by, close: teardown.is_close() })
     })
 }
