@@ -121,8 +121,12 @@ fn conflict(state: &State, holders: &[OpId]) -> Option<Refusal> {
     }
 }
 
+/// An archive of the workspace is under way. One over but for what it owes
+/// the next launch is not: the workspace is put away, as the deck shows it.
 pub fn archiving(state: &State, workspace: &WorkspaceId) -> bool {
-    state.ops.values().any(|op| &op.workspace == workspace && matches!(&op.kind, Kind::Teardown(t) if t.kind == model::Teardown::Archive))
+    state.ops.values().any(|op| {
+        &op.workspace == workspace && matches!(&op.kind, Kind::Teardown(t) if t.kind == model::Teardown::Archive) && !teardown::owed_archive(op)
+    })
 }
 
 pub fn workspace_leaving(state: &State, workspace: &WorkspaceId) -> bool {

@@ -2422,7 +2422,7 @@ fn an_archive_settles_the_deck_last_and_once() {
     sim.drive();
     let at = |wanted: &Cmd| sim.carried.iter().position(|cmd| cmd == wanted);
     let marked = at(&Cmd::MarkArchived { workspace: ws(), panes: vec![PaneId(1), PaneId(2), PaneId(3)] }).expect("marked");
-    let settled = at(&Cmd::SettleArchive { workspace: ws() }).expect("settled");
+    let settled = at(&Cmd::SettleArchive { workspace: ws(), disarm_owed: false }).expect("settled");
     assert!(settled > marked, "{:?}", sim.carried);
     assert!(sim.cleaned.iter().any(|clean| matches!(clean, Clean::Disarm { .. })), "its plantings went first");
     assert_eq!(sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::SettleArchive { .. })).count(), 1);
@@ -2471,15 +2471,60 @@ fn an_agent_an_archive_stopped_is_resumed_after_the_restore() {
     assert!(sim.carried.contains(&Cmd::ClearSuspended { workspace: ws(), pane: PaneId(3) }));
 }
 
-/// An archive whose cleanup failed is not over: the deck keeps it as being
-/// put away, and the next launch takes it up again.
+/// An archive whose plantings would not all come out is put away all the
+/// same, owing that: the deck is told, and only once it holds it is the
+/// archive owed to the next launch — never owed while the deck still shows
+/// it as being put away.
 #[test]
-fn an_archive_whose_cleanup_failed_does_not_settle_the_deck() {
+fn an_archive_whose_plantings_would_not_come_out_settles_the_deck_owing_it_then_is_owed() {
     let mut sim = Sim::booted();
     sim.intent(Intent::Archive { workspace: ws() });
-    sim.drive_with(&failing(|how| matches!(how, Clean::Disarm { .. })));
-    assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::SettleArchive { .. })), "{:?}", sim.carried);
+    let disarm_fails = failing(|how| matches!(how, Clean::Disarm { .. }));
+    for _ in 0..100 {
+        let progressed = sim.round_with(&disarm_fails);
+        let saved = sim.state.saved;
+        if let Some(op) = sim.state.ops.values().find(|op| op.owed) {
+            let said = op.sent.iter().any(|sent| sent.cmd == Cmd::SettleArchive { workspace: ws(), disarm_owed: true } && sent.settled(saved));
+            assert!(said, "owed before the deck holds the settle: {:?}", op.sent);
+        }
+        if !progressed {
+            break;
+        }
+    }
+    let settles: Vec<&Cmd> = sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::SettleArchive { .. })).collect();
+    assert_eq!(settles, vec![&Cmd::SettleArchive { workspace: ws(), disarm_owed: true }]);
     assert!(sim.state.ops.values().next().is_some_and(|op| op.owed), "owed to the next launch");
+    assert_eq!(sim.disk.len(), 1, "its entry stays for the next launch");
+    // Put away, as the deck shows it, not being put away.
+    assert_eq!(super::snapshot::snapshot(&sim.state).workspaces[&ws()], super::snapshot::WorkspacePhase::Archived);
+}
+
+/// The next launch takes an owed archive up again from its entry: done this
+/// time, it settles the deck again, owing nothing, and ends; failing again,
+/// it says nothing new — the deck already holds what is owed.
+#[test]
+fn an_owed_archive_settles_again_once_its_retry_is_done_and_not_while_it_still_fails() {
+    let disarm_fails = failing(|how| matches!(how, Clean::Disarm { .. }));
+    let mut first = Sim::booted();
+    first.intent(Intent::Archive { workspace: ws() });
+    first.drive_with(&disarm_fails);
+    let entries: Vec<Entry> = first.disk.values().cloned().collect();
+    let mut facts = deck();
+    facts.workspaces[0].archived = true;
+    for pane in &mut facts.workspaces[0].panes {
+        pane.suspended = true;
+    }
+
+    let mut failing_again = Sim::booted_with(facts.clone(), entries.clone());
+    failing_again.drive_with(&disarm_fails);
+    assert!(!failing_again.carried.iter().any(|cmd| matches!(cmd, Cmd::SettleArchive { .. })), "{:?}", failing_again.carried);
+    assert!(failing_again.state.ops.values().next().is_some_and(|op| op.owed));
+
+    let mut done = Sim::booted_with(facts, entries);
+    done.drive();
+    assert!(done.carried.contains(&Cmd::SettleArchive { workspace: ws(), disarm_owed: false }), "{:?}", done.carried);
+    assert!(done.state.ops.is_empty());
+    assert!(done.disk.is_empty());
 }
 
 /// The deck said an archive was under way and no entry is left of it: the
@@ -2490,7 +2535,7 @@ fn an_archive_the_deck_left_under_way_is_finished_and_settled_at_boot() {
     facts.workspaces[0].archiving = true;
     let mut sim = Sim::booted_with(facts, Vec::new());
     sim.drive();
-    assert!(sim.carried.contains(&Cmd::SettleArchive { workspace: ws() }), "{:?}", sim.carried);
+    assert!(sim.carried.contains(&Cmd::SettleArchive { workspace: ws(), disarm_owed: false }), "{:?}", sim.carried);
     assert!(sim.state.ops.is_empty());
 }
 
@@ -2857,7 +2902,7 @@ fn every_due() -> Vec<Due> {
         Cmd::RemoveTeam { workspace: w(), team: team("n") },
         Cmd::RemoveWorkspace { workspace: w() },
         Cmd::MarkArchived { workspace: w(), panes: vec![p(1)] },
-        Cmd::SettleArchive { workspace: w() },
+        Cmd::SettleArchive { workspace: w(), disarm_owed: true },
         Cmd::ClearArchived { workspace: w() },
         Cmd::MarkSuspended { workspace: w(), pane: p(1) },
         Cmd::ClearSuspended { workspace: w(), pane: p(1) },

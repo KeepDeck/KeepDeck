@@ -492,6 +492,7 @@ export const dues: Due[] = [
   },
   {
     "cmd": {
+      "disarmOwed": true,
       "kind": "settleArchive",
       "workspace": "ws-a"
     },

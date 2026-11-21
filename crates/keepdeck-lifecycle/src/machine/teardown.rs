@@ -620,22 +620,41 @@ fn clean(state: &mut State, id: OpId, fx: &mut Fx) {
     if !runnable(teardown).is_empty() || !op.all_settled(saved) {
         return;
     }
+    // An archive is put away last, once all of it is done or what is left of
+    // it is owed: the deck says so, and what is owed. It says it again each
+    // time that changes — a next launch's retry settles it again — and
+    // before the operation is owed, so no owed archive is one the deck
+    // still shows as being put away.
+    if teardown.kind == model::Teardown::Archive {
+        let disarm_owed = teardown.failed.iter().any(|step| matches!(step, Step::Disarm { .. }));
+        let said = op.sent.iter().rev().find_map(|sent| match sent.cmd {
+            Cmd::SettleArchive { disarm_owed, .. } => Some(disarm_owed),
+            _ => None,
+        });
+        if said != Some(disarm_owed) {
+            let op = state.ops.get_mut(&id).expect("the op");
+            let workspace = op.workspace.clone();
+            op.send(Cmd::SettleArchive { workspace, disarm_owed });
+            return;
+        }
+    }
     if !teardown.failed.is_empty() {
+        // Owed once its entry holds what it did: an owed operation's entry is
+        // not written again, and the next launch takes it up from there.
+        if !durable(id, op, saved) {
+            return;
+        }
         let failed = teardown.failed.len();
         state.ops.get_mut(&id).expect("the op").owed = true;
         fx.warn(format!("{id}: {failed} cleanup step(s) failed; the next launch retries them"));
         return;
     }
-    // An archive is put away last: once all of it is done, the deck says so,
-    // and a next launch finds nothing of it to finish.
-    let settles = teardown.kind == model::Teardown::Archive && !op.sent.iter().any(|sent| matches!(sent.cmd, Cmd::SettleArchive { .. }));
-    if settles {
-        let op = state.ops.get_mut(&id).expect("the op");
-        let workspace = op.workspace.clone();
-        op.send(Cmd::SettleArchive { workspace });
-        return;
-    }
     finish(state, id);
+}
+
+/// An archive over but for what it owes the next launch.
+pub fn owed_archive(op: &Op) -> bool {
+    op.owed && op.teardown().is_some_and(|teardown| teardown.kind == model::Teardown::Archive)
 }
 
 /// Once its deck commands are on disk, the machine's world follows.

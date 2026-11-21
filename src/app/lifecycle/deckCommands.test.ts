@@ -48,10 +48,14 @@ describe("the deck's owner of lifecycle commands", () => {
       ["pane-1", "suspended"],
       ["pane-2", undefined],
     ]);
-    expect(await carry({ kind: "settleArchive", workspace: "ws-a" })).toEqual({ kind: "applied", revision: store.revision() });
+    // Put away owing its plantings, then — the next launch's retry done —
+    // owing nothing.
+    expect(await carry({ kind: "settleArchive", workspace: "ws-a", disarmOwed: true })).toEqual({ kind: "applied", revision: store.revision() });
+    expect(ws()?.archived).toMatchObject({ phase: "archived", warnings: { reaps: [], disarm: true } });
+    expect(await carry({ kind: "settleArchive", workspace: "ws-a", disarmOwed: false })).toEqual({ kind: "applied", revision: store.revision() });
     expect(ws()?.archived).toMatchObject({ phase: "archived" });
     expect(ws()?.archived?.warnings).toBeUndefined();
-    expect(await carry({ kind: "settleArchive", workspace: "ws-a" })).toEqual({ kind: "unchanged", revision: store.revision() });
+    expect(await carry({ kind: "settleArchive", workspace: "ws-a", disarmOwed: false })).toEqual({ kind: "unchanged", revision: store.revision() });
     await carry({ kind: "clearArchived", workspace: "ws-a" });
     expect(ws()?.archived).toBeUndefined();
   });

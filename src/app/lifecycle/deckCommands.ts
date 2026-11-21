@@ -227,10 +227,10 @@ export function createDeckCommands(
       case "markArchived":
         return through(() => actions.archiveWorkspace(cmd.workspace, cmd.panes));
       case "settleArchive":
-        // Put away, no longer being put away. What the machine could not do
-        // stays owed in its journal, and is said by its notices: nothing of
-        // it rides on the marker.
-        return through(() => actions.settleArchive(cmd.workspace, { reaps: [], disarm: false }));
+        // Put away, no longer being put away — owing, when the machine says
+        // so, what its next launch tries again. Every agent the archive stops
+        // the machine stops: no reap is ever owed.
+        return through(() => actions.settleArchive(cmd.workspace, { reaps: [], disarm: cmd.disarmOwed }));
       case "clearArchived":
         return through(() => actions.restoreWorkspace(cmd.workspace));
       case "markSuspended":

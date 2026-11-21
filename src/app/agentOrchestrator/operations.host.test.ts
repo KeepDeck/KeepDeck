@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useHost } from "../../testing/host/host";
 import { startDeck, type Deck } from "../../testing/host/deck";
@@ -69,6 +71,22 @@ describe("an agent's operations on the host", () => {
     expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toMatchObject({ kind: "resuming" });
     await host().until("it is back", backUp(d, paneId, 2));
     expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+  });
+
+  it("archives a workspace whose plantings would not come out: put away owing that", async () => {
+    const d = await open();
+    const { ws, paneId } = await d.agentUp();
+    // A record of the plantings that will not read: nothing can be taken
+    // back from any folder while it stands.
+    mkdirSync(join(host().home, "cwd-arms"), { recursive: true });
+    writeFileSync(join(host().home, "cwd-arms", "ws-unreadable.json"), "not json");
+    expect((await d.runtime.orchestrator.archive(ws)).kind).toBe("accepted");
+    // Put away as the deck shows it — owing its plantings — and as the
+    // machine says it: the page offers Restore on that word.
+    await host().until("put away, owing its plantings", () =>
+      d.workspace().archived?.phase === "archived" && d.workspace().archived?.warnings?.disarm === true && d.workspacePhase() === "archived" && d.slot(paneId) === "none");
+    // Its entry stays for the next launch, which tries the plantings again.
+    expect(readdirSync(join(host().home, "lifecycle")).filter((name) => name.startsWith("op-"))).toHaveLength(1);
   });
 
   it("restarts an agent fresh, into a new conversation", async () => {

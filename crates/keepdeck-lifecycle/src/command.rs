@@ -82,9 +82,9 @@ pub enum Cmd {
     /// stops — are marked suspended in the same change.
     MarkArchived { workspace: WorkspaceId, panes: Vec<PaneId> },
     /// The archive is over: the workspace is put away, no longer being put
-    /// away — which is what a next launch reads to know nothing of it is
-    /// left to finish.
-    SettleArchive { workspace: WorkspaceId },
+    /// away — and whether taking KeepDeck's files out of its folders is still
+    /// owed, which a next launch tries again and settles again.
+    SettleArchive { workspace: WorkspaceId, disarm_owed: bool },
     ClearArchived { workspace: WorkspaceId },
     MarkSuspended { workspace: WorkspaceId, pane: PaneId },
     ClearSuspended { workspace: WorkspaceId, pane: PaneId },
