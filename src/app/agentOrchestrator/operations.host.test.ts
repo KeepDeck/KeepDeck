@@ -259,9 +259,11 @@ describe("an agent's operations on the host", () => {
     await d.runtime.orchestrator.resume(ws.id, paneId);
     // A resume the person asked for never comes up as another conversation:
     // no process, the agent down where it was, its card saying why.
-    await host().until("its card says why", () => (d.runtime.orchestrator.getView().wakeFailed[paneId] ?? "").includes("the agent's plugin is gone"));
+    // Put back down by the machine, whose flag the suspension is.
+    await host().until("its card says why, and it is put back", () =>
+      (d.runtime.orchestrator.getView().wakeFailed[paneId] ?? "").includes("the agent's plugin is gone") &&
+      d.phase(paneId) === "suspended" && d.pane(paneId).idle?.reason === "suspended");
     expect(d.launches(paneId)).toHaveLength(1);
-    expect(d.pane(paneId).idle).toMatchObject({ reason: "suspended" });
     expect(d.pane(paneId).session?.id).toBe(session);
   });
 
