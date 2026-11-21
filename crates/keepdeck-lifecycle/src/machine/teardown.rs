@@ -176,20 +176,28 @@ impl Teardown {
     }
 }
 
-/// A creation or an archive a Close may take over.
+/// A creation, an archive, or a fork taken back whose hook is still out — a
+/// Close may take each over.
 pub fn taken_over_by_close(op: &Op) -> bool {
     match &op.kind {
         Kind::Create(_) => true,
         Kind::Teardown(teardown) => teardown.kind == model::Teardown::Archive,
+        Kind::Fork(fork) => fork.hook_outstanding(),
         _ => false,
     }
 }
 
-/// A Close took this operation over.
+/// A Close took this operation over. A fork's checkout becomes the Close's,
+/// kept or deleted by its consent; the fork waits for its hook alone.
 pub fn abandon(op: &mut Op, by: OpId) {
     match &mut op.kind {
         Kind::Create(create) => create.abandon(by),
         Kind::Teardown(teardown) if teardown.kind == model::Teardown::Archive => teardown.phase = TearPhase::Abandoned,
+        Kind::Fork(fork) => {
+            if let Some(create) = fork.create.as_mut() {
+                create.abandon(by);
+            }
+        }
         _ => {}
     }
 }

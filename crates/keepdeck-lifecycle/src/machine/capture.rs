@@ -49,10 +49,11 @@ impl Op {
                 scope.folders.insert(unheld.path.clone());
             }
             // A fork taken back: its checkout is leaving, and nothing new is
-            // let into it.
+            // let into it — until a Close took that checkout over.
             Kind::Fork(fork) => {
                 if fork.stage == create::ForkStage::Undoing {
-                    scope.folders.extend(fork.create.as_ref().and_then(|create| create.ticket.as_ref()).map(|ticket| ticket.path.clone()));
+                    let own = fork.create.as_ref().filter(|create| !create.abandoned);
+                    scope.folders.extend(own.and_then(|create| create.ticket.as_ref()).map(|ticket| ticket.path.clone()));
                 }
             }
             Kind::Seat(_) | Kind::Relocate(_) | Kind::Resume { .. } | Kind::Reconcile(_) => {}

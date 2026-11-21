@@ -240,9 +240,18 @@ impl Fork {
             pane: self.pane,
             source: self.source.clone(),
             team: self.create.as_ref().map(|create| create.team.clone()),
-            ticket: self.create.as_ref().and_then(|create| create.ticket.clone()),
+            // A checkout a Close took over is the Close's: the entry names it
+            // no more, so no later launch takes it back against the consent.
+            ticket: self.create.as_ref().filter(|create| !create.abandoned).and_then(|create| create.ticket.clone()),
             discard: self.discard.clone(),
         }
+    }
+
+    /// Taken back while its hook is still out: past its deadline, nothing of
+    /// it can be waited for. A Close takes it over rather than meets it, and
+    /// does not wait for it to end.
+    pub fn hook_outstanding(&self) -> bool {
+        self.stage == ForkStage::Undoing && self.hook_sent && !self.hook_ended
     }
 }
 
@@ -1399,9 +1408,10 @@ fn taken_by_teardown(state: &State, pane: PaneId) -> Option<Taken> {
 /// A fork over one of these panes is still under way — neither ended nor
 /// owed to the next launch. A teardown of its pane waits for it: the fork
 /// takes back what it made only once its pane is quiet, and the teardown's
-/// rows and removals must not outlive it.
+/// rows and removals must not outlive it. Not one whose hook is still out
+/// past its deadline: that one is taken over, and waits for its hook alone.
 pub fn fork_alive_over(state: &State, except: OpId, panes: &[PaneId]) -> bool {
-    state.ops.iter().any(|(&id, op)| id != except && !op.owed && matches!(&op.kind, Kind::Fork(fork) if panes.contains(&fork.pane)))
+    state.ops.iter().any(|(&id, op)| id != except && !op.owed && matches!(&op.kind, Kind::Fork(fork) if panes.contains(&fork.pane) && !fork.hook_outstanding()))
 }
 
 pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<Effect, Event>) -> Owed<Effect, Event> {

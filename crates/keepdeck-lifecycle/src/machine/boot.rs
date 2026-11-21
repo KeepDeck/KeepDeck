@@ -204,6 +204,9 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
         })
         .collect();
     let book = Some(Book { written: Some(entry.clone()), ..Book::default() });
+    // A Close on disk that covers the team a creation made: what that
+    // creation made is the Close's, by its consent.
+    let covered = |team: &TeamId| closing.contains(team) || closing_workspaces.contains(&entry.workspace);
     let kind = match &entry.work {
         Work::Close { target, teams, panes, consent, removals, space } => {
             let kind = match target {
@@ -232,9 +235,8 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
         Work::Create { team, ticket } => {
             let mut create = Create::new(team.clone(), Draft(serde_json::Value::Null), Site::New { place: None, base: ticket.base.clone() }, Vec::new(), None, false);
             create.ticket = Some(ticket.clone());
-            let covered = closing.contains(team) || closing_workspaces.contains(&entry.workspace);
             let on_deck = state.world.teams.contains_key(team);
-            if covered {
+            if covered(team) {
                 create.abandoned = true;
                 create.stage = CreateStage::Creating;
                 match taken_over(journal, entry.op, ticket) {
@@ -271,6 +273,10 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &BTreeS
                 create.ticket = ticket.clone();
                 create.created = true;
                 create.stage = CreateStage::Creating;
+                // Taken over by a Close whose entry is still on disk, and the
+                // launch died before this entry dropped the ticket: the
+                // checkout is that Close's, never this fork's undo.
+                create.abandoned = covered(team);
                 create
             });
             let landing = team.clone().or_else(|| state.world.panes.get(pane).and_then(|row| row.team.clone()));
