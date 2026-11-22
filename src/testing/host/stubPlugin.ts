@@ -12,9 +12,14 @@ import {
   isJsonRecord,
   jsonl,
   parseInstant,
+  reportedLimits,
+  type AccountUsage,
+  type LimitsRead,
+  type UsageCall,
   type AgentLiveSession,
   type AgentStatus,
   type AgentStatusEvent,
+  type AgentUsage,
   type JsonlRequest,
   type StatusWaitReason,
   type SessionTailDialect,
@@ -86,6 +91,22 @@ export interface StubAgentControl {
   /** The word its hooks and its file say a turn starts with. Read at
    * activation: a plugin updated between two says it its new way. */
   turnStartWord: string;
+  /** The agent keeps its conversation's file, and names it in its binding;
+   * when it does not, it binds naming no file. */
+  keepsStore: boolean;
+  /** The agent declares a usage tail: which records of its file carry its
+   * numbers. Read at activation. */
+  tailed: boolean;
+  /** Its account's limits source — the plugin's own fetch — or none. Read at
+   * activation. */
+  limitsRead: (() => Promise<LimitsRead>) | null;
+  /** The files worth reading cold at boot for the account's state, newest
+   * first, or none. Read at activation. */
+  sweep: readonly string[] | null;
+  /** How many times the plugin searched its store for a conversation's file. */
+  lookups: number;
+  /** While pending, each search waits on it. */
+  lookupHeld: Promise<void> | null;
 }
 
 /** What a stub's status report or record says: an edge by its own name and,
@@ -120,14 +141,35 @@ function stubEvent(said: StubSaid, at: number, turnStart: string): AgentStatusEv
   }
 }
 
-/** The stub's usage report: how full its context is, and of which
- * conversation, when it says — through the bridge, or as a record of its
- * conversation's file the tailer carried. */
+/** The account a stub states — in a report, a record or a limits read: one
+ * window, used this much, as of `at`. */
+function stubAccount(limits: unknown, at: number): AccountUsage | null {
+  if (!isJsonRecord(limits) || typeof limits.usedPct !== "number") return null;
+  return reportedLimits([{ usedPct: limits.usedPct, resetsAt: null, windowMinutes: null }], at);
+}
+
+/** The calls a stub names, each by its id: one token each way, made at the
+ * record's own time. */
+function stubCalls(calls: unknown, at: number): UsageCall[] | undefined {
+  if (!Array.isArray(calls)) return undefined;
+  return calls
+    .filter((id): id is string => typeof id === "string")
+    .map((id) => ({ id, at, provider: "stub", model: "stub-1", tokens: { input: 1, cacheRead: 0, cacheWrite: 0, output: 1 } }));
+}
+
+/** The stub's usage report — through the bridge, or as a record of its
+ * conversation's file the tailer carried: how full its context is and of
+ * which conversation, the account's window, the calls it made, each when it
+ * says. */
 function stubUsage(payload: unknown, at: number): NormalizedUsage | null {
   const report = carriedUsageRecord(payload) ?? payload;
-  if (!isJsonRecord(report) || typeof report.usedPct !== "number") return null;
+  if (!isJsonRecord(report)) return null;
   const sessionId = typeof report.sessionId === "string" ? report.sessionId : undefined;
-  return { account: null, pane: { agent: STUB_AGENT, reportedAt: at, context: { usedPct: report.usedPct }, ...(sessionId !== undefined && { sessionId }) } };
+  const pane = typeof report.usedPct === "number" ? { agent: STUB_AGENT, reportedAt: at, context: { usedPct: report.usedPct }, ...(sessionId !== undefined && { sessionId }) } : null;
+  const account = stubAccount(report.limits, at);
+  const calls = stubCalls(report.calls, at);
+  if (!pane && !account && !calls) return null;
+  return { account, pane, ...(calls && { calls }) };
 }
 
 /** One line of a stub conversation's file. */
@@ -142,19 +184,23 @@ function isStubRecord(value: unknown): value is StubRecord {
 
 /** What the stub's file says of its turns: a `status` record carries an edge
  * at its own time, in the words of the activation reading it; a `usage`
- * record is the numbers' lane, not this one. */
-const stubTail = (turnStart: string): SessionTailDialect<JsonlRequest, StubRecord> => ({
+ * record is the numbers' lane, not this one. Its file is the one its binding
+ * named — or, for a pane that has a conversation but named no file, the one
+ * `find` finds for it, as a CLI's own store is searched. */
+const stubTail = (turnStart: string, find: (sessionId: string) => Promise<string | null>): SessionTailDialect<JsonlRequest, StubRecord> => ({
   format: jsonl(isStubRecord),
   watches: [{ match: [{ key: "type", equals: "status" }], keep: ["type", "event", "reason", "at"], lane: "status" }],
-  // The agent names its file in its binding: nothing is searched for.
-  follow: async (pane) => (pane.store ? { path: pane.store } : null),
+  follow: async (pane) => {
+    if (pane.store) return { path: pane.store };
+    const path = pane.sessionId ? await find(pane.sessionId) : null;
+    return path ? { path } : null;
+  },
   read: (record) => {
     const at = parseInstant(record.at);
     return at === null ? null : stubEvent(record, at, turnStart);
   },
   ignores: (record) => record.type === "usage",
 });
-
 
 /** The stub plugin, as the plugin manager installs a built-in. */
 export function stubPlugin(control: StubAgentControl): PluginInstall {
@@ -179,6 +225,8 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
             ...(control.resumes ? [{ id: "session.resume", label: "Resume saved sessions", group: "sessions" }] : []),
             { id: "session.fork", label: "Fork saved sessions", group: "sessions" },
             { id: "usage.pane", label: "Session analytics", group: "usage" },
+            // An account limits source is declared under its feature.
+            ...(control.limitsRead !== null ? [{ id: "usage.account", label: "Account limits", group: "usage" }] : []),
             // Its thin client runs here and attaches to an agent server.
             { id: "target.remote", label: "Remote targets", group: "execution", parameters: { schemes: ["ws"] } },
           ],
@@ -189,7 +237,15 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
   const run = (output: SpawnPlanOutput, args: string[]) => {
     // A program gone from where the plan names it: the spawn finds nothing.
     output.command = control.programGone ? join(control.storeDir, "gone", "node") : process.execPath;
-    output.args = [program, ...args, "--store", control.storeDir, ...(control.deaf ? ["--deaf"] : []), ...(control.unbound ? ["--unbound"] : [])];
+    output.args = [program, ...args, ...(control.keepsStore ? ["--store", control.storeDir] : []), ...(control.deaf ? ["--deaf"] : []), ...(control.unbound ? ["--unbound"] : [])];
+  };
+  /** The stub's search of its own store for a conversation's file — what a
+   * CLI's rollout search is. It waits while the test holds it. */
+  const find = async (sessionId: string): Promise<string | null> => {
+    control.lookups += 1;
+    await control.lookupHeld;
+    const path = join(control.storeDir, `${sessionId}.jsonl`);
+    return existsSync(path) ? path : null;
   };
   // The registry a CLI keeps of its own runs: read, never guessed — and
   // refusing, when it cannot say, rather than answering empty.
@@ -206,7 +262,32 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
       // What this activation says a turn starts with, and whether it speaks
       // of its turns at all: read once, as a plugin's version is.
       const turnStart = control.turnStartWord;
-      const tail = stubTail(turnStart);
+      const tail = stubTail(turnStart, find);
+      // Its account's limits, read as the plugin's own fetch, and the files
+      // worth reading cold at boot: what this activation declares.
+      const limitsRead = control.limitsRead;
+      const sweep = control.sweep;
+      const usage: AgentUsage = {
+        normalize: stubUsage,
+        ...(control.tailed && {
+          tail: {
+            watches: [{ match: [{ key: "type", equals: "usage" }], keep: ["type", "usedPct", "sessionId", "limits", "calls"], lane: "usage" }],
+            ...(sweep !== null && { sweep: () => Promise.resolve(sweep) }),
+          },
+        }),
+        ...(limitsRead !== null && {
+          limits: {
+            read: limitsRead,
+            normalize: (body, at) => {
+              try {
+                return stubAccount(JSON.parse(body), at);
+              } catch {
+                return null;
+              }
+            },
+          },
+        }),
+      };
       const status: AgentStatus = {
         normalize: (payload, at) => {
           // A record of its file the host carried by this plugin's watch:
@@ -233,10 +314,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
         binding: { swapSources: ["resume", "clear", "fork"] },
         // The numbers come through the bridge, or as `usage` records of the
         // conversation's file.
-        usage: {
-          normalize: stubUsage,
-          tail: { watches: [{ match: [{ key: "type", equals: "usage" }], keep: ["type", "usedPct", "sessionId"], lane: "usage" }] },
-        },
+        usage,
         // A companion in its process, once it says hello, states the file's
         // status facts itself: the tail then carries the numbers alone.
         companion: { covers: ["status-records"] },
