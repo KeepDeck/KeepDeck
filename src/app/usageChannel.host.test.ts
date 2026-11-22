@@ -6,6 +6,7 @@ import type { LimitsRead } from "@keepdeck/plugin-api";
 import { callsOf, repliedTo, useHost } from "../testing/host/host";
 import { quitAfter, startDeck, type Deck } from "../testing/host/deck";
 import { STUB_PLUGIN_ID, type StubAgentControl } from "../testing/host/stubPlugin";
+import { TAIL_RETRY_MS } from "./usageChannelTails";
 
 /**
  * What the page's usage channel makes of an agent's numbers, end to end on
@@ -124,15 +125,16 @@ describe("the usage channel, on the host", () => {
       const d = await open();
       const { paneId } = await followedUp(d);
       const mark = host().tape.length;
-      // A swap to another conversation: the secret alone decides.
-      const swapped = storeFile(d, "swapped.jsonl");
-      const swap = { type: "session.bound", payload: { sessionId: "s-swapped", source: "clear", transcriptPath: swapped } };
-      expect(await d.report(paneId, { ...swap, token: "forged" })).toBe(204);
-      await aWhile();
-      expect(tailsOf(paneId, mark)).toEqual([]);
-      // The same, under the pane's own secret, is followed.
-      expect(await d.report(paneId, swap)).toBe(204);
-      await until("the swap's file is followed", () => tailsOf(paneId, mark).some((tail) => field(tail, "path") === swapped));
+      // Swaps to another conversation: the secret alone decides. The forged
+      // one names a conversation and a file of its own.
+      const swap = (sessionId: string) => ({ type: "session.bound", payload: { sessionId, source: "clear", transcriptPath: storeFile(d, `${sessionId}.jsonl`) } });
+      expect(await d.report(paneId, { ...swap("s-forged"), token: "forged" })).toBe(204);
+      // The same, under the pane's own secret, is followed — and by then the
+      // forged one would have been too.
+      const control = swap("s-control");
+      expect(await d.report(paneId, control)).toBe(204);
+      await until("the control's file is followed", () => tailsOf(paneId, mark).some((tail) => field(tail, "path") === control.payload.transcriptPath));
+      expect(tailsOf(paneId, mark).map((tail) => field(tail, "session"))).toEqual(["s-control"]);
     });
 
     it("follows nothing for a binding that names no file, when its plugin's search finds none", async () => {
@@ -180,31 +182,44 @@ describe("the usage channel, on the host", () => {
       expect(tailsOf(up.paneId).some((tail) => field(tail, "path") === path)).toBe(false);
       return { ...up, path };
     };
+    /** Whether the page has followed `path` for the pane, from `mark` on. */
+    const follows = (paneId: string, path: string, mark = 0) => tailsOf(paneId, mark).some((tail) => field(tail, "path") === path);
+    /** The follow came sooner than the slow timer's first tick for a page
+     * started at `pageStarted`: the timer cannot be what found it. */
+    const beforeTheTimer = (pageStarted: number) => expect(Date.now() - pageStarted).toBeLessThan(TAIL_RETRY_MS);
 
     it("follows the file its plugin finds for a conversation the deck holds and no process of this launch bound", async () => {
       // The app quits with an agent bound; at the next launch its resumed
       // process says nothing — as a CLI resumed in its own terminal does.
       const { paneId, session } = await quitAfter(host(), (d) => d.agentUp(), (onDisk, up) => onDisk.includes(up.session));
       const path = join(host().home, "stub-store", `${session}.jsonl`);
+      const pageStarted = Date.now();
       deck = await startDeck(host(), { unbound: true });
-      // Sooner than the slow timer: the deck it booted from is what asks.
-      await until("the found file is followed", () => tailsOf(paneId, host().launchedAt()).some((tail) => field(tail, "path") === path), 10_000);
+      // The deck it booted from is what asks.
+      await until("the found file is followed", () => follows(paneId, path, host().launchedAt()));
+      beforeTheTimer(pageStarted);
       expect(tailsOf(paneId, host().launchedAt()).find((tail) => field(tail, "path") === path)).toMatchObject({ agent: "stub", session });
     });
 
     it("searches again when the deck's panes change", async () => {
+      const pageStarted = Date.now();
       const d = await open({ keepsStore: false });
       const { paneId, path } = await unfound(d);
       const teamId = d.pane(paneId).team?.teamId;
       if (!teamId) throw new Error("the agent is on no team");
       await d.memberUp(teamId, "reviewer");
-      await until("the found file is followed", () => tailsOf(paneId).some((tail) => field(tail, "path") === path));
+      await until("the found file is followed", () => follows(paneId, path));
+      beforeTheTimer(pageStarted);
     });
 
     it("searches again on its slow timer while nothing changes", async () => {
       const d = await open({ keepsStore: false });
       const { paneId, path } = await unfound(d);
-      await until("the found file is followed", () => tailsOf(paneId).some((tail) => field(tail, "path") === path), 30_000);
+      const revision = d.runtime.deckStore.revision();
+      await until("the found file is followed", () => follows(paneId, path), 30_000);
+      // Nothing was written to the deck meanwhile, and its declarations
+      // stood: the timer is what searched.
+      expect(d.runtime.deckStore.revision()).toBe(revision);
     }, 45_000);
 
     it("follows nothing a search finds after its pane left", async () => {
