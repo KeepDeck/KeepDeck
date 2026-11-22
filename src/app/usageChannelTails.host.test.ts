@@ -95,6 +95,29 @@ describe("following a pane's file, on the host", () => {
     });
   });
 
+  describe("across a restart", () => {
+    it("follows the file under the new process's secret after a restart, and believes it though the process names no file", async () => {
+      const d = await open();
+      const { ws, paneId } = await followedUp(d);
+      const before = field(tailsOf(host(), paneId)[0], "token");
+      // The new process says nothing at start: no binding names its file —
+      // as a CLI whose start hook was missed. It writes the same file.
+      d.stub.unbound = true;
+      const opening = host().hold({ request: "pty_open" });
+      const restarted = mark();
+      expect((await d.runtime.orchestrator.restart(ws.id, paneId, "resume")).kind).toBe("accepted");
+      await opening.caught;
+      // Its new plan stands: the file is followed under that plan's secret,
+      // before the process even opens.
+      await until("followed under the new secret", () => tailsOf(host(), paneId, restarted).some((tail) => field(tail, "token") !== before));
+      expect(unwatches(host(), paneId, restarted)).toBeGreaterThan(0);
+      opening.release();
+      await until("its new process runs", () => d.launches(paneId).length === 2 && d.slot(paneId) === "live");
+      d.type(paneId, 'record {"type":"usage","usedPct":66}');
+      await until("its record is believed", () => d.runtime.usageManager.getSnapshot().panes.get(paneId)?.context?.usedPct === 66);
+    });
+  });
+
   describe("against its plugin's own search", () => {
     it("leaves a binding's follow alone when a search racing it finds nothing", async () => {
       const { paneId } = await quitAfter(host(), (d) => d.agentUp(), (onDisk, up) => onDisk.includes(up.session));
@@ -109,6 +132,27 @@ describe("following a pane's file, on the host", () => {
       finish();
       await aWhile();
       expect(unwatches(host(), paneId, answered)).toBe(0);
+    });
+  });
+
+  describe("against a secret that changes during a search", () => {
+    it("follows a file a search found under the secret that stands when it answers", async () => {
+      const { paneId } = await quitAfter(host(), (d) => d.agentUp(), (onDisk, up) => onDisk.includes(up.session));
+      let finish = () => {};
+      // Its resumed process says nothing: only the search can follow it.
+      // The search is out while the pane is restarted under a new plan.
+      deck = await startDeck(host(), { unbound: true, lookupHeld: new Promise<void>((resolve) => (finish = resolve)) });
+      const d = deck;
+      await until("its plugin searches", () => d.stub.lookups > 0);
+      await until("its process runs", () => d.slot(paneId) === "live");
+      expect((await d.runtime.orchestrator.restart(d.workspace().id, paneId, "resume")).kind).toBe("accepted");
+      // This launch's second process: the boot's resume, then the restart's.
+      const opened = () => callsOf(host(), "pty_open", host().launchedAt()).filter((args) => JSON.stringify(field(args, "owner")).includes(`"${paneId}"`)).length;
+      await until("its new process runs", () => opened() === 2 && d.slot(paneId) === "live");
+      finish();
+      await until("the found file is followed", () => tailsOf(host(), paneId, host().launchedAt()).length > 0);
+      d.type(paneId, 'record {"type":"usage","usedPct":44}');
+      await until("its record is believed", () => d.runtime.usageManager.getSnapshot().panes.get(paneId)?.context?.usedPct === 44);
     });
   });
 
@@ -200,19 +244,21 @@ describe("following a pane's file, on the host", () => {
       expect(lanesOf(tailsOf(host(), paneId)[0])).toEqual(["usage", "status"]);
     });
 
-    it("gives the turns' records back to the file when its process retires", async () => {
+    it("reads the file for its turns again after a restart, under the new process's secret, until that one says hello", async () => {
       const d = await open();
       const { ws, paneId } = await followedUp(d);
+      const before = field(tailsOf(host(), paneId)[0], "token");
       expect(await d.report(paneId, hello)).toBe(204);
       await until("it is narrowed", () => narrowings(host(), paneId).length > 0);
-      // The retire itself gives them back — before any new process is up to
-      // bind a file of its own.
+      // The companion left with its process; the new one has said nothing.
       const rising = host().hold({ request: "pty_open" });
       const restarted = mark();
       expect((await d.runtime.orchestrator.restart(ws.id, paneId, "resume")).kind).toBe("accepted");
-      await until("the file is read for its turns again", () => tailsOf(host(), paneId, restarted).length > 0);
-      expect(lanesOf(tailsOf(host(), paneId, restarted)[0])).toEqual(["usage", "status"]);
-      expect(callsOf(host(), "pty_open", restarted)).toEqual([]);
+      await rising.caught;
+      await until("the file is followed again", () => tailsOf(host(), paneId, restarted).length > 0);
+      const again = tailsOf(host(), paneId, restarted)[0];
+      expect(lanesOf(again)).toEqual(["usage", "status"]);
+      expect(field(again, "token")).not.toBe(before);
       rising.release();
     });
   });

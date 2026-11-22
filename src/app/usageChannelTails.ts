@@ -12,7 +12,7 @@ import {
   watchSessionFile,
 } from "../ipc/usage";
 import { usageSince } from "../ipc/usageLedger";
-import { peekPaneSpawnSpec } from "./spawnSpecs";
+import { peekPaneSpawnSpec, subscribeSpawnSpecs } from "./spawnSpecs";
 import type { UsageLane, UsageLaneContext } from "./usageChannelSource";
 
 export const TAIL_RETRY_MS = 20_000;
@@ -199,8 +199,8 @@ export function createUsageTailsLane({
         const agentId = pane.agentType;
         const tail = usage.get(agentId)?.tail;
         if (!tail) continue;
-        const token = peekPaneSpawnSpec(paneId)?.token;
-        if (!token) continue;
+        // No secret, no tail to arm: nothing to search for yet.
+        if (!peekPaneSpawnSpec(paneId)?.token) continue;
 
         const dialect = tailOf(agentId);
         if (!dialect) {
@@ -239,11 +239,14 @@ export function createUsageTailsLane({
             // its tail is the better one, built from a path the agent
             // REPORTED rather than one found by walking. Leave it alone.
             if (disposed || !stillWanted || tailed.has(paneId)) return;
+            // The secret, like the watches inside `arm`, is read after the
+            // search: finding a store is a walk, and a plan minted or a
+            // plugin toggled during it would leave this arming what no
+            // longer stands.
+            const secret = peekPaneSpawnSpec(paneId)?.token;
+            if (!secret) return;
             tailed.add(paneId);
-            // The watches are read inside `arm`, after the search: finding
-            // a store is a walk, and a plugin toggled during it would leave
-            // this arming a declaration that is no longer made.
-            return arm(paneId, { path, token, agentId, sessionId }).then(() =>
+            return arm(paneId, { path, token: secret, agentId, sessionId }).then(() =>
               settleArm(paneId),
             );
           })
@@ -265,7 +268,11 @@ export function createUsageTailsLane({
     if (disposed) return;
     const desired = desiredPanes();
     for (const paneId of [...tailed]) {
-      if (desired.has(paneId)) continue;
+      // A tail stands while the secret it was armed with is still the
+      // pane's. A plan retired, or another minted since, leaves it reading
+      // for reports that are refused — the next arm follows under the
+      // secret that stands then.
+      if (desired.has(paneId) && armedWith.get(paneId)?.token === peekPaneSpawnSpec(paneId)?.token) continue;
       tailed.delete(paneId);
       armedWith.delete(paneId);
       links.delete(paneId);
@@ -348,21 +355,16 @@ export function createUsageTailsLane({
     await rearm(paneId, armed);
   };
 
-  // A companion that says hello after the pane armed — or a process that
-  // retired with one — changes what the store is read for; nothing else
-  // does. Status coming BACK to the store is a fresh arm: the latest turn
-  // edges in it are what lets a turn the companion left running end.
+  // A companion that says hello after the pane armed changes what the store
+  // is read for; nothing else does. A companion leaves only with its process,
+  // whose retire drops the plan first — and the tail goes with the secret it
+  // was armed under, so the next arm reads the store for the turns again.
   const unsubscribeCompanions = attribution.subscribeCompanions((paneId) => {
     if (disposed || !tailed.has(paneId)) return;
     const armed = armedWith.get(paneId);
-    if (!armed) return;
-    const covered = statusCovered(paneId, armed.agentId);
-    if (armed.covered === covered) return;
-    log.debug(
-      "web:usage",
-      `${paneId}: companion changed what its tail reads — ${covered ? "narrowing" : "re-arming"}`,
-    );
-    void (covered ? narrow(paneId, armed) : rearm(paneId, armed)).catch((error) => {
+    if (!armed || armed.covered || !statusCovered(paneId, armed.agentId)) return;
+    log.debug("web:usage", `${paneId}: its companion states its turns — narrowing its tail`);
+    void narrow(paneId, armed).catch((error) => {
       tailed.delete(paneId);
       armedWith.delete(paneId);
       log.warn("web:usage", `session-file re-arm for ${paneId} failed: ${error}`);
@@ -370,6 +372,8 @@ export function createUsageTailsLane({
   });
   const unsubscribeDeck = deck.subscribe(reconcile);
   const unsubscribeDeclarations = declarations.subscribe(reconcile);
+  // A pane's secret is its plan's: told when a plan is dropped or lands.
+  const unsubscribePlans = subscribeSpawnSpecs(reconcile);
   const retryTimer = globalThis.setInterval(
     armRecordedTails,
     TAIL_RETRY_MS,
@@ -384,6 +388,7 @@ export function createUsageTailsLane({
       unsubscribeCompanions();
       unsubscribeDeck();
       unsubscribeDeclarations();
+      unsubscribePlans();
       globalThis.clearInterval(retryTimer);
       unsubscribeBindings();
       for (const paneId of tailed) void unwatchSessionFile(paneId);
