@@ -129,8 +129,9 @@ describe("a team's sessions, on the host", () => {
     await until("the list draws the store's three", () => ["in-team", "in-removed", "no-folder"].every((id) => rowOf(id) !== undefined));
     const answered = () => repliedTo(host(), "worktree_probe", mark).map((args) => Reflect.get(Object(args), "path"));
     await until("both folders are answered", () => answered().includes(host().work) && answered().includes(removed));
+    // The answer is on the pipe before the list has drawn it.
+    await until("the removed folder reads gone", () => rowOf("in-removed")?.querySelector(".history__meta-mark")?.textContent === "dir gone");
     expect(resumeOf("in-team")).toEqual({ disabled: false, title: `Resume in ${host().work}` });
-    expect(rowOf("in-removed")?.querySelector(".history__meta-mark")?.textContent).toBe("dir gone");
     expect(resumeOf("in-removed")).toEqual({ disabled: true, title: "directory is gone — fork instead" });
     // No folder is absence, not a folder gone: no mark, and its own words.
     expect(rowOf("no-folder")?.querySelector(".history__meta-mark")).toBeNull();
