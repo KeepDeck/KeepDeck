@@ -155,7 +155,7 @@ export function WorktreesSection({
             const { row } = asked;
             const keepHeadAs = confirm.keepHeadAs;
             setAsked(null);
-            void onRemove({ path: row.path, ...(keepHeadAs && { keepHeadAs }) }).then((outcome) => {
+            void onRemove({ path: row.path, discardDirty: confirm.discardDirty, ...(keepHeadAs && { keepHeadAs }) }).then((outcome) => {
               setSaid(unheldRemovalWords(outcome, keepHeadAs));
               setReads((n) => n + 1);
             });

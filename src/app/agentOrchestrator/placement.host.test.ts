@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { useHost } from "../../testing/host/host";
@@ -154,11 +154,31 @@ describe("where a team runs, on the host", () => {
     const consent = await d.consentFor({ kind: "closeWorkspace", workspace: ws.id, consent: { stops: [], folders: [], tickets: [] } });
     expect((await d.runtime.orchestrator.close({ kind: "workspace", workspace: ws, consent })).kind).toBe("accepted");
     await removing.caught;
-    expect(await d.runtime.orchestrator.removeUnheld(ws, { path: orphan })).toMatchObject({ kind: "refused", refusal: { kind: "targetLeaving" } });
+    expect(await d.runtime.orchestrator.removeUnheld(ws, { path: orphan, discardDirty: false })).toMatchObject({ kind: "refused", refusal: { kind: "targetLeaving" } });
     removing.release();
     await host().until("the workspace is gone", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0, 15_000);
     // Nothing outlived the workspace to take the folder after it.
     expect(existsSync(orphan)).toBe(true);
+  });
+
+  it("keeps a folder no team holds that became dirty since its removal was confirmed clean, and says so — and removes it with leave to lose the work", async () => {
+    const d = await open();
+    d.gitRepo();
+    const ws = await d.workspaceUp();
+    const orphan = join(host().trees, "orphan");
+    git(host().work, "worktree", "add", "-q", "-b", "orphan", orphan);
+    // Confirmed as clean; an editor writes into it before the removal runs.
+    const work = join(orphan, "draft.txt");
+    writeFileSync(work, "unsaved elsewhere");
+    expect(await d.runtime.orchestrator.removeUnheld(ws, { path: orphan, discardDirty: false })).toMatchObject({ kind: "accepted" });
+    await host().until("its removal is said to have failed", () =>
+      host().tape.some(({ way, line }) => way === "← host" && line.includes('"kind":"worktreeNotDeleted"') && line.includes(orphan)), 15_000);
+    // It ends there, owing nothing: the folder is not held against the next ask.
+    await host().until("the removal is over", () => host().journalEmpty(), 15_000);
+    expect(existsSync(work)).toBe(true);
+    // With the person's leave to lose it, it goes.
+    expect((await d.runtime.orchestrator.removeUnheld(ws, { path: orphan, discardDirty: true })).kind).toBe("accepted");
+    await host().until("it is gone", () => !existsSync(orphan), 15_000);
   });
 
   const onlyTheRepo = () =>

@@ -106,6 +106,10 @@ pub enum Work {
         tag: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         repo: Option<Dir>,
+        /// The person agreed to lose its uncommitted work. An entry written
+        /// before this was kept reads as not: a dirty checkout then stays.
+        #[serde(default)]
+        discard: bool,
     },
     /// A conversation carried into a new pane. Open until the pane's launch is
     /// bound to it: an open fork at boot did not finish, and is rolled back.

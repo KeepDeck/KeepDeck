@@ -750,6 +750,11 @@ pub fn step_done(state: &mut State, id: OpId, step: Step, result: StepResult, fx
                 Err(reason) => {
                     fx.warn(format!("{id}: {step:?} failed: {reason}"));
                     unheld.failed = true;
+                    // Said, as a close says a checkout it could not take: the
+                    // person asked for it to go and it stands — a tag refused
+                    // keeps it too, since its commit would not be kept.
+                    let path = unheld.path.clone();
+                    op.sent.push(super::Sent::new(Cmd::WorktreeNotDeleted { workspace, path, reason }));
                 }
             }
         }
@@ -802,7 +807,8 @@ pub fn work(state: &State, id: OpId, op: &Op, teardown: &Teardown, mut owed: Owe
                 let how = match &step {
                     Step::Checkout { path } => {
                         let Some(removal) = teardown.removals.iter().find(|removal| &removal.path == path) else { continue };
-                        Clean::Checkout { repo: removal.repo.clone(), path: path.clone() }
+                        // The close's consent covers every file in it.
+                        Clean::Checkout { repo: removal.repo.clone(), path: path.clone(), discard: true }
                     }
                     Step::Branch { repo, name } => Clean::Branch { repo: repo.clone(), name: name.clone() },
                     Step::Disarm { dir } => Clean::Disarm { dir: dir.clone() },
@@ -826,6 +832,9 @@ pub struct Unheld {
     /// The repository it removes from, taken while its workspace stood. None
     /// only when restored from an entry without it, its workspace gone: owed.
     pub repo: Option<Dir>,
+    /// The person agreed to lose its uncommitted work.
+    #[serde(default)]
+    pub discard: bool,
     pub done: Vec<Step>,
     pub failed: bool,
     pub rolling_back: bool,
@@ -833,12 +842,12 @@ pub struct Unheld {
 }
 
 impl Unheld {
-    pub fn new(path: Dir, tag: Option<String>, repo: Option<Dir>) -> Unheld {
-        Unheld { path, tag, repo, done: Vec::new(), failed: false, rolling_back: false, answered: false }
+    pub fn new(path: Dir, tag: Option<String>, repo: Option<Dir>, discard: bool) -> Unheld {
+        Unheld { path, tag, repo, discard, done: Vec::new(), failed: false, rolling_back: false, answered: false }
     }
 
     pub fn journaled(&self) -> Work {
-        Work::RemoveUnheld { path: self.path.clone(), tag: self.tag.clone(), repo: self.repo.clone() }
+        Work::RemoveUnheld { path: self.path.clone(), tag: self.tag.clone(), repo: self.repo.clone(), discard: self.discard }
     }
 
     fn steps(&self) -> Vec<Step> {
@@ -864,7 +873,17 @@ pub fn advance_unheld(state: &mut State, id: OpId, fx: &mut Fx) {
         return;
     }
     let Kind::RemoveUnheld(unheld) = &op.kind else { return };
-    if unheld.failed || unheld.repo.is_none() {
+    // A step that would not go ends the removal once it is said: the checkout
+    // stands — found dirty with nothing agreed to lose, or its tag refused —
+    // and the person decides again. Kept owed, it would hold the folder
+    // against that next ask and retry the same refusal at every launch.
+    if unheld.failed {
+        if op.sent.iter().all(|sent| sent.outcome.is_some()) {
+            finish(state, id);
+        }
+        return;
+    }
+    if unheld.repo.is_none() {
         op.owed = true;
         return;
     }
@@ -884,7 +903,7 @@ pub fn work_unheld(state: &State, id: OpId, unheld: &Unheld, mut owed: Owed<Effe
         }
         let how = match &step {
             Step::Tag { path, name } => Clean::TagHead { repo: repo.clone(), path: path.clone(), tag: name.clone() },
-            Step::Checkout { path } => Clean::Checkout { repo: repo.clone(), path: path.clone() },
+            Step::Checkout { path } => Clean::Checkout { repo: repo.clone(), path: path.clone(), discard: unheld.discard },
             _ => continue,
         };
         owed = owed.run(Effect::Clean { op: id, step, how });

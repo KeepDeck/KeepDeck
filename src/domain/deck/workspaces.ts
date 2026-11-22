@@ -191,10 +191,12 @@ export interface RepoCheckout {
   changed: number | null;
 }
 
-/** A checkout no team holds, to remove — the person having agreed to lose
- * whatever uncommitted work its confirm named. */
+/** A checkout no team holds, to remove. */
 export interface UnheldRemovalRequest {
   path: string;
+  /** The person agreed to lose its uncommitted work — what its confirm
+   * named. Without it, a checkout found dirty when it goes stays. */
+  discardDirty: boolean;
   /** Keep its commit as `refs/tags/<keepHeadAs>` before it goes — for a
    * detached checkout, whose commits no branch holds. */
   keepHeadAs?: string;

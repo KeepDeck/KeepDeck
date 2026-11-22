@@ -528,7 +528,7 @@ fn a_disband_deletes_its_folder_by_consent_and_forgets_its_tasks_and_mail() {
     assert!(matches!(sim.answer(ask), Some(Answer::Accepted { .. })));
     let (repo, path) = (Dir::new("/repo"), Dir::new("/wt/kd-app-1"));
     assert!(sim.cleaned.contains(&Clean::Disarm { dir: path.clone() }));
-    assert!(sim.cleaned.contains(&Clean::Checkout { repo: repo.clone(), path }));
+    assert!(sim.cleaned.contains(&Clean::Checkout { repo: repo.clone(), path, discard: true }));
     assert!(sim.cleaned.contains(&Clean::Branch { repo, name: "kd/app/1".into() }));
     assert!(!sim.cleaned.iter().any(|clean| matches!(clean, Clean::Stores { .. })), "a team's close leaves the workspace's stores alone");
     assert!(sim.carried.contains(&Cmd::DeleteTeamTasks { workspace: ws(), team: team("1") }));
@@ -762,7 +762,7 @@ fn a_close_takes_over_a_creation_and_waits_for_its_git_step() {
     assert!(sim.state.ops.is_empty());
     assert!(!sim.state.world.teams.contains_key(&team("n")));
     // The agreed ticket's checkout and branch go once git is done with them.
-    assert!(sim.cleaned.contains(&Clean::Checkout { repo: ticket.repo.clone(), path: ticket.path.clone() }), "{:?}", sim.cleaned);
+    assert!(sim.cleaned.contains(&Clean::Checkout { repo: ticket.repo.clone(), path: ticket.path.clone(), discard: true }), "{:?}", sim.cleaned);
     assert!(sim.cleaned.contains(&Clean::Branch { repo: ticket.repo, name: ticket.branch }));
 }
 
@@ -1179,7 +1179,7 @@ fn a_worktree_fork_with_a_hung_hook() -> (Sim, OpId, crate::journal::Ticket) {
 }
 
 fn removed(sim: &Sim, ticket: &crate::journal::Ticket) -> bool {
-    sim.cleaned.contains(&Clean::Checkout { repo: ticket.repo.clone(), path: ticket.path.clone() })
+    sim.cleaned.contains(&Clean::Checkout { repo: ticket.repo.clone(), path: ticket.path.clone(), discard: true })
 }
 
 /// `close` with the consent its dialog sends: everything it offers to
@@ -1663,13 +1663,46 @@ fn a_checkout_with_a_launch_admitted_into_it_is_not_unheld() {
     // Admitted, not yet a session: the process may cross into it any moment.
     // The worktree table hears the same hold the removal meets.
     assert_eq!(super::queries::claims(&sim.state, &dir), vec![super::queries::Claim::Launch { attempt }]);
-    let remove = sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir.clone(), tag: None });
+    let remove = sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir.clone(), tag: None, discard: false });
     assert_eq!(sim.refusal(remove), Some(Refusal::Busy));
     // Once the launch is a session and over, the folder is free.
     let session = sim.appear(owner, Some(attempt), Some("/wt/kd-app-old"));
     sim.send(Event::SessionEnded { session });
-    let remove = sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir, tag: None });
+    let remove = sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir, tag: None, discard: false });
     assert_eq!(sim.refusal(remove), None);
+}
+
+/// What the person agreed to lose rides an unheld removal to its checkout
+/// step: asked without it, the step may not discard what the checkout holds
+/// uncommitted. An entry written before it was kept reads as not.
+#[test]
+fn an_unheld_removal_carries_whether_its_uncommitted_work_may_go() {
+    for discard in [false, true] {
+        let mut sim = Sim::booted();
+        let dir = Dir::new("/wt/kd-app-old");
+        sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir.clone(), tag: None, discard });
+        sim.drive();
+        assert!(sim.cleaned.contains(&Clean::Checkout { repo: Dir::new("/repo"), path: dir, discard }), "{:?}", sim.cleaned);
+    }
+    let old: Work = serde_json::from_str(r#"{"kind":"removeUnheld","path":"/wt/x","tag":null}"#).unwrap();
+    assert!(matches!(old, Work::RemoveUnheld { discard: false, .. }), "{old:?}");
+}
+
+/// A checkout the removal could not take — found dirty, say, with nothing
+/// agreed to lose — is said, as a close says one, and the removal ends: the
+/// person decides again, and their next ask is not held off by this one.
+#[test]
+fn an_unheld_checkout_that_would_not_go_is_said_and_the_removal_ends() {
+    let mut sim = Sim::booted();
+    let dir = Dir::new("/wt/kd-app-old");
+    sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir.clone(), tag: None, discard: false });
+    sim.drive_with(&failing(|how| matches!(how, Clean::Checkout { .. })));
+    assert!(sim.carried.iter().any(|cmd| matches!(cmd, Cmd::WorktreeNotDeleted { path, .. } if *path == dir)), "no notice: {:?}", sim.carried);
+    assert!(sim.state.ops.values().all(|op| !matches!(op.kind, Kind::RemoveUnheld(_))), "ended, not owed: {:?}", sim.state.ops);
+    let again = sim.intent(Intent::RemoveUnheld { workspace: ws(), path: dir.clone(), tag: None, discard: true });
+    assert_eq!(sim.refusal(again), None);
+    sim.drive();
+    assert!(sim.cleaned.contains(&Clean::Checkout { repo: Dir::new("/repo"), path: dir, discard: true }));
 }
 
 /// An orphan's removal keeps the repository it was accepted for: restored
@@ -1681,7 +1714,7 @@ fn an_orphan_removal_needs_no_workspace_row_to_finish() {
     let unheld = |op: u64, repo: Option<&str>| Entry {
         op: OpId(op),
         workspace: WorkspaceId("ws-gone".into()),
-        work: Work::RemoveUnheld { path: Dir::new("/wt/orphan"), tag: None, repo: repo.map(Dir::new) },
+        work: Work::RemoveUnheld { path: Dir::new("/wt/orphan"), tag: None, repo: repo.map(Dir::new), discard: false },
         joined: vec![],
         commands: vec![],
         done: vec![],
@@ -3337,7 +3370,7 @@ fn a_checkout_is_removed_even_when_taking_its_plantings_back_failed() {
     sim.close(disband("1", consent_for_team_1()));
     sim.drive_with(&failing(|how| matches!(how, Clean::Disarm { .. })));
     assert!(!sim.cleaned.iter().any(|how| matches!(how, Clean::Disarm { .. })), "the planting stayed");
-    assert!(sim.cleaned.contains(&Clean::Checkout { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1") }), "{:?}", sim.cleaned);
+    assert!(sim.cleaned.contains(&Clean::Checkout { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1"), discard: true }), "{:?}", sim.cleaned);
     let op = sim.state.ops.values().next().expect("owed, not done");
     assert!(op.owed, "the failed step is owed to the next launch");
 }

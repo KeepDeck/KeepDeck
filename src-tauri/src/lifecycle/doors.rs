@@ -48,7 +48,7 @@ impl Doors for AppDoors {
 
     fn clean(&self, how: &Clean) -> Result<(), String> {
         match how {
-            Clean::Checkout { repo, path: at } => worktree::remove_planned_checkout(&self.locks, path(repo), path(at)),
+            Clean::Checkout { repo, path: at, discard } => worktree::remove_planned_checkout(&self.locks, path(repo), path(at), *discard),
             Clean::Branch { repo, name } => worktree::remove_planned_branch(&self.locks, path(repo), name),
             Clean::TagHead { repo, path: at, tag } => worktree::tag_head(path(repo), path(at), tag),
             Clean::Disarm { dir } => self.stores.disarm(dir),

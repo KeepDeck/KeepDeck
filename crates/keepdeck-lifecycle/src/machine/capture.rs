@@ -501,7 +501,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             answer_op(&mut op, fx, Answer::Accepted { op: id, minted: Minted::default() });
             state.ops.insert(id, op);
         }
-        Intent::RemoveUnheld { workspace, path, tag } => {
+        Intent::RemoveUnheld { workspace, path, tag, discard } => {
             // A workspace that is leaving takes nothing new — its close
             // removes what it holds; a removal begun now would outlive it.
             if workspace_leaving(state, &workspace) {
@@ -512,7 +512,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             }
             let repo = state.world.workspaces.get(&workspace).map(|ws| ws.cwd.clone());
             let id = state.mint_op();
-            state.ops.insert(id, Op::new(workspace, ask, true, Kind::RemoveUnheld(Unheld::new(path, tag, repo))));
+            state.ops.insert(id, Op::new(workspace, ask, true, Kind::RemoveUnheld(Unheld::new(path, tag, repo, discard))));
         }
     }
 }

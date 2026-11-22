@@ -149,7 +149,15 @@ pub enum Intent {
     Archive { workspace: WorkspaceId },
     Restore { workspace: WorkspaceId },
     Restart { workspace: WorkspaceId, pane: PaneId },
-    RemoveUnheld { workspace: WorkspaceId, path: Dir, tag: Option<String> },
+    /// A checkout nobody holds goes. `discard`: the person agreed to lose its
+    /// uncommitted work — without it, a checkout found dirty is not removed.
+    RemoveUnheld {
+        workspace: WorkspaceId,
+        path: Dir,
+        tag: Option<String>,
+        #[serde(default)]
+        discard: bool,
+    },
     Suspend { workspace: WorkspaceId, pane: PaneId },
     Resume { workspace: WorkspaceId, pane: PaneId },
 }
@@ -447,7 +455,7 @@ mod tests {
         assert!(continued(Continuation::Resume, new_worktree).journaled(), "a resume into a new worktree creates one");
 
         assert!(Intent::CloseAgent { workspace: ws(), pane: PaneId(1), consent: Consent::default() }.journaled());
-        assert!(Intent::RemoveUnheld { workspace: ws(), path: Dir::new("/repo/wt"), tag: None }.journaled());
+        assert!(Intent::RemoveUnheld { workspace: ws(), path: Dir::new("/repo/wt"), tag: None, discard: false }.journaled());
         assert!(!Intent::Restart { workspace: ws(), pane: PaneId(1) }.journaled(), "a restart keeps no entry");
         assert!(!Intent::Seat { workspace: ws(), team: team(), member: draft() }.journaled());
     }

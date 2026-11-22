@@ -105,7 +105,8 @@ describe("WorktreesSection", () => {
     expect(document.body.textContent).toContain("Its 2 changed entries are lost with the folder");
     listWorktrees.mockResolvedValue(ROWS.slice(0, 2));
     await act(async () => button("Remove and lose the changes").click());
-    expect(onRemove).toHaveBeenCalledWith({ path: "/wt/orphan" });
+    // The confirm named the changes: confirming it is the leave to lose them.
+    expect(onRemove).toHaveBeenCalledWith({ path: "/wt/orphan", discardDirty: true });
     expect(document.querySelector("[role='status']")?.textContent).toBe("Removing it.");
     expect(listWorktrees).toHaveBeenCalledTimes(2);
     expect(cells()).toHaveLength(2);

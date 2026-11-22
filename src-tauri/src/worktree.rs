@@ -361,13 +361,19 @@ pub(crate) fn born_branches(locks: &RepoLocks, repo_path: &Path, path: &Path) ->
     provenance::created_branches(repo_path, path).map_err(|e| e.to_string())
 }
 
-/// Remove a checkout by its plan. The consent covers its uncommitted work; a
-/// checkout already gone is removed; a leftover git could not finish is a
-/// step not done.
-pub(crate) fn remove_planned_checkout(locks: &RepoLocks, repo_path: &Path, path: &Path) -> Result<(), String> {
+/// Remove a checkout by its plan. `discard`: its uncommitted work may go —
+/// a close's consent, or a checkout KeepDeck made and takes back. Without
+/// it, a checkout found dirty is refused and stays, and git itself is asked
+/// without force, so work written after the look is kept too. A checkout
+/// already gone is removed; a leftover git could not finish is a step not
+/// done.
+pub(crate) fn remove_planned_checkout(locks: &RepoLocks, repo_path: &Path, path: &Path, discard: bool) -> Result<(), String> {
     let lock = locks.for_repo(repo_path);
     let _guard = locks.acquire(&lock);
-    match remove_checkout(repo_path, path)? {
+    if !discard && path.exists() && worktree::is_dirty(path).map_err(|e| e.to_string())? {
+        return Err(format!("'{}' holds uncommitted changes: it was not removed", path.display()));
+    }
+    match remove_checkout(repo_path, path, discard)? {
         None => Ok(()),
         Some(leftover) => Err(leftover),
     }
@@ -458,13 +464,13 @@ fn add_worktree_with_base(
 /// removal git ABANDONED MIDWAY is finished the same way ([`husk_verdict`]):
 /// the registration is gone either way, so the leftover directory goes too.
 /// Only a git that refused before touching anything stops it.
-fn remove_checkout(repo_path: &Path, path: &Path) -> Result<Option<String>, String> {
+fn remove_checkout(repo_path: &Path, path: &Path, force: bool) -> Result<Option<String>, String> {
     // Read BEFORE the removal: half the evidence [`husk_verdict`] needs to tell
     // a git that refused from a git that gave up midway.
     let registered = is_registered_worktree(repo_path, path);
 
     let mut leftover = None;
-    match worktree::remove(repo_path, path, true) {
+    match worktree::remove(repo_path, path, force) {
         Ok(()) => {}
         // Git refuses to `remove` a worktree whose dir is already gone; only a
         // failure with the dir still present is a real error.
@@ -473,8 +479,8 @@ fn remove_checkout(repo_path: &Path, path: &Path) -> Result<Option<String>, Stri
             // Git deregistered the directory, so no later `git worktree remove`
             // can address it and the prune below must run either way. Git can
             // abandon having unlinked nothing at all — a subdirectory it cannot
-            // enter aborts its recursion where it stands — and the consent
-            // covers every file the leftover still holds.
+            // enter aborts its recursion where it stands — and git had already
+            // agreed to remove every file the leftover still holds.
             leftover = clear_husk(path).err().map(|why| format!("{e}; {why}"));
         }
         // Git refused before touching anything, or could not tell us it did:
@@ -767,11 +773,41 @@ mod tests {
     /// the checkout, then each branch — the order the machine's steps run in.
     fn planned_removal(repo: &Path, wt: &Path, branches: &[&str]) -> Result<(), String> {
         let locks = RepoLocks::default();
-        remove_planned_checkout(&locks, repo, wt)?;
+        remove_planned_checkout(&locks, repo, wt, true)?;
         for branch in branches {
             remove_planned_branch(&locks, repo, branch)?;
         }
         Ok(())
+    }
+
+    /// Without leave to discard, a checkout holding uncommitted work —
+    /// changed or new files alike — is refused and stays whole; with it, it
+    /// goes. A clean one goes either way.
+    #[test]
+    fn a_planned_removal_without_leave_to_discard_keeps_a_dirty_checkout() {
+        let locks = RepoLocks::default();
+        for name in ["edited", "added"] {
+            let (repo, wt, _branch) = repo_with_worktree(&format!("keep-dirty-{name}"));
+            if name == "edited" {
+                std::fs::write(wt.join("tracked.txt"), "first").unwrap();
+                git(&wt, &["add", "tracked.txt"]);
+                git(&wt, &["commit", "-q", "-m", "tracked"]);
+                std::fs::write(wt.join("tracked.txt"), "edited").unwrap();
+            } else {
+                std::fs::write(wt.join("new.txt"), "new").unwrap();
+            }
+            let refused = remove_planned_checkout(&locks, &repo, &wt, false).expect_err("a dirty checkout is refused");
+            assert!(refused.contains("uncommitted"), "{refused}");
+            assert!(wt.exists(), "{name}: the checkout stays");
+            assert!(git_out(&repo, &["worktree", "list", "--porcelain"]).contains(wt.to_string_lossy().as_ref()), "{name}: still registered");
+            remove_planned_checkout(&locks, &repo, &wt, true).expect("with leave, it goes");
+            assert!(!wt.exists(), "{name}: gone with leave");
+            let _ = std::fs::remove_dir_all(&repo);
+        }
+        let (repo, wt, _branch) = repo_with_worktree("clean-without-leave");
+        remove_planned_checkout(&locks, &repo, &wt, false).expect("a clean checkout goes without leave");
+        assert!(!wt.exists());
+        let _ = std::fs::remove_dir_all(&repo);
     }
 
     #[test]
@@ -1230,7 +1266,7 @@ mod tests {
         }
         let locks = RepoLocks::default();
 
-        let message = remove_planned_checkout(&locks, &repo, &wt.wt).expect_err("an unremovable leftover is still owed");
+        let message = remove_planned_checkout(&locks, &repo, &wt.wt, true).expect_err("an unremovable leftover is still owed");
         assert!(message.contains("leftover directory"), "leftover not reported: {message}");
         let list = git_out(&repo, &["worktree", "list", "--porcelain"]);
         assert!(!list.contains("-wt"), "registration leaked:\n{list}");
@@ -1255,7 +1291,7 @@ mod tests {
         std::fs::write(stray.join("work.txt"), "mine").unwrap();
         std::fs::write(stray.join(".git"), "gitdir: /nowhere/.git/worktrees/x").unwrap();
 
-        let result = remove_planned_checkout(&RepoLocks::default(), &repo, &stray);
+        let result = remove_planned_checkout(&RepoLocks::default(), &repo, &stray, true);
 
         assert!(result.is_err(), "git refused, so nothing may be deleted");
         assert!(stray.join("work.txt").exists(), "work was destroyed");
@@ -1294,7 +1330,7 @@ mod tests {
         let pointer = std::fs::read_to_string(sub.join(".git")).unwrap();
         assert!(pointer.contains("../"), "expected a relative pointer: {pointer}");
 
-        let result = remove_planned_checkout(&RepoLocks::default(), &repo, &sub);
+        let result = remove_planned_checkout(&RepoLocks::default(), &repo, &sub, true);
 
         assert!(result.is_err(), "a submodule is not a worktree to remove");
         assert!(sub.join("mywork.txt").exists(), "the submodule was destroyed");
@@ -1312,7 +1348,7 @@ mod tests {
         std::fs::create_dir_all(&stray).unwrap();
         std::fs::write(stray.join("work.txt"), "mine").unwrap();
 
-        let result = remove_planned_checkout(&RepoLocks::default(), &repo, &stray);
+        let result = remove_planned_checkout(&RepoLocks::default(), &repo, &stray, true);
 
         assert!(result.is_err(), "a stray directory must not be removed");
         assert!(stray.join("work.txt").exists(), "work was destroyed");
@@ -1331,7 +1367,7 @@ mod tests {
         git(&repo, &["worktree", "lock", wt.to_str().unwrap()]);
         let locks = RepoLocks::default();
 
-        let result = remove_planned_checkout(&locks, &repo, &wt);
+        let result = remove_planned_checkout(&locks, &repo, &wt, true);
         remove_planned_branch(&locks, &repo, &branch).expect("a branch in use is kept, not failed");
 
         assert!(result.is_err(), "a refused removal must surface");
@@ -1442,10 +1478,10 @@ mod tests {
         let (repo, wt, _branch) = repo_with_worktree("door-checkout");
         std::fs::write(wt.join("wip.txt"), "uncommitted").unwrap();
         let locks = RepoLocks::default();
-        remove_planned_checkout(&locks, &repo, &wt).expect("removed under consent");
+        remove_planned_checkout(&locks, &repo, &wt, true).expect("removed under consent");
         assert!(!wt.exists());
         assert!(is_registered_worktree(&repo, &wt) == Some(false));
-        remove_planned_checkout(&locks, &repo, &wt).expect("a repeat finds it gone");
+        remove_planned_checkout(&locks, &repo, &wt, true).expect("a repeat finds it gone");
         let _ = std::fs::remove_dir_all(&repo);
     }
 
@@ -1461,7 +1497,7 @@ mod tests {
         remove_planned_branch(&locks, &repo, &branch).expect("kept");
         assert!(branch_listed(&repo, &branch));
 
-        remove_planned_checkout(&locks, &repo, &wt).expect("checkout gone");
+        remove_planned_checkout(&locks, &repo, &wt, true).expect("checkout gone");
         remove_planned_branch(&locks, &repo, &branch).expect("deleted, unmerged commits and all");
         assert!(!branch_listed(&repo, &branch));
         remove_planned_branch(&locks, &repo, &branch).expect("a repeat finds it gone");

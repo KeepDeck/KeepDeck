@@ -164,7 +164,7 @@ mod tests {
         let late = bounded(clean_limit(&stores), stuck()).await;
         assert!(late.unwrap_err().contains("left owed"));
         assert_eq!(bounded(clean_limit(&stores), async { Ok(()) }).await, Ok(()));
-        let checkout = Clean::Checkout { repo: Dir::new("/repo"), path: Dir::new("/wt") };
+        let checkout = Clean::Checkout { repo: Dir::new("/repo"), path: Dir::new("/wt"), discard: true };
         assert_eq!(clean_limit(&checkout), None);
         let slow_git = tokio::time::timeout(STORE_CLEAN_LIMIT * 10, bounded(None, stuck())).await;
         assert!(slow_git.is_err(), "still waited on, long past any store's limit");

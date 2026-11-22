@@ -327,7 +327,7 @@ impl World {
             11 => Intent::Archive { workspace },
             12 => Intent::Restore { workspace },
             13 => Intent::Restart { workspace, pane: self.any_pane() },
-            14 => Intent::RemoveUnheld { workspace, path: dir("/repo/wt/orphan"), tag: None },
+            14 => Intent::RemoveUnheld { workspace, path: dir("/repo/wt/orphan"), tag: None, discard: false },
             _ if self.rng.chance(50) => Intent::Suspend { workspace, pane: self.any_pane() },
             _ => Intent::Resume { workspace, pane: self.any_pane() },
         }
@@ -672,7 +672,7 @@ fn an_orphan_removal_asked_while_its_workspace_is_being_closed_is_refused() {
     world.intent_now(Intent::CloseWorkspace { workspace: ws(1), consent });
     world.quiesce();
     world.wait_out();
-    let asked = world.intent_now(Intent::RemoveUnheld { workspace: ws(1), path: dir("/repo/wt/orphan"), tag: None });
+    let asked = world.intent_now(Intent::RemoveUnheld { workspace: ws(1), path: dir("/repo/wt/orphan"), tag: None, discard: false });
     assert_eq!(world.refusal(asked), Some(Refusal::TargetLeaving));
     world.save_in_flight = false;
     world.send(Event::DeckSaved { revision: Revision(world.revision) });

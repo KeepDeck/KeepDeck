@@ -312,7 +312,7 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
     async removeUnheld(ref, request) {
       const ws = lifetime(ref);
       if (!ws) return GONE;
-      return ask({ kind: "removeUnheld", workspace: ws.id, path: request.path, tag: request.keepHeadAs ?? null });
+      return ask({ kind: "removeUnheld", workspace: ws.id, path: request.path, tag: request.keepHeadAs ?? null, discard: request.discardDirty });
     },
     async restart(wsId, paneId, mode) {
       const pane = findPane(workspaces(), wsId, paneId);

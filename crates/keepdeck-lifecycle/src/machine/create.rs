@@ -873,7 +873,8 @@ fn work_create(state: &State, id: OpId, op: &Op, create: &Create, mut owed: Owed
                 checkout
             };
             let how = match &step {
-                Step::Checkout { path } => Clean::Checkout { repo: ticket.repo.clone(), path: path.clone() },
+                // The checkout this creation made, taken back.
+                Step::Checkout { path } => Clean::Checkout { repo: ticket.repo.clone(), path: path.clone(), discard: true },
                 _ => Clean::Branch { repo: ticket.repo.clone(), name: ticket.branch.clone() },
             };
             if !create.undone.contains(&step) {
@@ -1493,7 +1494,8 @@ pub fn work_fork(state: &State, id: OpId, op: &Op, fork: &Fork, mut owed: Owed<E
                             }
                             let repo = fork.create.as_ref().and_then(|create| create.ticket.as_ref()).map(|ticket| ticket.repo.clone());
                             let Some(repo) = repo else { continue };
-                            Clean::Checkout { repo, path: path.clone() }
+                            // The checkout the fork made, taken back.
+                            Clean::Checkout { repo, path: path.clone(), discard: true }
                         }
                         Step::Branch { repo, name } => {
                             // A branch goes once nothing checks it out.

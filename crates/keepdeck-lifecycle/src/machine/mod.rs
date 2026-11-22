@@ -305,7 +305,10 @@ pub enum Effect {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Clean {
-    Checkout { repo: Dir, path: Dir },
+    /// A checkout removed. `discard`: what it holds uncommitted may go with
+    /// it — the consent of a close, or a checkout KeepDeck made and takes
+    /// back. Without it, a checkout found dirty is refused and stays.
+    Checkout { repo: Dir, path: Dir, discard: bool },
     /// A branch the consent covers; kept if it is checked out elsewhere.
     Branch { repo: Dir, name: String },
     Disarm { dir: Dir },
