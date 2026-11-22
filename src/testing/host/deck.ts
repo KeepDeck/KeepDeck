@@ -540,6 +540,10 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     dispose() {
       for (const child of outside.splice(0)) child.kill("SIGKILL");
       runtime.dispose();
+      // A command the app refused for its arguments is the page and the app
+      // disagreeing on the wire — whatever the scenario went on to check.
+      const refused = host.tape.filter(({ way, line }) => way === "← host" && line.includes('"error":"invalid args'));
+      if (refused.length > 0) throw new Error(`the app refused the page's arguments:\n${refused.map(({ line }) => line).join("\n")}`);
     },
   };
 }
