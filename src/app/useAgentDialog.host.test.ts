@@ -596,19 +596,19 @@ describe("the agent dialog, on the host", () => {
 
     it("drops the create when that question is cancelled", async () => {
       const d = await open();
+      d.gitRepo();
       await d.agentUp();
       const { flow } = await dialogOn(d);
-      const stage = teamOpen(d);
       const asked = d.intents().length;
       await plusTeam(flow, d, { teamName: "docs", location: { kind: "existing", path: host().work, branch: "main" } });
       await until("the question is asked", () => flow().sharedAsk !== null);
       act(() => flow().sharedAsk?.cancel());
       expect(flow().sharedAsk).toBeNull();
-      // Long enough for a create to have gone out, had one been asked.
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      expect(d.intents().slice(asked)).toEqual([]);
-      expect((d.workspace().teams ?? []).some((made) => made.name === "docs")).toBe(false);
-      expect(teamOpen(d)).toBe(stage);
+      // A team asked for after it does go out — and by then a create the
+      // cancel let through would have gone first.
+      await plusTeam(flow, d, { teamName: "web" });
+      await until("the next team stands", () => (d.workspace().teams ?? []).some((made) => made.name === "web"));
+      expect(d.intents().slice(asked)).toEqual([expect.objectContaining({ kind: "createTeam", draft: { name: "web" } })]);
     });
   });
 
