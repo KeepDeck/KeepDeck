@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { useHost } from "../../testing/host/host";
+import { callsOf, useHost } from "../../testing/host/host";
 import { quitAfter, startDeck, type Deck } from "../../testing/host/deck";
 import type { StubAgentControl } from "../../testing/host/stubPlugin";
 
@@ -165,5 +165,35 @@ describe("a rejected boot resume, on the host", () => {
       expect(d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 1)).toBe(false);
       expect(d.launches(paneId)).toHaveLength(launched + 1);
     });
+  });
+});
+
+describe("a plan that failed to build, on the host", () => {
+  const host = useHost();
+  let deck: Deck | null = null;
+
+  afterEach(() => {
+    deck?.dispose();
+    deck = null;
+  });
+
+  it("is built again on Retry, and its pane starts, with no process stopped on the way", async () => {
+    // A remote agent's plan has no bare local launch to fall back to: its
+    // plugin's hook failing fails the whole build, and the pane waits on
+    // Retry instead of quietly running here.
+    const d = (deck = await startDeck(host(), { spawnPlanFails: "the plugin cannot plan it" }));
+    await d.workspaceUp();
+    const paneId = await d.addAgent({ role: "lead", endpoint: "ws://vps:4500" });
+    const view = () => d.runtime.orchestrator.getView();
+    await host().until("its plan failed", () => view().planFailed.has(paneId), 15_000);
+    expect(d.launches(paneId)).toEqual([]);
+    const mark = host().tape.length;
+    const epoch = view().epochs[paneId] ?? 0;
+    d.stub.spawnPlanFails = null;
+    d.runtime.orchestrator.retryPlanBuild(paneId);
+    await host().until("it starts", () => d.launches(paneId).length === 1 && d.slot(paneId) === "live", 15_000);
+    expect(view().planFailed.has(paneId)).toBe(false);
+    expect(view().epochs[paneId] ?? 0).toBeGreaterThan(epoch);
+    expect(callsOf(host(), "pty_stop", mark)).toEqual([]);
   });
 });
