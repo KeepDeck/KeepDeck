@@ -9,6 +9,7 @@ import { presetPick } from "../domain/agents";
 import { callsOf, useHost } from "../testing/host/host";
 import { quitAfter, startDeck, type Deck } from "../testing/host/deck";
 import { mountInPage } from "../testing/host/page";
+import { field } from "../testing/host/tails";
 import type { StubAgentControl } from "../testing/host/stubPlugin";
 
 /** What the agent dialog hook holds, as the app's controller hands it. */
@@ -339,12 +340,18 @@ describe("the agent dialog, on the host", () => {
         await startFrom(d, flow, "fork", { yolo: n === 0, role: `impl-${n + 1}`, location });
       }
       await until("each is asked for", () => continued(d, from).length === 3);
-      const ranYolo = (member: unknown) => typeof member === "object" && member !== null && Reflect.get(member, "yolo") === true;
-      expect(continued(d, from).map((intent) => intent.kind === "continue" && { how: intent.how, landing: intent.landing, yolo: ranYolo(intent.member) })).toEqual([
-        { how: "fork", landing: { kind: "team", team: teamId }, yolo: true },
-        { how: "fork", landing: { kind: "team", team: teamId }, yolo: false },
-        { how: "fork", landing: { kind: "team", team: teamId }, yolo: false },
-      ]);
+      // Each fork looks its transcript up before it is asked for, so the
+      // three go out in no set order: each is told by the role it took.
+      const byRole = Object.fromEntries(
+        continued(d, from).flatMap((intent) =>
+          intent.kind === "continue" ? [[String(field(intent.member, "role")), { how: intent.how, landing: intent.landing, yolo: field(intent.member, "yolo") === true }]] : [],
+        ),
+      );
+      expect(byRole).toEqual({
+        "impl-1": { how: "fork", landing: { kind: "team", team: teamId }, yolo: true },
+        "impl-2": { how: "fork", landing: { kind: "team", team: teamId }, yolo: false },
+        "impl-3": { how: "fork", landing: { kind: "team", team: teamId }, yolo: false },
+      });
     });
 
     it("says a refused resume through the resume's notice, and a refused fork through the fork's own", async () => {
