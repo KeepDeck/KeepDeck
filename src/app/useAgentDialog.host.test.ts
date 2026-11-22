@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -10,7 +10,7 @@ import { callsOf, useHost } from "../testing/host/host";
 import { quitAfter, startDeck, type Deck } from "../testing/host/deck";
 import { mountInPage } from "../testing/host/page";
 import { field } from "../testing/host/tails";
-import type { StubAgentControl } from "../testing/host/stubPlugin";
+import { STUB_AGENT, type StubAgentControl } from "../testing/host/stubPlugin";
 
 /** What the agent dialog hook holds, as the app's controller hands it. */
 type Flow = ReturnType<typeof UseAgentDialog>;
@@ -323,6 +323,54 @@ describe("the agent dialog, on the host", () => {
       expect(member).toMatchObject({ role: "impl-1" });
       expect(member).not.toHaveProperty("yolo");
       expect(member).not.toHaveProperty("name");
+    });
+
+    it("tells the picker how each found session ran, as the journal recorded it — the dialog's own workspace first", async () => {
+      // The index knows sessions, not modes: what a continuation's YOLO
+      // starts from is the journal's, in any workspace — the dialog's own
+      // answering first, whichever is active — and a session no journal
+      // recorded stays unknown.
+      const d = await open({ history: true, yolo: true });
+      const one = await d.workspaceUp();
+      const team = await d.teamUp("one", { kind: "root" }, one);
+      const ran = async (yolo: boolean) => {
+        const paneId = await d.addAgent({ role: "lead", team, yolo });
+        const session = await d.upAndBound(paneId);
+        await d.closeAgent(paneId);
+        return session;
+      };
+      const inYolo = await ran(true);
+      const without = await ran(false);
+      const twice = await ran(false);
+      // Taken up again in another workspace, in YOLO this time.
+      const elsewhere = join(host().home, "two");
+      mkdirSync(elsewhere);
+      const two = await d.anotherWorkspace("two", elsewhere);
+      const there = await d.teamUp("there", { kind: "existing", cwd: host().work }, two);
+      const resumed = await d.runtime.orchestrator.resumeSession(two.id, { agent: STUB_AGENT, sessionId: twice, cwd: host().work }, { team: there, role: "lead", yolo: true });
+      expect(resumed.kind).toBe("accepted");
+      await until("it ran there in YOLO", () => (d.runtime.deckStore.getSnapshot().journal.records[two.id] ?? []).some((record) => record.sessionId === twice && record.yolo === true));
+      // One the agent's store holds that never ran on this deck.
+      writeFileSync(join(d.stub.storeDir, "never-here.jsonl"), `${JSON.stringify({ type: "turn", role: "user", text: "never on a deck" })}\n`);
+      // The journal lists the first workspace first, and it is the active one.
+      const { createDeckActions } = await import("./deckActions");
+      createDeckActions(d.runtime.deckStore).selectWorkspace(one.id);
+      const { flow } = await dialogOn(d);
+      const dialogWs = d.runtime.deckStore.getSnapshot().workspaces.find((ws) => ws.id === two.id);
+      if (!dialogWs) throw new Error("the second workspace left the deck");
+      await act(async () => flow().openFor(dialogWs, { kind: "member", teamId: there }));
+      // Read fresh, as the picker asks for its agent's store.
+      const index = d.runtime.sessionIndex;
+      const before = index.snapshot().revision;
+      index.ensureFresh(STUB_AGENT);
+      await until("the agent's store is read", () => !index.snapshot().scanning && index.snapshot().revision > before);
+      const page = await flow().searchSessions(STUB_AGENT, "", 50, 0);
+      expect(Object.fromEntries(page.rows.map((row) => [row.handle.sessionId, row.ranYolo ?? "unknown"]))).toEqual({
+        [inYolo]: true,
+        [without]: false,
+        [twice]: true,
+        "never-here": "unknown",
+      });
     });
 
     it("forks into the team's own directory, whatever location was left in the form, with the YOLO picked", async () => {
