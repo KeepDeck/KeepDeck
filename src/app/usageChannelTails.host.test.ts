@@ -244,7 +244,7 @@ describe("following a pane's file, on the host", () => {
       expect(lanesOf(tailsOf(host(), paneId)[0])).toEqual(["usage", "status"]);
     });
 
-    it("reads the file for its turns again after a restart, under the new process's secret, until that one says hello", async () => {
+    it("reads the file for its turns again after a restart, under the new process's secret, its new process having said no hello", async () => {
       const d = await open();
       const { ws, paneId } = await followedUp(d);
       const before = field(tailsOf(host(), paneId)[0], "token");

@@ -272,7 +272,8 @@ export function createUsageTailsLane({
       // pane's. A plan retired, or another minted since, leaves it reading
       // for reports that are refused — the next arm follows under the
       // secret that stands then.
-      if (desired.has(paneId) && armedWith.get(paneId)?.token === peekPaneSpawnSpec(paneId)?.token) continue;
+      const armed = armedWith.get(paneId);
+      if (desired.has(paneId) && armed !== undefined && armed.token === peekPaneSpawnSpec(paneId)?.token) continue;
       tailed.delete(paneId);
       armedWith.delete(paneId);
       links.delete(paneId);
