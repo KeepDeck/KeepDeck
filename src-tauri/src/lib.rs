@@ -259,6 +259,11 @@ fn compose<R: tauri::Runtime>(
             let doors = std::sync::Arc::new(lifecycle::AppDoors::new(sessions.clone(), locks, stores));
             let lifecycle = tauri::async_runtime::block_on(async move { lifecycle::Lifecycle::start_at(root, doors) });
             let claimed = lifecycle.claimed();
+            // Managed before anything that looks it up is started: the
+            // sessions' watcher asks for the door on its first pass, and a
+            // lookup before `manage` panics its task — every session of the
+            // launch then goes unreported to the machine.
+            app.manage(lifecycle);
             let link_app = app.handle().clone();
             sessions.link(move || link_app.state::<lifecycle::Lifecycle>().door());
             // The stores' commit gate answers from the machine's forgotten set.
@@ -266,7 +271,6 @@ fn compose<R: tauri::Runtime>(
             let forgetting = lifecycle::MachineForgetting::new(move || gate_app.state::<lifecycle::Lifecycle>().door());
             app.manage(forgotten::Gate::new(forgetting));
             app.manage(sessions);
-            app.manage(lifecycle);
             if !claimed {
                 lifecycle::Lifecycle::retry_claim(app.handle().clone());
             }
