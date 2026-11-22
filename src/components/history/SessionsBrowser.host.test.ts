@@ -84,13 +84,6 @@ describe("a team's sessions, on the host", () => {
   };
   const forks = (sessionId: string) => rowOf(sessionId)?.querySelector(".history__fork") != null;
 
-  const closeAgent = async (d: Deck, paneId: string) => {
-    const ws = d.workspace();
-    const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: paneId, consent: { stops: [], folders: [], tickets: [] } });
-    expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: { id: ws.id, instance: ws.instance }, paneId, consent })).kind).toBe("accepted");
-    await until("the agent is gone", () => !d.workspace().panes.some((pane) => pane.id === paneId));
-  };
-
   it("draws the deck's journal: a session of the team's folder resumes, one of another forks only, one in a pane is held — each saying why", async () => {
     const d = await open();
     await d.workspaceUp();
@@ -102,8 +95,8 @@ describe("a team's sessions, on the host", () => {
     const own = d.pane(ownPane).session?.id ?? "";
     const otherPane = await d.memberUp(there, "lead");
     const other = d.pane(otherPane).session?.id ?? "";
-    await closeAgent(d, ownPane);
-    await closeAgent(d, otherPane);
+    await d.closeAgent(ownPane);
+    await d.closeAgent(otherPane);
     const heldPane = await d.memberUp(there, "lead");
     const held = d.pane(heldPane).session?.id ?? "";
 

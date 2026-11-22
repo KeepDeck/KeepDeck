@@ -227,8 +227,7 @@ describe("an agent's operations on the host", () => {
     await d.upAndBound(fork);
     await host().until("nothing holds the pane: the restart and the fork are over", () => d.settled() && host().journalEmpty(), 15_000);
     // Nothing refuses a close of it afterwards.
-    const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: fork, consent: { stops: [], folders: [], tickets: [] } });
-    expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId: fork, consent })).kind).toBe("accepted");
+    await d.closeAgent(fork);
   });
 
   it("asks nothing for a reference that outlived its workspace — a slot used again since", async () => {

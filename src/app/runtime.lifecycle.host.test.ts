@@ -51,10 +51,9 @@ describe("the runtime and the lifecycle machine, on the host", () => {
 
   it("carries a deck command into the deck once, answers it once, and says the revision it saved", async () => {
     const d = await open();
-    const { ws, paneId } = await d.agentUp();
-    const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: paneId, consent: { stops: [], folders: [], tickets: [] } });
-    await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId, consent });
-    await host().until("the pane is gone", () => d.workspace().panes.length === 0 && d.settled());
+    const { paneId } = await d.agentUp();
+    await d.closeAgent(paneId);
+    await host().until("the close is settled", () => d.settled());
     // Every snapshot carries the command until it settles: it is applied
     // and answered once all the same.
     const heard = host().tape.filter(({ way, line }) => way === "← host" && line.includes('"kind":"removePane"')).length;

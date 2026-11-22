@@ -40,12 +40,6 @@ describe("the usage channel, on the host", () => {
     await until("its file is followed", () => followed(up.paneId));
     return up;
   };
-  const closeAgent = async (d: Deck, paneId: string) => {
-    const ws = d.workspace();
-    const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: paneId, consent: { stops: [], folders: [], tickets: [] } });
-    expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: { id: ws.id, instance: ws.instance }, paneId, consent })).kind).toBe("accepted");
-    await until("the agent is gone", () => !d.workspace().panes.some((pane) => pane.id === paneId));
-  };
   /** A file of the stub's store, as the CLI keeps it: a line per record. */
   const storeFile = (d: Deck, name: string, ...records: Record<string, unknown>[]) => {
     mkdirSync(d.stub.storeDir, { recursive: true });
@@ -88,7 +82,7 @@ describe("the usage channel, on the host", () => {
       const { paneId } = await d.agentUp();
       expect(await d.report(paneId, usage({ usedPct: 20, limits: { usedPct: 30 } }))).toBe(204);
       expect(paneUsage(d, paneId)).toBeDefined();
-      await closeAgent(d, paneId);
+      await d.closeAgent(paneId);
       expect(paneUsage(d, paneId)).toBeUndefined();
       expect(account(d)).toMatchObject({ windows: [expect.objectContaining({ usedPct: 30 })] });
     });
@@ -145,7 +139,7 @@ describe("the usage channel, on the host", () => {
       const d = await open();
       const { paneId } = await followedUp(d);
       const mark = host().tape.length;
-      await closeAgent(d, paneId);
+      await d.closeAgent(paneId);
       await until("its file is let go", () => unwatches(paneId, mark) > 0);
     });
 
@@ -154,7 +148,7 @@ describe("the usage channel, on the host", () => {
       const landing = host().hold({ reply: "usage_watch_session_file" });
       const { paneId } = await d.agentUp();
       await landing.caught;
-      await closeAgent(d, paneId);
+      await d.closeAgent(paneId);
       const mark = host().tape.length;
       landing.release();
       await until("the late follow is undone", () => unwatches(paneId, mark) > 0);
@@ -228,7 +222,7 @@ describe("the usage channel, on the host", () => {
       if (!teamId) throw new Error("the agent is on no team");
       await d.memberUp(teamId, "reviewer");
       await until("its plugin searches again", () => d.stub.lookups > searches);
-      await closeAgent(d, paneId);
+      await d.closeAgent(paneId);
       finish();
       await aWhile();
       expect(tailsOf(paneId)).toEqual([]);

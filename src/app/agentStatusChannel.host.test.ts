@@ -174,13 +174,12 @@ describe("the status channel, on the host", () => {
   describe("the deck's panes", () => {
     it("keeps the activity of only the panes the deck holds", async () => {
       const d = await open();
-      const { ws, paneId } = await ready(d);
+      const { paneId } = await ready(d);
       const other = await neighbour(d, paneId);
       expect(await d.report(paneId, status("turn-start"))).toBe(204);
       expect(await d.report(other, status("turn-start"))).toBe(204);
-      const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: other, consent: { stops: [], folders: [], tickets: [] } });
-      expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId: other, consent })).kind).toBe("accepted");
-      await until("the neighbour is gone, its activity with it", () => !d.workspace().panes.some((pane) => pane.id === other) && activity(d, other) === undefined);
+      await d.closeAgent(other);
+      await until("the neighbour's activity is gone with it", () => activity(d, other) === undefined);
       expect(stateOf(d, paneId)).toBe("working");
     });
   });

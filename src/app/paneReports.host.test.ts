@@ -205,10 +205,9 @@ describe("a pane's reports through the bridge, on the host", () => {
 
     it("drops a report for a pane the deck no longer holds", async () => {
       const d = await open();
-      const { ws, paneId } = await ready(d);
-      const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: paneId, consent: { stops: [], folders: [], tickets: [] } });
-      expect((await d.runtime.orchestrator.close({ kind: "agent", workspace: ws, paneId, consent })).kind).toBe("accepted");
-      await host().until("the pane is gone", () => !d.workspace().panes.some((pane) => pane.id === paneId) && d.slot(paneId) === "none");
+      const { paneId } = await ready(d);
+      await d.closeAgent(paneId);
+      await host().until("its process is gone", () => d.slot(paneId) === "none");
       // A hook that outlived its agent, under the pane's old secret.
       expect(await d.report(paneId, usage(40), "outside")).toBe(204);
       expect(usageOf(d, paneId)).toBeUndefined();

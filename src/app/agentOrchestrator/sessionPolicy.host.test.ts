@@ -201,13 +201,11 @@ describe("how an agent comes up, on the host", () => {
   });
 
   it("forgets a held agent's card once the agent is closed", async () => {
-    const { ws, paneId, folder } = await goneWhileDown();
+    const { paneId, folder } = await goneWhileDown();
     const d = await open();
     await host().until("its card says its folder is gone", () => view(d).blocked[paneId] === folder, 15_000);
-    const workspace = { id: ws.id, instance: d.workspace().instance };
-    const consent = await d.consentFor({ kind: "closeAgent", workspace: ws.id, pane: paneId, consent: { stops: [], folders: [], tickets: [] } });
-    expect((await d.runtime.orchestrator.close({ kind: "agent", workspace, paneId, consent })).kind).toBe("accepted");
-    await host().until("the agent and its card are gone", () => !d.workspace().panes.some((pane) => pane.id === paneId) && view(d).blocked[paneId] === undefined, 15_000);
+    await d.closeAgent(paneId);
+    await host().until("its card is gone with it", () => view(d).blocked[paneId] === undefined, 15_000);
   });
 
   it("starts nothing fresh in an archived workspace: the agent keeps its team and its conversation", async () => {

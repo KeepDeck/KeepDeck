@@ -116,6 +116,9 @@ export interface Deck {
    * says it ends — and, when the person ticks them, the folders it offers
    * to delete. */
   consentFor(intent: Intent, deleting?: boolean): Promise<Consent>;
+  /** Close the agent as a person does who agreed to what the close stops,
+   * deleting nothing — accepted — and wait until its pane leaves the deck. */
+  closeAgent(paneId: string): Promise<void>;
   /** Make the test's work folder a git repository with one commit. */
   gitRepo(): void;
   /** Change settings as the settings page does. */
@@ -406,6 +409,12 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     const ws = workspace();
     return { id: ws.id, instance: ws.instance };
   }
+  /** What a person agrees to for `intent`: what it stops, and — only when
+   * they let it delete — its folders and tickets. */
+  async function consentFor(intent: Intent, deleting = false): Promise<Consent> {
+    const preview = await previewIntent(intent);
+    return { stops: preview.stops, folders: deleting ? preview.folders : [], tickets: deleting ? preview.creations : [] };
+  }
   async function addAgent({ endpoint, workspace: into, yolo, ...ask }: AgentAsk): Promise<string> {
     const draft = { agentType: STUB_AGENT, ...(endpoint !== undefined && { location: { kind: "remote" as const, endpoint } }), yolo };
     const added = await runtime.orchestrator.createPane({ workspace: into ?? (await workspaceUp()), pane: draft, ...ask });
@@ -486,9 +495,15 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
       return paneId;
     },
     preview: (intent) => previewIntent(intent),
-    async consentFor(intent, deleting = false) {
-      const preview = await previewIntent(intent);
-      return { stops: preview.stops, folders: deleting ? preview.folders : [], tickets: deleting ? preview.creations : [] };
+    consentFor,
+    async closeAgent(paneId) {
+      const holds = (ws: Workspace) => ws.panes.some((candidate) => candidate.id === paneId);
+      const ws = runtime.deckStore.getSnapshot().workspaces.find(holds);
+      if (!ws) throw new Error(`no pane ${paneId} on the deck`);
+      const consent = await consentFor({ kind: "closeAgent", workspace: ws.id, pane: paneId, consent: { stops: [], folders: [], tickets: [] } });
+      const closed = await runtime.orchestrator.close({ kind: "agent", workspace: { id: ws.id, instance: ws.instance }, paneId, consent });
+      if (closed.kind !== "accepted") throw new Error(`${paneId} was not closed: ${JSON.stringify(closed)}`);
+      await host.until(`${paneId} has left the deck`, () => !runtime.deckStore.getSnapshot().workspaces.some(holds), 15_000);
     },
     async runOutside(sessionId) {
       const child = spawn(process.execPath, [inject("stubAgent"), "--resume", sessionId], {
