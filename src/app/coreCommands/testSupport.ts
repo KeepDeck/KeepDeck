@@ -23,7 +23,7 @@ import {
   type Workspace,
 } from "../../domain/deck";
 import { testTeamId } from "../../domain/deck/teams/testSupport";
-import { roleRefused, type IntentOutcome, type Minted, type OwnerRefusal, type ResumeOutcome, type Site, type SuspendResult } from "../../domain/lifecycle";
+import { memberDraft, roleRefused, type IntentOutcome, type Minted, type OwnerRefusal, type ResumeOutcome, type Site, type SuspendResult } from "../../domain/lifecycle";
 import { admitRole } from "../../domain/mail";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
@@ -206,7 +206,10 @@ export function setup(workspaces: Workspace[]) {
     if (!admitted.ok) return rejected(roleRefused(admitted));
     const id = nextPaneId();
     ws.teams = landing.teams;
-    ws.panes.push({ id, ...pane, team: { teamId, role: admitted.role } });
+    // The member as the real door writes it — trimmed and sparse — asked
+    // of the same rule; the role is the team's.
+    const { role: _asked, session: _none, ...kept } = memberDraft(pane, admitted.role);
+    ws.panes.push({ id, ...kept, team: { teamId, role: admitted.role } });
     return accepted({ team: fresh?.id ?? null, panes: [id] });
   });
   /**

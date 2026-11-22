@@ -88,7 +88,9 @@ export function registerSpawnCommands(
     const asked = args.yolo;
     const yolo = (typeof asked === "boolean" ? asked : nextYolo()) && agentSupportsYolo(agents, agentType);
     const name = str(args, "name");
-    const pane: AgentDraft = { agentType, ...(name && { name }), ...(yolo && { yolo: true }) };
+    // As resolved: the member's draft at the door writes it the way a pane
+    // is kept.
+    const pane: AgentDraft = { agentType, name, yolo };
     const ask = await where(live());
     // Closed, replaced or archived across the await: refused before the
     // machine is asked for anything.

@@ -27,7 +27,7 @@ import {
   type TeamActs,
   type Workspace,
 } from "../../domain/deck";
-import type { AgentDraft, IntentOutcome, PaneDraft, ResumeOutcome, Site, SuspendResult } from "../../domain/lifecycle";
+import { memberDraft, type IntentOutcome, type ResumeOutcome, type Site, type SuspendResult } from "../../domain/lifecycle";
 import type { SessionHandle } from "../../domain/journal";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import type { Intent } from "../../ipc/generated/lifecycle/Intent";
@@ -109,17 +109,6 @@ function teamAt(ws: Workspace, site: Site): string | null {
   return cwd === null ? null : (teamWorkingIn(ws, cwd)?.id ?? null);
 }
 
-function draftOf(agent: AgentDraft, role: string, session?: string): PaneDraft {
-  return {
-    agentType: agent.agentType,
-    role,
-    ...(agent.name?.trim() && { name: agent.name.trim() }),
-    ...(agent.yolo && { yolo: true }),
-    ...(agent.location && { location: agent.location }),
-    ...(session !== undefined && { session: { id: session } }),
-  };
-}
-
 /** The file a fork of `record` copies: what the binding reported, else what
  * the plugin declared to the index (`locate`, asked only then). Still
  * unknown is the plugin's to refuse — a fork that needs no file goes on
@@ -158,7 +147,7 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
   async function createPane(request: CreatePaneRequest): Promise<IntentOutcome> {
     const ws = lifetime(request.workspace);
     if (!ws) return GONE;
-    const member = draftOf(request.pane, request.role);
+    const member = memberDraft(request.pane, request.role);
     const landing = landingOf(ws, request.team, request.site ?? { kind: "root" }, request.teamName ?? request.pane.name);
     return landing.kind === "team"
       ? ask({ kind: "seat", workspace: ws.id, team: landing.team, member })
@@ -183,7 +172,7 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
     const ws = findWorkspace(workspaces(), wsId);
     if (!ws) return GONE;
     const yolo = opts.yolo ?? record.yolo;
-    const member = draftOf(
+    const member = memberDraft(
       { agentType: record.agent, name: opts.name, yolo },
       opts.role,
       how === "resume" ? record.sessionId : undefined,

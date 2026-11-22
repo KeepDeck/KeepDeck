@@ -30,6 +30,28 @@ export interface PaneDraft {
   session?: { id: string };
 }
 
+/** A new agent as the person shaped it, before the role it takes on its
+ * team and the session it may continue — both are the landing's. */
+export type AgentDraft = Omit<PaneDraft, "role" | "session">;
+
+/**
+ * The member a door asks the machine for — what lands on the pane as it is.
+ * Producers hand on what they know (a name as typed, a YOLO that may be an
+ * explicit false); this is where it is written the way a pane is kept:
+ * trimmed, a blank name none, YOLO only when on.
+ */
+export function memberDraft(agent: AgentDraft, role: string, session?: string): PaneDraft {
+  const name = agent.name?.trim();
+  return {
+    agentType: agent.agentType,
+    role,
+    ...(name && { name }),
+    ...(agent.yolo && { yolo: true }),
+    ...(agent.location && { location: agent.location }),
+    ...(session !== undefined && { session: { id: session } }),
+  };
+}
+
 const text = (value: unknown): value is string => typeof value === "string";
 
 export function workspaceDraftOf(value: unknown): WorkspaceDraft | null {

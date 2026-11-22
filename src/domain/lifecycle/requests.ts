@@ -4,17 +4,13 @@
  * dialog collects; these read it once, so no door reads the form its own way.
  */
 import type { AgentDialogResult } from "../agents";
-import type { PaneDraft } from "./drafts";
+import type { AgentDraft } from "./drafts";
 import type { Claim, Site } from ".";
 
 /** The teams the machine's claims on a folder name — who works there. */
 export function claimingTeams(claims: readonly Claim[]): string[] {
   return claims.flatMap((claim) => (claim.kind === "team" ? [claim.team] : []));
 }
-
-/** A new agent as the person shaped it, before the role it takes on its
- * team and the session it may continue — both are the landing's. */
-export type AgentDraft = Omit<PaneDraft, "role" | "session">;
 
 /**
  * Where one dialog request asks its team to run: the workspace root, a
@@ -37,8 +33,8 @@ export function siteFromAgentRequest(request: AgentDialogResult): Site {
 }
 
 /** The fresh agent one dialog request describes, as it says it — a remote
- * agent with its endpoint. What is written of it, trimmed and sparse, is the
- * member's draft at the door (`draftOf`), the one every member passes. */
+ * agent with its endpoint. What is written of it, trimmed and sparse, is
+ * `memberDraft`'s, the one every member passes. */
 export function agentDraftFromRequest(agentType: string, request: AgentDialogResult): AgentDraft {
   return {
     agentType,
