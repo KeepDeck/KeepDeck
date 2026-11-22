@@ -298,13 +298,16 @@ describe("following a pane's file, on the host", () => {
       const [two, three] = [storeFile(d, "t-2.jsonl"), storeFile(d, "t-3.jsonl")];
       d.type(paneId, 'record {"type":"usage","links":["t-2","t-3"]}');
       await until("both are linked", () => linked(host(), paneId).length === 2);
-      // Named again: nothing more.
+      // Named again: nothing more. The control is a store named for the
+      // first time after it: once that one is linked, the record before it
+      // has been handled whole.
       const lookups = d.stub.lookups;
+      const four = storeFile(d, "t-4.jsonl");
       d.type(paneId, 'record {"type":"usage","links":["t-2"],"usedPct":77}');
-      await until("that record is read", () => d.runtime.usageManager.getSnapshot().panes.get(paneId)?.context?.usedPct === 77);
-      await aWhile();
-      expect(linked(host(), paneId)).toEqual([two, three]);
-      expect(d.stub.lookups).toBe(lookups);
+      d.type(paneId, 'record {"type":"usage","links":["t-4"]}');
+      await until("the store named after it is linked", () => linked(host(), paneId).length === 3);
+      expect(linked(host(), paneId)).toEqual([two, three, four]);
+      expect(d.stub.lookups).toBe(lookups + 1);
     });
 
     it("links a store named while the follow still reads the file once it is there", async () => {

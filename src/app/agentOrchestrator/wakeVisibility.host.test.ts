@@ -31,6 +31,11 @@ describe("which agents rise, and when, on the host", () => {
     return launches[launches.length - 1]?.args ?? [];
   };
   const aWhile = () => new Promise((resolve) => setTimeout(resolve, 500));
+  /** The control for "nothing starts": a member raised beside `of`, in the
+   * open workspace, goes through every step a start would — the passes, its
+   * plan, its lease, its open. Once it runs, a start decided before it would
+   * have gone out. */
+  const raisedBeside = (d: Deck, of: string) => d.memberUp(d.pane(of).team?.teamId ?? "", "impl-1");
   const probedSince = (mark: number) => callsOf(host(), "worktree_probe", mark);
   const select = async (d: Deck, ws: WorkspaceRef) => {
     d.runtime.deckStore.dispatch({ type: "selectWorkspace", id: ws.id });
@@ -77,7 +82,7 @@ describe("which agents rise, and when, on the host", () => {
     it("starts the agent on screen and leaves the one in a workspace nobody has opened alone", async () => {
       const d = await open();
       const { here, there } = await oneOpen(d);
-      await aWhile();
+      await raisedBeside(d, here);
       expect(d.launches(there)).toEqual([]);
       expect(reach(d, there)).toEqual({ kind: "down", why: "workspace-closed" });
       expect(reach(d, here)).toEqual({ kind: "running" });
@@ -85,8 +90,8 @@ describe("which agents rise, and when, on the host", () => {
 
     it("starts the other one when its workspace is opened, and only then", async () => {
       const d = await open();
-      const { two, there } = await oneOpen(d);
-      await aWhile();
+      const { two, here, there } = await oneOpen(d);
+      await raisedBeside(d, here);
       expect(d.launches(there)).toEqual([]);
       await select(d, two);
       await host().until("it rises as its workspace opens", () => d.launches(there).length === 1 && d.slot(there) === "live", 15_000);
@@ -96,7 +101,7 @@ describe("which agents rise, and when, on the host", () => {
       const d = await open();
       const { one, here } = await oneOpen(d);
       d.runtime.deckStore.dispatch({ type: "renameTeam", wsId: one.id, teamId: d.pane(here).team?.teamId ?? "", name: "renamed" });
-      await aWhile();
+      await raisedBeside(d, here);
       expect(d.launches(here)).toHaveLength(1);
     });
 

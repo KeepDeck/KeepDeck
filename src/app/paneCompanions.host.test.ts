@@ -54,14 +54,17 @@ describe("a companion in a pane's process, on the host", () => {
 
   /** A turn recorded now is passed over: the numbers written after it are
    * read, and the pane stays as it was. The numbers come from the same file
-   * after the turn's record, so once they are read the record is read too;
-   * the wait after covers the page handling the two events of one drain. */
+   * after the turn's record, so once they are read the record is read too.
+   * The control is a second read: numbers written after those, in a drain
+   * of their own — once the page has them, it has handled every event of
+   * the turn's drain before. */
   async function turnsPassedOver(d: Deck, paneId: string, pct: number) {
     const before = activity(d, paneId);
     await record(d, paneId, turn("turn-start"));
     await record(d, paneId, { type: "usage", usedPct: pct });
     await host().until("the numbers after it are read", () => usedPct(d, paneId) === pct, 15_000);
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await record(d, paneId, { type: "usage", usedPct: pct + 1 });
+    await host().until("the next numbers are read", () => usedPct(d, paneId) === pct + 1, 15_000);
     expect(activity(d, paneId)).toBe(before);
   }
 

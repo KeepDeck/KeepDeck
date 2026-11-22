@@ -291,7 +291,10 @@ describe("an agent's operations on the host", () => {
     const { paneId } = await d.agentUp();
     d.type(paneId, "exit 3");
     await host().until("its process ended", () => d.slot(paneId) === "exited");
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // The control: a member raised after it ended goes through every step a
+    // start of this one would have — the passes, its plan, its lease, its
+    // open. Once that member runs, a start of this one would have gone out.
+    await d.memberUp(d.pane(paneId).team?.teamId ?? "", "impl-1");
     expect(d.launches(paneId)).toHaveLength(1);
     expect(d.slot(paneId)).toBe("exited");
   });
