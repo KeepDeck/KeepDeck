@@ -116,6 +116,9 @@ export interface StubAgentControl {
   /** Its turns' records carry its calls too: a calls watch among its status
    * watches. Read at activation. */
   statusWatchesCalls: boolean;
+  /** The agent can run with its permission prompts off: its manifest
+   * declares YOLO. Read when the plugin is installed. */
+  yolo: boolean;
 }
 
 /** What a stub's status report or record says: an edge by its own name and,
@@ -242,6 +245,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
             { id: "usage.pane", label: "Session analytics", group: "usage" },
             // An account limits source is declared under its feature.
             ...(control.limitsRead !== null ? [{ id: "usage.account", label: "Account limits", group: "usage" }] : []),
+            ...(control.yolo ? [{ id: "execution.yolo", label: "YOLO mode", group: "execution" }] : []),
             // Its thin client runs here and attaches to an agent server.
             { id: "target.remote", label: "Remote targets", group: "execution", parameters: { schemes: ["ws"] } },
           ],

@@ -36,6 +36,8 @@ export interface AgentAsk {
   site?: Site;
   endpoint?: string;
   workspace?: WorkspaceRef;
+  /** It runs with its permission prompts off. */
+  yolo?: boolean;
 }
 
 /** One envelope a pane's reporter sends through the bridge: what it leaves
@@ -310,6 +312,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     lookupMisses: false,
     covers: true,
     statusWatchesCalls: false,
+    yolo: false,
     liveRegistry: "files",
     liveDir: join(host.home, "stub-live"),
     ...told,
@@ -402,8 +405,8 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     const ws = workspace();
     return { id: ws.id, instance: ws.instance };
   }
-  async function addAgent({ endpoint, workspace: into, ...ask }: AgentAsk): Promise<string> {
-    const draft = { agentType: STUB_AGENT, ...(endpoint !== undefined && { location: { kind: "remote" as const, endpoint } }) };
+  async function addAgent({ endpoint, workspace: into, yolo, ...ask }: AgentAsk): Promise<string> {
+    const draft = { agentType: STUB_AGENT, ...(endpoint !== undefined && { location: { kind: "remote" as const, endpoint } }), ...(yolo && { yolo: true }) };
     const added = await runtime.orchestrator.createPane({ workspace: into ?? (await workspaceUp()), pane: draft, ...ask });
     if (added.kind !== "accepted") throw new Error(`no agent: ${JSON.stringify(added)}`);
     const paneId = added.minted.panes[0];

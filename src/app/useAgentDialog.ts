@@ -227,9 +227,9 @@ export function useAgentDialog(
     // rather than onto an occupied- or blocked-path error. Without one it
     // opens empty (= main repo).
     const place = repo && ws.worktreeBaseDir ? await nextPlace(ws.id) : null;
-    // The workspace may have closed while repo/path IPC was in flight. Its
-    // public id can already name a replacement, so only the exact lifetime is
-    // allowed to open this dialog.
+    // The workspace may have closed while repo/path IPC was in flight: only
+    // the lifetime it was opened for may open this dialog — resolved the one
+    // way a reference is.
     const live = findWorkspaceByRef(deckRef.current.workspaces, workspace);
     if (!live) return;
     // A question about a directory is standing: it was asked for a create
