@@ -3,9 +3,11 @@ import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { LimitsRead } from "@keepdeck/plugin-api";
-import { callsOf, repliedTo, useHost } from "../testing/host/host";
+import { callsOf, useHost } from "../testing/host/host";
 import { quitAfter, startDeck, type Deck } from "../testing/host/deck";
 import { STUB_PLUGIN_ID, type StubAgentControl } from "../testing/host/stubPlugin";
+import * as tails from "../testing/host/tails";
+import { field } from "../testing/host/tails";
 import { TAIL_RETRY_MS } from "./usageChannelTails";
 
 /**
@@ -29,15 +31,9 @@ describe("the usage channel, on the host", () => {
   const usage = (payload: Record<string, unknown>) => ({ type: "usage.report", payload });
   const paneUsage = (d: Deck, paneId: string) => d.runtime.usageManager.getSnapshot().panes.get(paneId);
   const account = (d: Deck) => d.runtime.usageManager.getSnapshot().accounts.get("stub");
-  const field = (value: unknown, key: string): unknown => (typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined);
-  /** The tails the page asked the app to follow for the pane, each as asked. */
-  const tailsOf = (paneId: string, mark = 0) =>
-    callsOf(host(), "usage_watch_session_file", mark)
-      .filter((args) => field(args, "paneId") === paneId)
-      .map((args) => field(args, "tail"));
-  const unwatches = (paneId: string, mark = 0) => callsOf(host(), "usage_unwatch_session_file", mark).filter((args) => field(args, "paneId") === paneId).length;
-  /** Whether the app has followed the pane's file: a watch it answered. */
-  const followed = (paneId: string) => repliedTo(host(), "usage_watch_session_file").some((args) => field(args, "paneId") === paneId);
+  const tailsOf = (paneId: string, mark = 0) => tails.tailsOf(host(), paneId, mark);
+  const unwatches = (paneId: string, mark = 0) => tails.unwatches(host(), paneId, mark);
+  const followed = (paneId: string) => tails.followed(host(), paneId);
   /** An agent up, its file followed. */
   const followedUp = async (d: Deck) => {
     const up = await d.agentUp();

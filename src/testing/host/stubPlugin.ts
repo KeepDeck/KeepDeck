@@ -107,6 +107,15 @@ export interface StubAgentControl {
   lookups: number;
   /** While pending, each search waits on it. */
   lookupHeld: Promise<void> | null;
+  /** Its searches find nothing: the CLI keeps its stores where its plugin
+   * does not look. */
+  lookupMisses: boolean;
+  /** A companion in its process states its turns' records itself. Read at
+   * activation. */
+  covers: boolean;
+  /** Its turns' records carry its calls too: a calls watch among its status
+   * watches. Read at activation. */
+  statusWatchesCalls: boolean;
 }
 
 /** What a stub's status report or record says: an edge by its own name and,
@@ -168,8 +177,10 @@ function stubUsage(payload: unknown, at: number): NormalizedUsage | null {
   const pane = typeof report.usedPct === "number" ? { agent: STUB_AGENT, reportedAt: at, context: { usedPct: report.usedPct }, ...(sessionId !== undefined && { sessionId }) } : null;
   const account = stubAccount(report.limits, at);
   const calls = stubCalls(report.calls, at);
-  if (!pane && !account && !calls) return null;
-  return { account, pane, ...(calls && { calls }) };
+  // The other conversations' stores it names — a subagent's, say.
+  const links = Array.isArray(report.links) ? report.links.filter((id): id is string => typeof id === "string") : undefined;
+  if (!pane && !account && !calls && !links) return null;
+  return { account, pane, ...(calls && { calls }), ...(links && { links }) };
 }
 
 /** One line of a stub conversation's file. */
@@ -187,9 +198,13 @@ function isStubRecord(value: unknown): value is StubRecord {
  * record is the numbers' lane, not this one. Its file is the one its binding
  * named — or, for a pane that has a conversation but named no file, the one
  * `find` finds for it, as a CLI's own store is searched. */
-const stubTail = (turnStart: string, find: (sessionId: string) => Promise<string | null>): SessionTailDialect<JsonlRequest, StubRecord> => ({
+const stubTail = (turnStart: string, find: (sessionId: string) => Promise<string | null>, watchesCalls: boolean): SessionTailDialect<JsonlRequest, StubRecord> => ({
   format: jsonl(isStubRecord),
-  watches: [{ match: [{ key: "type", equals: "status" }], keep: ["type", "event", "reason", "at"], lane: "status" }],
+  watches: [
+    { match: [{ key: "type", equals: "status" }], keep: ["type", "event", "reason", "at"], lane: "status" },
+    // A dialect that reads its calls among its turns' records.
+    ...(watchesCalls ? [{ match: [{ key: "type", equals: "call" }], keep: ["type", "calls"], lane: "calls" as const }] : []),
+  ],
   follow: async (pane) => {
     if (pane.store) return { path: pane.store };
     const path = pane.sessionId ? await find(pane.sessionId) : null;
@@ -240,12 +255,13 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
     output.args = [program, ...args, ...(control.keepsStore ? ["--store", control.storeDir] : []), ...(control.deaf ? ["--deaf"] : []), ...(control.unbound ? ["--unbound"] : [])];
   };
   /** The stub's search of its own store for a conversation's file — what a
-   * CLI's rollout search is. It waits while the test holds it. */
+   * CLI's rollout search is — for a pane's own conversation and for one its
+   * records name alike. It waits while the test holds it. */
   const find = async (sessionId: string): Promise<string | null> => {
     control.lookups += 1;
     await control.lookupHeld;
     const path = join(control.storeDir, `${sessionId}.jsonl`);
-    return existsSync(path) ? path : null;
+    return !control.lookupMisses && existsSync(path) ? path : null;
   };
   // The registry a CLI keeps of its own runs: read, never guessed — and
   // refusing, when it cannot say, rather than answering empty.
@@ -262,7 +278,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
       // What this activation says a turn starts with, and whether it speaks
       // of its turns at all: read once, as a plugin's version is.
       const turnStart = control.turnStartWord;
-      const tail = stubTail(turnStart, find);
+      const tail = stubTail(turnStart, find, control.statusWatchesCalls);
       // Its account's limits, read as the plugin's own fetch, and the files
       // worth reading cold at boot: what this activation declares.
       const limitsRead = control.limitsRead;
@@ -271,7 +287,9 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
         normalize: stubUsage,
         ...(control.tailed && {
           tail: {
-            watches: [{ match: [{ key: "type", equals: "usage" }], keep: ["type", "usedPct", "sessionId", "limits", "calls"], lane: "usage" }],
+            watches: [{ match: [{ key: "type", equals: "usage" }], keep: ["type", "usedPct", "sessionId", "limits", "calls", "links"], lane: "usage" }],
+            // A store its records name is where its search finds it.
+            locate: find,
             ...(sweep !== null && { sweep: () => Promise.resolve(sweep) }),
           },
         }),
@@ -317,7 +335,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
         usage,
         // A companion in its process, once it says hello, states the file's
         // status facts itself: the tail then carries the numbers alone.
-        companion: { covers: ["status-records"] },
+        ...(control.covers && { companion: { covers: ["status-records"] } }),
         ...(!control.voiceless && { status }),
         hooks: {
           "spawn.plan"(input, output) {
