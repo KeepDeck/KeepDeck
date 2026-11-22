@@ -9,11 +9,18 @@ import {
   API_VERSION,
   carriedUsageRecord,
   decodeStatusPayload,
+  fileStub,
   isJsonRecord,
   jsonl,
+  pageOfWalk,
   parseInstant,
   reportedLimits,
+  sessionHistory,
+  walkSession,
   type AccountUsage,
+  type AgentHistory,
+  type PluginContext,
+  type SessionDialect,
   type LimitsRead,
   type UsageCall,
   type AgentLiveSession,
@@ -119,6 +126,9 @@ export interface StubAgentControl {
   /** The agent can run with its permission prompts off: its manifest
    * declares YOLO. Read when the plugin is installed. */
   yolo: boolean;
+  /** The agent declares its history: the conversations its store holds,
+   * which the deck's index reads. Read when the plugin is installed. */
+  history: boolean;
 }
 
 /** What a stub's status report or record says: an edge by its own name and,
@@ -186,14 +196,50 @@ function stubUsage(payload: unknown, at: number): NormalizedUsage | null {
   return { account, pane, ...(calls && { calls }), ...(links && { links }) };
 }
 
-/** One line of a stub conversation's file. */
+/** One line of a stub conversation's file: an edge or numbers it reports,
+ * the head naming the folder it ran in, or one of its turns. */
 interface StubRecord extends StubSaid {
   type?: unknown;
   at?: unknown;
+  cwd?: unknown;
+  role?: unknown;
+  text?: unknown;
 }
 
 function isStubRecord(value: unknown): value is StubRecord {
   return isJsonRecord(value);
+}
+
+/** What the stub's file says of its conversation, as its history reads it:
+ * the folder its `session` head names, and its `turn`s. */
+const historyDialect: SessionDialect<{ cwd?: string }, StubRecord> = {
+  begin: () => ({}),
+  step(state, record) {
+    if (record.type === "session" && typeof record.cwd === "string") state.cwd ??= record.cwd;
+    if (record.type !== "turn" || typeof record.text !== "string") return [];
+    return record.role === "user" || record.role === "assistant" ? [{ role: record.role, text: record.text }] : [];
+  },
+  end: () => [],
+};
+
+/** The stub's history: every conversation file in its store, read through
+ * the plugin's own services as a CLI's plugin reads its store. */
+function stubHistory(ctx: Pick<PluginContext, "log" | "services">, storeDir: string): AgentHistory {
+  const walk = (ref: string, keep?: { offset: number; limit: number }) =>
+    walkSession({ store: ctx.services.sessionStore, format: jsonl(isStubRecord), request: { path: ref }, dialect: historyDialect, ...(keep && { keep }) });
+  return sessionHistory(STUB_AGENT, ctx.log, {
+    async enumerate() {
+      // The store not there throws: a store that is not there is the core's to read.
+      const files = await ctx.services.fs.readDir(storeDir);
+      return files.flatMap((file) => (file.kind === "file" && file.name.endsWith(".jsonl") ? [fileStub(file.name.slice(0, -".jsonl".length), file)] : []));
+    },
+    async describe(ref) {
+      const walked = await walk(ref);
+      return { cwd: walked.state.cwd ?? "", title: walked.title, transcriptPath: ref, ...(walked.shortfall && { shortfall: walked.shortfall }) };
+    },
+    content: async (ref) => (await walk(ref)).content,
+    readPage: async (ref, page) => pageOfWalk(await walk(ref, page)),
+  });
 }
 
 /** What the stub's file says of its turns: a `status` record carries an edge
@@ -230,8 +276,9 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
     minApiVersion: API_VERSION,
     category: "cli",
     description: "The agent of the page's tests on the host harness.",
-    // An agent's bin is run only under an exec capability that names it.
-    capabilities: [{ kind: "exec", commands: ["node"] }],
+    // An agent's bin is run only under an exec capability that names it; a
+    // history reads its store under a read capability, as a CLI's does.
+    capabilities: [{ kind: "exec", commands: ["node"] }, ...(control.history ? [{ kind: "fs" as const, scope: "everywhere" as const }] : [])],
     contributes: {
       agents: [
         {
@@ -242,6 +289,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
             { id: "session.new", label: "New sessions", group: "sessions" },
             ...(control.resumes ? [{ id: "session.resume", label: "Resume saved sessions", group: "sessions" }] : []),
             { id: "session.fork", label: "Fork saved sessions", group: "sessions" },
+            ...(control.history ? [{ id: "session.history", label: "Session history", group: "sessions" }] : []),
             { id: "usage.pane", label: "Session analytics", group: "usage" },
             // An account limits source is declared under its feature.
             ...(control.limitsRead !== null ? [{ id: "usage.account", label: "Account limits", group: "usage" }] : []),
@@ -331,6 +379,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
         label: "Stub",
         detect: { bin: "node" },
         ...(control.liveRegistry !== "none" && { liveSessions }),
+        ...(control.history && { history: stubHistory(ctx, control.storeDir) }),
         // The stub CLI's words for a session that continues the pane's
         // conversation rather than starting one.
         binding: { swapSources: ["resume", "clear", "fork"] },

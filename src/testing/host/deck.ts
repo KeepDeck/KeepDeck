@@ -313,6 +313,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     covers: true,
     statusWatchesCalls: false,
     yolo: false,
+    history: false,
     liveRegistry: "files",
     liveDir: join(host.home, "stub-live"),
     ...told,
