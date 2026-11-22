@@ -388,11 +388,18 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     const cue = `r${++reports}`;
     const answer = from === "outside" ? await postOutside(paneId, envelope, cue) : await postInTerminal(paneId, envelope, from, cue);
     // The bridge emits what it takes before it answers; the page hears it
-    // on the pipe.
+    // on the pipe. This report's own event: its lane (the bridge names each
+    // `a.b` envelope's event `deck://a/b`), its pane, and every plain field
+    // it said — not another event about the pane, such as one its agent
+    // sent of its own accord.
     if (answer === 204) {
+      const lane = `{"event":"deck://${envelope.type.replace(".", "/")}"`;
       const about = `"paneId":"${envelope.paneId ?? paneId}"`;
+      const said = Object.entries(envelope.payload ?? {})
+        .filter(([, value]) => typeof value !== "object" || value === null)
+        .map(([key, value]) => `"${key}":${JSON.stringify(value)}`);
       await host.until(`the page heard ${envelope.type} for ${paneId}`, () =>
-        host.tape.slice(mark).some(({ way, line }) => way === "← host" && line.startsWith('{"event":') && line.includes(about)));
+        host.tape.slice(mark).some(({ way, line }) => way === "← host" && line.startsWith(lane) && line.includes(about) && said.every((field) => line.includes(field))));
     }
     return answer;
   }
