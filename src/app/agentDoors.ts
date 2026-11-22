@@ -140,7 +140,7 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
       const { session } = result;
       if (session) {
         return continueOnto(workspace, target, session, {
-          name: result.name.trim() || undefined,
+          name: result.name,
           yolo: result.yolo,
           role,
         });

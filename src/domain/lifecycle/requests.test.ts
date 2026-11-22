@@ -50,11 +50,11 @@ describe("claimingTeams", () => {
 });
 
 describe("agentDraftFromRequest", () => {
-  it("keeps only what is set, and a remote agent's endpoint", () => {
-    expect(agentDraftFromRequest("claude", request({ name: "  " }))).toEqual({ agentType: "claude" });
+  it("says what the request says — what is written of it is the door's — and a remote agent's endpoint", () => {
+    expect(agentDraftFromRequest("claude", request({ name: "  " }))).toEqual({ agentType: "claude", name: "  ", yolo: false });
     expect(agentDraftFromRequest("claude", request({ name: " api ", yolo: true, remoteEndpoint: "wss://vps" }))).toEqual({
       agentType: "claude",
-      name: "api",
+      name: " api ",
       yolo: true,
       location: { kind: "remote", endpoint: "wss://vps" },
     });

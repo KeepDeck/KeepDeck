@@ -36,14 +36,14 @@ export function siteFromAgentRequest(request: AgentDialogResult): Site {
   };
 }
 
-/** The fresh agent one dialog request describes — sparse, as persistence
- * keeps a pane: only what is set. A remote agent carries its endpoint. */
+/** The fresh agent one dialog request describes, as it says it — a remote
+ * agent with its endpoint. What is written of it, trimmed and sparse, is the
+ * member's draft at the door (`draftOf`), the one every member passes. */
 export function agentDraftFromRequest(agentType: string, request: AgentDialogResult): AgentDraft {
-  const name = request.name.trim();
   return {
     agentType,
-    ...(name && { name }),
-    ...(request.yolo && { yolo: true }),
+    name: request.name,
+    yolo: request.yolo,
     ...(request.remoteEndpoint && { location: { kind: "remote", endpoint: request.remoteEndpoint } }),
   };
 }

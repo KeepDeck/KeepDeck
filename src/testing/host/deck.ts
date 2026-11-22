@@ -406,7 +406,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     return { id: ws.id, instance: ws.instance };
   }
   async function addAgent({ endpoint, workspace: into, yolo, ...ask }: AgentAsk): Promise<string> {
-    const draft = { agentType: STUB_AGENT, ...(endpoint !== undefined && { location: { kind: "remote" as const, endpoint } }), ...(yolo && { yolo: true }) };
+    const draft = { agentType: STUB_AGENT, ...(endpoint !== undefined && { location: { kind: "remote" as const, endpoint } }), yolo };
     const added = await runtime.orchestrator.createPane({ workspace: into ?? (await workspaceUp()), pane: draft, ...ask });
     if (added.kind !== "accepted") throw new Error(`no agent: ${JSON.stringify(added)}`);
     const paneId = added.minted.panes[0];

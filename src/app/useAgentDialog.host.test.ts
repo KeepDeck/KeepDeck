@@ -316,6 +316,22 @@ describe("the agent dialog, on the host", () => {
       expect(d.intents().slice(from).some((intent) => intent.kind === "seat")).toBe(false);
     });
 
+    it("asks for a continued member trimmed and sparse: no name for a blank one, no YOLO for one off", async () => {
+      // The continue door hands its YOLO on as an explicit false; what is
+      // written is the member's draft at the door's.
+      const d = await open({ yolo: true });
+      await d.agentUp();
+      const { flow } = await dialogOn(d);
+      const from = d.intents().length;
+      await startFrom(d, flow, "resume", { name: "   ", yolo: false, role: "impl-1" });
+      await until("it is asked for", () => continued(d, from).length === 1);
+      const [intent] = continued(d, from);
+      const member = intent?.kind === "continue" ? intent.member : undefined;
+      expect(member).toMatchObject({ role: "impl-1" });
+      expect(member).not.toHaveProperty("yolo");
+      expect(member).not.toHaveProperty("name");
+    });
+
     it("forks into the team's own directory, whatever location was left in the form, with the YOLO picked", async () => {
       const d = await open({ yolo: true });
       await d.agentUp();

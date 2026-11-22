@@ -145,9 +145,11 @@ describe("agent doors — a member", () => {
   it("seats a fresh member on the team by id, under the role picked, choosing no site", async () => {
     const h = setup();
     expect(await h.member({ role: "impl-1", name: " Docs ", yolo: true })).toEqual({ kind: "done" });
+    // What the person typed, as typed: the member's draft at the
+    // orchestrator's door is what trims it and writes it sparse.
     expect(h.createPane).toHaveBeenCalledExactlyOnceWith({
       workspace: h.ref,
-      pane: { agentType: "claude", name: "Docs", yolo: true },
+      pane: { agentType: "claude", name: " Docs ", yolo: true },
       team: "team-1",
       role: "impl-1",
     });
@@ -166,7 +168,7 @@ describe("agent doors — a member", () => {
     const h = setup();
     const outcome = await h.member({ name: " Lead ", yolo: true, role: "impl-1", session: { mode: "resume", handle } });
     expect(outcome).toEqual({ kind: "done" });
-    expect(h.resumeSession).toHaveBeenCalledWith("ws-1", handle, { team: "team-1", name: "Lead", yolo: true, role: "impl-1" });
+    expect(h.resumeSession).toHaveBeenCalledWith("ws-1", handle, { team: "team-1", name: " Lead ", yolo: true, role: "impl-1" });
     expect(h.createPane).not.toHaveBeenCalled();
   });
 
@@ -174,7 +176,7 @@ describe("agent doors — a member", () => {
     const h = setup();
     expect(await h.member({ role: "impl-1", session: { mode: "fork", handle } })).toEqual({ kind: "done" });
     expect(h.forkSession).toHaveBeenCalledWith("ws-1", handle, { kind: "dir", cwd: "/repo" }, {
-      name: undefined,
+      name: "",
       yolo: false,
       role: "impl-1",
       team: "team-1",
