@@ -2,13 +2,13 @@
 import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
+import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { useAgentDialog as UseAgentDialog } from "./useAgentDialog";
 import { presetPick } from "../domain/agents";
 import { callsOf, useHost } from "../testing/host/host";
 import { quitAfter, startDeck, type Deck } from "../testing/host/deck";
+import { mountInPage } from "../testing/host/page";
 import type { StubAgentControl } from "../testing/host/stubPlugin";
 
 /** What the agent dialog hook holds, as the app's controller hands it. */
@@ -52,22 +52,14 @@ describe("the agent dialog, on the host", () => {
       onCreateFailed: (message: string) => failures.push(`create: ${message}`),
       onTeamFailed: (message: string) => failures.push(`team: ${message}`),
     };
-    let flow: Flow | null = null;
-    function Host() {
+    const mounted = await mountInPage(d, (): Flow => {
       const shown = useDeck(d.runtime.deckStore);
       const { agents } = useAgentsFrom(d.runtime.plugins);
       const view = useAgentRunView(d.runtime.orchestrator);
-      flow = useAgentDialog(shown, agents, notices, view.blocked, d.runtime.agentDoors);
-      return null;
-    }
-    const root = createRoot(document.body.appendChild(document.createElement("div")));
-    await act(async () => root.render(createElement(Host)));
-    unmount = () => act(() => root.unmount());
-    const current = (): Flow => {
-      if (!flow) throw new Error("the dialog hook did not mount");
-      return flow;
-    };
-    return { flow: current, failures };
+      return useAgentDialog(shown, agents, notices, view.blocked, d.runtime.agentDoors);
+    });
+    unmount = mounted.unmount;
+    return { flow: mounted.current, failures };
   }
 
   /** The first workspace's first team. */
