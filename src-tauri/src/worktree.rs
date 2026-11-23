@@ -384,8 +384,7 @@ pub(crate) fn remove_planned_checkout(locks: &RepoLocks, repo_path: &Path, path:
 pub(crate) fn remove_planned_branch(locks: &RepoLocks, repo_path: &Path, name: &str) -> Result<(), String> {
     let lock = locks.for_repo(repo_path);
     let _guard = locks.acquire(&lock);
-    let in_use = worktree::list(repo_path).map_err(|e| e.to_string())?.into_iter().any(|row| row.branch.as_deref() == Some(name));
-    if in_use {
+    if worktree::branch_checked_out(repo_path, name).map_err(|e| e.to_string())? {
         log::warn!("worktree: branch '{name}' is checked out in another worktree of {}; keeping it", repo_path.display());
         return Ok(());
     }
