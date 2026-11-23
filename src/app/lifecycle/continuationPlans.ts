@@ -65,9 +65,10 @@ export function createContinuationPlans(deps: ContinuationPlansDeps): Continuati
   const known = new Map<string, ContinuationFacts>();
 
   /** What a build is made from: the facts noted of its source and the YOLO of
-   * its own ask — or why it is not built. A command with no note behind it
-   * was asked for before a restart: the machine is taking its operation back,
-   * and a plan rebuilt from the journal would be one nothing retires. */
+   * its own ask — or why it is not built. A build is asked only in the launch
+   * whose door noted its source (the machine never asks again one a launch
+   * that ended had asked); one with nothing noted has nothing to be built
+   * from, and is refused in words rather than guessed at. */
   function inputsOf(workspace: string, source: SessionKey, draft: unknown): { facts: ContinuationFacts; yolo: boolean | undefined } | OwnerRefusal {
     const facts = known.get(keyOf(workspace, source));
     if (!facts) return { kind: "notAsked" };

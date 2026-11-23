@@ -150,6 +150,12 @@ impl Cmd {
         )
     }
 
+    /// It asks the page to build a launch plan — a plan held by the page that
+    /// asked, for that launch alone.
+    pub fn builds_a_plan(&self) -> bool {
+        matches!(self, Cmd::Fork { .. } | Cmd::PrepareResume { .. })
+    }
+
     pub fn owner(&self) -> Owner {
         match self {
             Cmd::AddWorkspace { .. }

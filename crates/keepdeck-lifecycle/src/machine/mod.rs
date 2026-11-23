@@ -88,15 +88,24 @@ pub struct Counters {
 pub struct Sent {
     pub cmd: Cmd,
     pub outcome: Option<Outcome>,
+    /// A plan's build asked in a launch that ended before it was answered.
+    /// Nobody in this launch asked for that plan, so it is not asked again:
+    /// it is settled, with no answer.
+    #[serde(default)]
+    pub lapsed: bool,
 }
 
 impl Sent {
     pub fn new(cmd: Cmd) -> Sent {
-        Sent { cmd, outcome: None }
+        Sent { cmd, outcome: None, lapsed: false }
     }
 
-    /// Settled: answered — and a deck command applied, also on disk.
+    /// Settled: answered — and a deck command applied, also on disk — or a
+    /// plan's build that lapsed with its launch.
     pub fn settled(&self, saved: Option<Revision>) -> bool {
+        if self.lapsed {
+            return true;
+        }
         match (&self.outcome, self.cmd.owner()) {
             (None, _) => false,
             (Some(Outcome::Rejected { .. }), _) => true,

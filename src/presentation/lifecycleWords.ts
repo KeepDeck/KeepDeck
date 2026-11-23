@@ -66,7 +66,7 @@ export function ownerRefusalText(refusal: OwnerRefusal): string {
     case "wrongOwner":
       return "KeepDeck sent this to the wrong place, so nothing was done.";
     case "notAsked":
-      return "It was asked for before KeepDeck restarted, so the conversation was not carried on.";
+      return "Nothing in this run of KeepDeck asked to continue that conversation, so it was not carried on.";
     case "failed":
       return "It could not be done — KeepDeck's log says why.";
     case "unknown":

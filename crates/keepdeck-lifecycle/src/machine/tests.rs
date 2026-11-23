@@ -2227,6 +2227,34 @@ fn an_open_fork_at_boot_is_rolled_back_by_both_discard_lists() {
     assert!(sim.disk.is_empty());
 }
 
+/// A plan is built for the launch that asked for it. A fork whose hook was
+/// asked and never answered before the launch ended is taken back at boot
+/// without asking the hook again: its plan was for a run that is gone, and
+/// whatever the page now holds of the conversation is another ask's.
+#[test]
+fn a_build_asked_in_a_launch_that_ended_is_never_asked_again() {
+    let source = SessionKey { agent: "claude".into(), session: "s".into() };
+    let unanswered = |index: u32, cmd: Cmd| crate::journal::Sent { command: crate::command::Command { id: CommandId { op: OpId(6), index }, cmd }, settled: false, rejected: None };
+    let entry = Entry {
+        op: OpId(6),
+        workspace: ws(),
+        work: Work::Fork { pane: PaneId(1), source: source.clone(), team: None, ticket: None, discard: None },
+        joined: vec![],
+        commands: vec![
+            unanswered(0, Cmd::Fork { workspace: ws(), pane: PaneId(1), source: source.clone(), cwd: Dir::new("/repo"), draft: draft() }),
+            unanswered(1, Cmd::PrepareResume { workspace: ws(), pane: PaneId(1), source, draft: draft() }),
+        ],
+        done: vec![],
+    };
+    let mut sim = Sim::booted_with(deck(), vec![entry]);
+    let builds = |cmd: &Cmd| matches!(cmd, Cmd::Fork { .. } | Cmd::PrepareResume { .. });
+    assert_eq!(sim.pending_matching(builds), vec![], "no build is asked again");
+    sim.drive();
+    assert!(!sim.carried.iter().any(builds));
+    assert!(!sim.state.world.panes.contains_key(&PaneId(1)), "the fork is taken back");
+    assert!(sim.disk.is_empty());
+}
+
 /// An open fork whose pane is gone from the deck, with no team of its own:
 /// it knows no team it landed on — none is made up — and is taken back.
 #[test]
