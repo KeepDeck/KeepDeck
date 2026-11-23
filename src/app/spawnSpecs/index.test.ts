@@ -10,6 +10,7 @@ import type {
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "./plans";
+import { rejectedResumeNext } from "../../domain/agents";
 import type { Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createSpawnPluginsFake, installedPlugin } from "./planTestSupport";
@@ -446,7 +447,7 @@ describe("the plan builders — live pane, resume, fork", () => {
     expect(peekPaneSpawnSpec("pane-1")).toBeUndefined();
   });
 
-  it("resumeDiedSilently: only a restored resume with ZERO new postbacks retries", () => {
+  it("resumeDiedSilently: a resume with ZERO new postbacks, whoever asked for it", () => {
     const restored = {
       args: [],
       env: [],
@@ -454,15 +455,14 @@ describe("the plan builders — live pane, resume, fork", () => {
       resumeOrigin: "restore" as const,
       postbackMark: 2,
     };
-    // Exited with the count unmoved — the CLI refused the id: retry fresh.
+    // Exited with the count unmoved — the CLI refused the id.
     expect(resumeDiedSilently(restored, 2)).toBe(true);
     // A postback arrived — the session really started; a later exit is real.
     expect(resumeDiedSilently(restored, 3)).toBe(false);
-    // A manual restart is never silently replaced with another spawn.
-    expect(resumeDiedSilently({ ...restored, resumeOrigin: "manual" }, 2)).toBe(
-      false,
-    );
-    // Fresh plans and unknown panes never retry.
+    // A resume the person asked for died the same way: what it then earns
+    // is the decision's, by its origin — not this reading's.
+    expect(resumeDiedSilently({ ...restored, resumeOrigin: "manual" }, 2)).toBe(true);
+    // Fresh plans and unknown panes never count.
     expect(resumeDiedSilently({ args: [], env: [] }, 0)).toBe(false);
     expect(resumeDiedSilently(undefined, 0)).toBe(false);
   });
@@ -495,8 +495,11 @@ describe("the plan builders — live pane, resume, fork", () => {
     expect(after.args).toEqual(before.args);
     expect(after.token).toBe(before.token);
     expect(after.resumeOf).toBe(before.resumeOf);
-    // And the flip disarms the auto-fresh fallback, which is the point.
-    expect(resumeDiedSilently(after, after.postbackMark ?? 0)).toBe(false);
+    // And the flip disarms the auto-fresh fallback, which is the point: a
+    // retried resume the person asked for is left down, where a restore
+    // would have gone to the registry and on to a fresh start.
+    expect(rejectedResumeNext(after.resumeOrigin ?? "manual", true, true)).toEqual({ kind: "leave" });
+    expect(rejectedResumeNext(before.resumeOrigin ?? "manual", true, true)).toEqual({ kind: "ask-registry" });
   });
 
   it("refuses a plan that is not a resume, and a pane with no plan at all", async () => {

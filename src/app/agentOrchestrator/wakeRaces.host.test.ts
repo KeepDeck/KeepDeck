@@ -56,11 +56,15 @@ describe("wakes and the requests that overtake them, on the host", () => {
       probing.release();
       await host().until("its resume ran, and was rejected", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "exited", 15_000);
       expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
-      // The person's resume: a rejection is not quietly started over.
+      // The person's resume: a rejection is tried once more on the same
+      // conversation, still as the person's — never quietly started over.
       expect(view(d).specs[paneId]?.resumeOrigin).toBe("manual");
-      expect(d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 1)).toBe(false);
+      expect(d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 1)).toBe(true);
+      await host().until("resumed again, and up", () => d.launches(paneId).length === launched + 2 && d.slot(paneId) === "live", 15_000);
+      expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+      expect(view(d).specs[paneId]).toMatchObject({ resumeOrigin: "manual", resumeRetry: true });
       await aWhile();
-      expect(d.launches(paneId)).toHaveLength(launched + 1);
+      expect(d.launches(paneId)).toHaveLength(launched + 2);
     });
 
     it("wakes a boot restore whose plan the agent could not build fresh — with nothing on its card", async () => {

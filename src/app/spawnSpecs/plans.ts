@@ -96,10 +96,9 @@ export interface SpawnPlan {
   /** Host bookkeeping: the recorded session this plan tries to RESUME. Set
    * only on resume plans — the resume-failure detector keys off it. */
   resumeOf?: string;
-  /** Host bookkeeping: this plan IS the one quiet retry a refused boot
-   * restore earned (the registry said "absent"). Its own silent death is
-   * then the SECOND — and the legacy fresh fallback fires without another
-   * registry question. */
+  /** Host bookkeeping: this plan IS the one quiet retry a refused resume
+   * earned. Its own silent death is then the SECOND, and the pane goes the
+   * way `decideRejectedResume` says for a resume already retried. */
   resumeRetry?: boolean;
   /** Host bookkeeping: the source session cloned by a FORK plan. */
   forkOf?: string;
@@ -133,13 +132,14 @@ export function planReports(plan: SpawnPlan | undefined): boolean {
   return plan?.env.some(([key]) => key === BRIDGE_ENV) ?? false;
 }
 
-/** Whether a pane's boot-restoration RESUME died before ever becoming a
- * session: the plan came from restore, and not one accepted postback has
- * arrived since it was built — a working resume always reports first (every
- * agent's startup hook posts through the bridge). Such an exit is the CLI
- * refusing the recorded id (deleted, GC'd, never materialized): the binding
- * is dead and the pane deserves the one-shot fresh fallback. Manual resumes
- * deliberately stay exited so another spawn only happens on another click.
+/** Whether a pane's RESUME died before ever becoming a session: its plan is
+ * a resume, and not one accepted postback has arrived since it was built — a
+ * working resume always reports first (every agent's startup hook posts
+ * through the bridge). Such an exit is the CLI refusing the recorded id, for
+ * good (deleted, GC'd, never materialized) or for a moment: what follows is
+ * `decideRejectedResume`'s, by who asked for the resume. A stop the deck
+ * itself asked for never reads as one: the machine drops the pane's plan
+ * before each stop, so its exit finds no resume plan here.
  *
  * Here, beside the shape it reads, rather than in the cache's barrel: it holds
  * no cache state, and living there meant every suite that mocks the barrel had
@@ -149,9 +149,5 @@ export function resumeDiedSilently(
   spec: SpawnPlan | undefined,
   currentPostbacks: number,
 ): boolean {
-  return (
-    spec?.resumeOrigin === "restore" &&
-    !!spec.resumeOf &&
-    spec.postbackMark === currentPostbacks
-  );
+  return !!spec?.resumeOf && spec.postbackMark === currentPostbacks;
 }

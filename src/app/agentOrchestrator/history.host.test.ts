@@ -103,17 +103,21 @@ describe("a recorded conversation continued, on the host", () => {
       expect(d.stub.plans.map((asked) => asked.hook)).toEqual(["resume"]);
     });
 
-    it("resumes by the person's ask: a conversation its agent rejects is not quietly started over", async () => {
+    it("resumes by the person's ask: a conversation its agent rejects is tried once more, never quietly started over", async () => {
       const d = await open();
       const ws = await d.workspaceUp();
-      d.stub.rejectResumes = 1;
+      d.stub.rejectResumes = 2;
       const pane = minted(await d.runtime.orchestrator.resumeSession(ws.id, record(), { role: "lead" }));
       await host().until("its agent rejected the conversation", () => d.launches(pane).length === 1 && d.slot(pane) === "exited", 15_000);
-      // Heard as the window hears an exit: no recovery takes a resume the
-      // person asked for — no retry, no fresh conversation in its place.
+      // Heard as the window hears an exit: one quiet retry, on the same
+      // conversation…
+      expect(d.runtime.orchestrator.recoverRejectedResume(ws.id, pane, 1)).toBe(true);
+      await host().until("resumed again, and rejected again", () => d.launches(pane).length === 2 && d.slot(pane) === "exited", 15_000);
+      expect(d.launches(pane)[1]?.args).toEqual(expect.arrayContaining(["--resume", record().sessionId]));
+      // …and no further: no fresh conversation in its place.
       expect(d.runtime.orchestrator.recoverRejectedResume(ws.id, pane, 1)).toBe(false);
       await new Promise((resolve) => setTimeout(resolve, 300));
-      expect(d.launches(pane)).toHaveLength(1);
+      expect(d.launches(pane)).toHaveLength(2);
     });
 
     it("answers the machine's refusal, and the page writes nothing of its own", async () => {

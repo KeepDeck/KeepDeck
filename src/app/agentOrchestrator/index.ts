@@ -69,11 +69,12 @@ export interface AgentOrchestrator {
   /** Restart a pane's agent: the machine stops its exact session, and the
    * funnel launches it again — on its recorded session, or fresh. */
   restart(wsId: string, paneId: string, mode: AgentRestartMode): Promise<IntentOutcome>;
-  /** Recover a rejected boot-time resume: ask the live registry before
-   * touching the binding — a session held by an outside process keeps it and
-   * offers the choice, an absent one earns one quiet retry, and only the
-   * second silent death (or no registry to ask) falls back fresh. Answers
-   * whether it took the pane over (the caller then stays quiet). */
+  /** Recover a rejected resume — one that died before it became a session.
+   * Whoever asked for it, it earns one quiet retry on its conversation; a
+   * boot restore held by an outside process instead keeps its binding and
+   * offers the choice. Refused again, a boot restore falls back fresh and a
+   * resume the person asked for stays exited. Answers whether it took the
+   * pane over (the caller then stays quiet). */
   recoverRejectedResume(wsId: string, paneId: string, code: number | null): boolean;
   /** Whether this pane is being put back down after a wake that failed —
    * its suspension then is the old one restored, not the person's new

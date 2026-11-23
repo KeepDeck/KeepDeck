@@ -95,13 +95,23 @@ describe("a rejected boot resume, on the host", () => {
     await host().until("a new conversation bound", () => d.pane(paneId).session !== undefined && d.pane(paneId).session?.id !== session);
   });
 
-  it("starts fresh at once when there is no registry to ask", async () => {
-    // No registry is not the registry saying the conversation is free: no
-    // quiet retry, a fresh start.
+  it("retries the resume once, quietly, when there is no registry to ask — the conversation is kept", async () => {
+    // No registry is no claim either way: one transient refusal must not
+    // cost the conversation.
     const { paneId, session, launched } = await bound();
     const d = await relaunched({ rejectResumes: 1, liveRegistry: "none" });
     await rejected(d, paneId, launched + 1);
-    await host().until("a fresh start, up", () => d.launches(paneId).length === launched + 2 && d.slot(paneId) === "live", 15_000);
+    await host().until("resumed again, and up", () => d.launches(paneId).length === launched + 2 && d.slot(paneId) === "live", 15_000);
+    expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+    expect(d.pane(paneId).session?.id).toBe(session);
+  });
+
+  it("starts fresh with no registry to ask only once the quiet retry is rejected too", async () => {
+    const { paneId, session, launched } = await bound();
+    const d = await relaunched({ rejectResumes: 2, liveRegistry: "none" });
+    await rejected(d, paneId, launched + 1);
+    await rejected(d, paneId, launched + 2);
+    await host().until("a fresh start, up", () => d.launches(paneId).length === launched + 3 && d.slot(paneId) === "live", 15_000);
     expect(lastArgs(d, paneId)).not.toContain("--resume");
     await host().until("a new conversation bound", () => d.pane(paneId).session !== undefined && d.pane(paneId).session?.id !== session);
   });
@@ -148,13 +158,14 @@ describe("a rejected boot resume, on the host", () => {
     }
 
     it("is not another agent's binding: a resume that only heard one died without a word of its own", async () => {
-      const { d, paneId, launched } = await resumedQuiet({ liveRegistry: "none" });
+      const { d, paneId, session, launched } = await resumedQuiet({ liveRegistry: "none" });
       // Another CLI run inside the pane reports its own conversation, which
       // the deck refuses; then the resumed agent ends.
       expect(await d.report(paneId, { type: "session.bound", payload: { sessionId: "k-1", agent: "kimi" } }, "child")).toBe(204);
       d.type(paneId, "exit 1");
       await rejected(d, paneId, launched + 1);
-      await host().until("a fresh start, up", () => d.launches(paneId).length === launched + 2 && d.slot(paneId) === "live", 15_000);
+      await host().until("resumed again, up", () => d.launches(paneId).length === launched + 2 && d.slot(paneId) === "live", 15_000);
+      expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
     });
 
     it("is its own conversation bound: a resume that reported, then ended, is not taken over as rejected", async () => {
@@ -165,6 +176,92 @@ describe("a rejected boot resume, on the host", () => {
       expect(d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 1)).toBe(false);
       expect(d.launches(paneId)).toHaveLength(launched + 1);
     });
+  });
+});
+
+/**
+ * A resume the person asked for — its pane's Resume, a team's — that its
+ * agent rejected the same way: one quiet retry on its own conversation, and
+ * if that is rejected too, the pane stays down and its exit is said, never
+ * turned into another conversation.
+ */
+describe("a rejected resume the person asked for, on the host", () => {
+  const host = useHost();
+  let deck: Deck | null = null;
+
+  afterEach(() => {
+    deck?.dispose();
+    deck = null;
+  });
+
+  const lastArgs = (d: Deck, paneId: string) => {
+    const launches = d.launches(paneId);
+    return launches[launches.length - 1]?.args ?? [];
+  };
+
+  /** An agent up, then suspended, then asked back with its agent told
+   * `told` first — how many resumes it refuses, whether it reports. */
+  async function askedBack(told: Partial<StubAgentControl>) {
+    const d = (deck = await startDeck(host()));
+    const { ws, paneId, session } = await d.agentUp();
+    const suspend = async () => {
+      expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
+      await host().until("suspended", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none", 15_000);
+    };
+    await suspend();
+    const launched = d.launches(paneId).length;
+    Object.assign(d.stub, told);
+    expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toMatchObject({ kind: "resuming" });
+    return { d, paneId, session, launched, suspend };
+  }
+
+  /** The `launch`-th process of the pane exited, having reported nothing —
+   * what the page answers when the window's terminal hears it. */
+  async function exitedSilently(d: Deck, paneId: string, launch: number): Promise<boolean> {
+    await host().until(`launch ${launch} rejected`, () => d.launches(paneId).length === launch && d.slot(paneId) === "exited", 15_000);
+    return d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 1);
+  }
+
+  it("is retried once, quietly, on its own conversation", async () => {
+    const { d, paneId, session, launched } = await askedBack({ rejectResumes: 1 });
+    expect(await exitedSilently(d, paneId, launched + 1)).toBe(true);
+    await host().until("resumed again, and up", () => d.launches(paneId).length === launched + 2 && d.slot(paneId) === "live", 15_000);
+    expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
+    expect(d.runtime.orchestrator.getView().specs[paneId]).toMatchObject({ resumeRetry: true, resumeOrigin: "manual" });
+    expect(d.pane(paneId).session?.id).toBe(session);
+  });
+
+  it("stays down on its conversation when the retry is rejected too — not taken over, never fresh", async () => {
+    const { d, paneId, session, launched } = await askedBack({ rejectResumes: 2 });
+    expect(await exitedSilently(d, paneId, launched + 1)).toBe(true);
+    expect(await exitedSilently(d, paneId, launched + 2)).toBe(false);
+    await host().until("settled", () => d.settled());
+    expect(d.launches(paneId)).toHaveLength(launched + 2);
+    expect(d.slot(paneId)).toBe("exited");
+    expect(d.pane(paneId).session?.id).toBe(session);
+  });
+
+  it("is left alone when it ended cleanly — the person quit it while it was restoring", async () => {
+    const { d, paneId, session, launched } = await askedBack({ rejectResumes: 1 });
+    await host().until("it ended", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "exited", 15_000);
+    expect(d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 0)).toBe(false);
+    await host().until("settled", () => d.settled());
+    expect(d.launches(paneId)).toHaveLength(launched + 1);
+    expect(d.pane(paneId).session?.id).toBe(session);
+  });
+
+  it("is not started again when the deck itself stopped it before it reported", async () => {
+    // Up, but silent: it has not reported yet when the person suspends it.
+    // Two things hold this, each enough alone: the machine drops the
+    // pane's plan before its stop, and a suspended pane is not taken over.
+    // The row goes red only when both go.
+    const { d, paneId, launched, suspend } = await askedBack({ unbound: true });
+    await host().until("up, silent", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live", 15_000);
+    await suspend();
+    expect(d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 1)).toBe(false);
+    await host().until("settled", () => d.settled());
+    expect(d.launches(paneId)).toHaveLength(launched + 1);
+    expect(d.phase(paneId)).toBe("suspended");
   });
 });
 
