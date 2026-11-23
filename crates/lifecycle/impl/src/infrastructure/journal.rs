@@ -17,9 +17,6 @@ pub const FORMAT: u32 = 1;
 /// How much of an unreadable file goes to the log with it.
 pub const RAW_LIMIT: usize = 4096;
 
-/// The claim's lock file lives in the same folder; it is not an entry.
-const LOCK_FILE: &str = "lock";
-
 #[derive(Serialize, Deserialize)]
 struct OnDisk {
     format: u32,
@@ -113,11 +110,15 @@ fn bounded(bytes: &[u8]) -> String {
 #[derive(Clone, Debug)]
 pub struct DiskJournal {
     root: PathBuf,
+    /// The lock file of the folder's claim. It lives in the same folder and
+    /// is no entry: it is never read, dropped or removed. Its name is the
+    /// claim's, handed in by whoever holds the claim.
+    lock: String,
 }
 
 impl DiskJournal {
-    pub fn new(root: PathBuf) -> DiskJournal {
-        DiskJournal { root }
+    pub fn new(root: PathBuf, lock: &str) -> DiskJournal {
+        DiskJournal { root, lock: lock.to_owned() }
     }
 
     /// Write an operation's entry, whole, over the one it had.
@@ -163,7 +164,7 @@ impl DiskJournal {
                 continue;
             }
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
-            if name == LOCK_FILE {
+            if name == self.lock {
                 continue;
             }
             files.push((name, fs::read(entry.path())?));
@@ -193,6 +194,13 @@ mod tests {
     use crate::domain::ids::{CommandId, PaneId, TeamId, WorkspaceId};
     use crate::domain::journal::{Removal, Sent, Step, Target, Work};
     use crate::domain::model::{Consent, Draft, Folder, SessionKey};
+
+    /// The claim's lock file, as the app names it.
+    const LOCK_FILE: &str = "lock";
+
+    fn on_disk(dir: &std::path::Path) -> DiskJournal {
+        DiskJournal::new(dir.to_path_buf(), LOCK_FILE)
+    }
     use std::path::Path;
 
     fn ws() -> WorkspaceId {
@@ -244,7 +252,7 @@ mod tests {
     fn an_entry_saved_is_read_back_whole_and_the_claim_lock_is_no_entry() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(LOCK_FILE), b"").unwrap();
-        let journal = DiskJournal::new(dir.path().to_path_buf());
+        let journal = on_disk(dir.path());
         journal.save(&disband(5)).unwrap();
         assert_eq!(names(dir.path()), [LOCK_FILE, "op-5.json"], "no temporary file is left");
         let loaded = journal.load().unwrap();
@@ -301,7 +309,7 @@ mod tests {
     #[test]
     fn a_corrupt_entry_is_dropped_with_its_content_and_removed_never_replayed() {
         let dir = tempfile::tempdir().unwrap();
-        let journal = DiskJournal::new(dir.path().to_path_buf());
+        let journal = on_disk(dir.path());
         journal.save(&disband(1)).unwrap();
         fs::write(dir.path().join("op-2.json"), b"{\"format\": 1, \"op\": 2, \"work\": ").unwrap();
         let loaded = journal.load().unwrap();
@@ -322,7 +330,7 @@ mod tests {
         assert_eq!(decode("op-3.json", &bytes), Err(Unreadable::Newer(FORMAT + 1)));
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("op-3.json"), &bytes).unwrap();
-        let loaded = DiskJournal::new(dir.path().to_path_buf()).load().unwrap();
+        let loaded = on_disk(dir.path()).load().unwrap();
         assert!(loaded.entries.is_empty());
         assert_eq!(loaded.dropped[0].why, Unreadable::Newer(FORMAT + 1));
         assert!(names(dir.path()).is_empty());
@@ -338,7 +346,7 @@ mod tests {
     #[test]
     fn a_save_cut_short_leaves_the_old_entry_and_boot_removes_the_stray() {
         let dir = tempfile::tempdir().unwrap();
-        let journal = DiskJournal::new(dir.path().to_path_buf());
+        let journal = on_disk(dir.path());
         journal.save(&disband(4)).unwrap();
         // A crash between the temporary file and the rename.
         fs::write(dir.path().join(".op-4.json.tmp"), b"{\"format\": 1, \"op\":").unwrap();
@@ -355,7 +363,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("op-4.json"), b"not json").unwrap();
         fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
-        let loaded = DiskJournal::new(dir.path().to_path_buf()).load();
+        let loaded = on_disk(dir.path()).load();
         fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
         let loaded = loaded.unwrap();
         assert!(loaded.dropped[0].removed.is_err(), "{:?}", loaded.dropped);
@@ -366,7 +374,7 @@ mod tests {
     fn the_content_that_goes_to_the_log_is_bounded() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("op-6.json"), vec![b'x'; RAW_LIMIT * 2]).unwrap();
-        let raw = &DiskJournal::new(dir.path().to_path_buf()).load().unwrap().dropped[0].raw;
+        let raw = &on_disk(dir.path()).load().unwrap().dropped[0].raw;
         assert!(raw.len() < RAW_LIMIT + 64);
         assert!(raw.ends_with(&format!("({} bytes in all)", RAW_LIMIT * 2)));
     }
@@ -374,7 +382,7 @@ mod tests {
     #[test]
     fn entries_load_in_operation_order() {
         let dir = tempfile::tempdir().unwrap();
-        let journal = DiskJournal::new(dir.path().to_path_buf());
+        let journal = on_disk(dir.path());
         for op in [12, 3, 7] {
             journal.save(&disband(op)).unwrap();
         }
@@ -385,7 +393,7 @@ mod tests {
     #[test]
     fn removing_what_is_gone_is_done() {
         let dir = tempfile::tempdir().unwrap();
-        let journal = DiskJournal::new(dir.path().to_path_buf());
+        let journal = on_disk(dir.path());
         journal.save(&disband(9)).unwrap();
         journal.remove(OpId(9)).unwrap();
         assert!(names(dir.path()).is_empty());

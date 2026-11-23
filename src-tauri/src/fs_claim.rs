@@ -22,8 +22,9 @@ use std::fs::{File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// The lock file that makes ownership of the store root exclusive.
-const LOCK_FILE: &str = "lock";
+/// The lock file that makes ownership of the store root exclusive. A store
+/// that reads its root's files is told this name, so as to leave it be.
+pub(crate) const LOCK_FILE: &str = "lock";
 
 const CLAIM_TIMEOUT: Duration = Duration::from_millis(250);
 const CLAIM_RETRY: Duration = Duration::from_millis(5);

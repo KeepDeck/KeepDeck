@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 /// The journal of `root`: every readable entry; every other file is logged
 /// with its content and removed. None when the folder cannot be read at all.
-fn read_journal(root: &Path) -> Option<Vec<Entry>> {
-    match DiskJournal::new(root.to_path_buf()).load() {
+fn read_journal(journal: &DiskJournal, root: &Path) -> Option<Vec<Entry>> {
+    match journal.load() {
         Ok(loaded) => {
             for dropped in &loaded.dropped {
                 log::error!(
@@ -38,11 +38,14 @@ fn read_journal(root: &Path) -> Option<Vec<Entry>> {
 
 /// Start a machine on the journal in `root` when it may write there — or
 /// view-only, without it: an unreadable journal is not an empty one, and
-/// nothing may run as if it were. Call where a tokio runtime is entered.
-pub fn start(root: &Path, writes_journal: bool, doors: Arc<dyn Doors>) -> Door {
-    let journal = if writes_journal { read_journal(root) } else { None };
+/// nothing may run as if it were. `lock` is the file of the folder's claim,
+/// named by whoever holds the claim: it is no entry. Call where a tokio
+/// runtime is entered.
+pub fn start(root: &Path, lock: &str, writes_journal: bool, doors: Arc<dyn Doors>) -> Door {
+    let disk = DiskJournal::new(root.to_path_buf(), lock);
+    let journal = if writes_journal { read_journal(&disk, root) } else { None };
     let waiters = Waiters::default();
-    let handler = Handler::new(doors, DiskJournal::new(root.to_path_buf()), waiters.clone());
+    let handler = Handler::new(doors, disk, waiters.clone());
     let machine = Runtime::start(State::start(journal), update, work, handler);
     Door::new(machine, waiters)
 }
@@ -62,6 +65,9 @@ mod tests {
     use crate::domain::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
     use std::sync::Mutex;
     use std::time::Duration;
+
+    /// The claim's lock file, as the app names it.
+    const LOCK_FILE: &str = "lock";
 
     /// Doors that do what is asked, or panic where a test makes them.
     #[derive(Default)]
@@ -128,7 +134,7 @@ mod tests {
     }
 
     async fn booted(root: &Path, doors: Arc<FakeDoors>) -> Door {
-        let door = start(root, true, doors);
+        let door = start(root, LOCK_FILE, true, doors);
         let reply = handshake(&door).await;
         assert!(matches!(reply, Reply::Answered { answer: Answer::Booted { .. } }), "{reply:?}");
         door
@@ -258,9 +264,9 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn without_the_journal_it_may_write_or_with_one_it_cannot_read_the_machine_only_shows() {
         let dir = tempfile::tempdir().unwrap();
-        let not_ours = start(dir.path(), false, Arc::new(FakeDoors::default()));
+        let not_ours = start(dir.path(), LOCK_FILE, false, Arc::new(FakeDoors::default()));
         assert_eq!(handshake(&not_ours).await, Reply::Answered { answer: Answer::refused(Refusal::BarrierUp) }, "not its to write");
-        let unreadable = start(&dir.path().join("not-there"), true, Arc::new(FakeDoors::default()));
+        let unreadable = start(&dir.path().join("not-there"), LOCK_FILE, true, Arc::new(FakeDoors::default()));
         assert_eq!(handshake(&unreadable).await, Reply::Answered { answer: Answer::refused(Refusal::BarrierUp) }, "not to be read");
     }
 }

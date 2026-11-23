@@ -61,7 +61,7 @@ impl Lifecycle {
                 None
             }
         };
-        let door = machine::start(&root, claim.is_some(), doors.clone());
+        let door = machine::start(&root, fs_claim::LOCK_FILE, claim.is_some(), doors.clone());
         Lifecycle { live: Arc::new(Mutex::new(Live { door, claim })), doors, root }
     }
 
@@ -97,7 +97,7 @@ impl Lifecycle {
                 }
                 tokio::time::sleep(CLAIM_RETRY).await;
                 let Ok(claim) = fs_claim::claim(&lifecycle.root, "lifecycle journal") else { continue };
-                let door = machine::start(&lifecycle.root, true, lifecycle.doors.clone());
+                let door = machine::start(&lifecycle.root, fs_claim::LOCK_FILE, true, lifecycle.doors.clone());
                 *lifecycle.live.lock().expect("lifecycle") = Live { door, claim: Some(claim) };
                 log::info!("lifecycle: the journal root is this copy's now; starting over");
                 let _ = app.emit(RESTARTED, ());
