@@ -107,6 +107,23 @@ fn close_agent(pane: u64) -> Intent {
     Intent::CloseAgent { workspace: ws(), pane: PaneId(pane), consent: Consent::default() }
 }
 
+/// The machine's door is had without fail: a lock another thread poisoned
+/// still holds a whole door. The sessions' watcher asks for one as its own
+/// panic unwinds, where a second panic would abort the app.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_door_is_had_even_from_a_poisoned_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let lifecycle = booted(dir.path(), Arc::new(FakeDoors::default())).await;
+    let poisoner = lifecycle.clone();
+    let _ = std::thread::spawn(move || {
+        let _held = poisoner.live.lock().unwrap();
+        panic!("a panic while the lock is held");
+    })
+    .join();
+    assert!(lifecycle.live.is_poisoned());
+    assert!(lifecycle.door().machine().state().has_changed().is_ok(), "the door of the running machine");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_stores_gate_refuses_a_closed_panes_writes_and_no_one_elses() {
     use crate::forgotten::{Gate, Source};

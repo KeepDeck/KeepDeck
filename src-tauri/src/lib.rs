@@ -262,8 +262,7 @@ fn compose<R: tauri::Runtime>(
             // The sessions' watcher and the stores' commit gate hold the
             // machine itself rather than look it up in the managed state, so
             // the order of `manage` calls cannot make either lose it.
-            let watched = lifecycle.clone();
-            sessions.link(move || watched.door());
+            sessions.link(lifecycle.clone());
             // The stores' commit gate answers from the machine's forgotten set.
             let gated = lifecycle.clone();
             let forgetting = lifecycle::MachineForgetting::new(move || gated.door());

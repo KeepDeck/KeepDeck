@@ -70,8 +70,7 @@ async fn rig() -> Rig {
     let sessions = SessionMachine::start();
     let doors = AppDoors::new(sessions.clone(), crate::worktree::RepoLocks::default(), Arc::new(NoStores));
     let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(doors));
-    let door = lifecycle.door();
-    sessions.link(move || door.clone());
+    sessions.link(lifecycle.clone());
     let reply = lifecycle.door().ask(|ask| Event::Handshake { ask, deck: deck(&cwd), load: Load::Loaded }).await;
     assert!(matches!(reply, Reply::Answered { answer: Answer::Booted { .. } }), "{reply:?}");
     Rig { sessions, lifecycle, cwd, _journal: journal, _work: work }
@@ -140,22 +139,19 @@ impl Rig {
     }
 }
 
-#[cfg(unix)]
-/// However the sessions' watcher ends — a panic in it included — the
-/// lifecycle machine hears that the sessions are gone, rather than go on
-/// admitting launches it would never hear of.
+/// However the sessions' watcher ends, the lifecycle machine hears that the
+/// sessions are gone, rather than go on admitting launches it would never
+/// hear of. Here the sessions machine it watches ends under it.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_watcher_that_dies_tells_the_lifecycle_the_sessions_are_gone() {
+async fn a_watcher_that_ends_tells_the_lifecycle_the_sessions_are_gone() {
     let journal = tempfile::tempdir().unwrap();
-    let sessions = SessionMachine::start();
-    let doors = AppDoors::new(sessions.clone(), crate::worktree::RepoLocks::default(), Arc::new(NoStores));
+    // The lifecycle's doors stop another machine's sessions: the watched one
+    // can end alone.
+    let doors = AppDoors::new(SessionMachine::start(), crate::worktree::RepoLocks::default(), Arc::new(NoStores));
     let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(doors));
-    let door = lifecycle.door();
-    let first = std::sync::atomic::AtomicBool::new(true);
-    sessions.link(move || {
-        assert!(!first.swap(false, std::sync::atomic::Ordering::SeqCst), "the watcher's first look fails");
-        door.clone()
-    });
+    let watched = SessionMachine::start();
+    watched.link(lifecycle.clone());
+    drop(watched);
     for _ in 0..200 {
         if lifecycle.door().machine().state().borrow().value.sessions_down {
             return;
@@ -165,6 +161,7 @@ async fn a_watcher_that_dies_tells_the_lifecycle_the_sessions_are_gone() {
     panic!("the lifecycle machine never heard that the sessions are gone");
 }
 
+#[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_launch_with_its_permit_runs_and_its_stop_answers_once_it_is_over() {
     let rig = rig().await;
