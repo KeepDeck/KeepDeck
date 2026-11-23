@@ -9,8 +9,7 @@ import { useAgentDialog } from "./useAgentDialog";
 import { useAgentRunView } from "./useAgentRunView";
 import { useAgents } from "./useAgents";
 import type { AppRuntime } from "./runtime";
-import { askBackgroundCarriers } from "./liveSessions";
-import { useCloseFlow } from "./useCloseFlow";
+import { useAppCloseFlow, useApplicationUiBinding } from "./useApplicationUi";
 import { useContributions, useInstalledPlugins, unavailableAgentReasons } from "../plugins";
 import { useDeck } from "./useDeck";
 import { useDragDrop } from "./useDragDrop";
@@ -154,20 +153,7 @@ export function useAppController(runtime: AppRuntime) {
     onCreateFailed: (message) => pushAlert("Could not add the agent", message),
     onTeamFailed: (message) => pushAlert("Could not start the team", message),
   }, runView.blocked, runtime.agentDoors);
-  const closeFlow = useCloseFlow(deck, {
-    onError: (message) => pushAlert("Can't close", message),
-    onSuspendRefused: (message) =>
-      pushAlert("Can't suspend this agent", message),
-    preview: previewIntent,
-    blockedPanes: runView.blocked,
-    suspendAgent: orchestrator.suspend,
-    closeAgents: orchestrator.close,
-    // The registry ask the close sentence needs — batched (one query per
-    // distinct agent), the same seam every live-session question goes
-    // through, so the view layer never touches a plugin.
-    backgroundCarriers: (entries) =>
-      askBackgroundCarriers(runtime.spawnPlugins, entries),
-  });
+  const closeFlow = useAppCloseFlow(runtime, deck, runView.blocked, pushAlert);
   const archiveFlow = useArchiveFlow({
     workspaces: deck.workspaces,
     preview: previewIntent,
@@ -203,7 +189,7 @@ export function useAppController(runtime: AppRuntime) {
   const modal = useModalRouter({ transactionOpen: dialogOpen });
   const statsView = useStatsView();
   const canOpenDialog = modal.canOpenDialog;
-  const applicationUi = useRef({
+  useApplicationUiBinding(runtime.application, {
     agents,
     openSettings: modal.openSettings,
     openStats: modal.openStats,
@@ -214,36 +200,6 @@ export function useAppController(runtime: AppRuntime) {
     requestDisbandTeam: closeFlow.requestDisbandTeam,
     setCreating,
   });
-  applicationUi.current = {
-    agents,
-    openSettings: modal.openSettings,
-    openStats: modal.openStats,
-    selectWeek: statsView.selectWeek,
-    openTasks: modal.openTasks,
-    pushAlert,
-    requestCloseAgent: closeFlow.requestCloseAgent,
-    requestDisbandTeam: closeFlow.requestDisbandTeam,
-    setCreating,
-  };
-  useEffect(() => {
-    const current = () => applicationUi.current;
-    return runtime.application.bindUi({
-      agents: () => current().agents,
-      requestCloseAgent: (wsId, paneId, label) =>
-        current().requestCloseAgent(wsId, paneId, label),
-      requestDisbandTeam: (wsId, teamId) => current().requestDisbandTeam(wsId, teamId),
-      openSettings: (sectionId) =>
-        current().openSettings(sectionId ?? undefined),
-      openUsage: (tab, week) => {
-        // A digest names the week it reports; Weekly opens on it.
-        if (week !== undefined) current().selectWeek(week);
-        return current().openStats(tab);
-      },
-      openTasks: (taskId) => current().openTasks(taskId),
-      setCreating: (next) => current().setCreating(next),
-      pushAlert: (title, message) => current().pushAlert(title, message),
-    });
-  }, [runtime.application]);
   const pluginDockTabs = useContributions(pluginRegistries.dockTabs);
   const pluginTopBarActions = useContributions(pluginRegistries.topBarActions);
   const crashes = useSyncExternalStore(subscribePluginCrashes, pluginCrashes);
