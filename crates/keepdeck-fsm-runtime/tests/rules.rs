@@ -1,7 +1,7 @@
 //! The runtime's rules, each on the smallest machine that shows it. Every rule
 //! in the README names its test here.
 use keepdeck_fsm::{stay, to, Next, Owed};
-use keepdeck_fsm_runtime::{At, Effects, Events, Runtime};
+use keepdeck_fsm_runtime::{supervised, At, Effects, Events, Runtime};
 use std::future::Future;
 use std::sync::{mpsc as std_mpsc, Arc, Mutex, OnceLock};
 use std::task::{Context, Waker};
@@ -510,4 +510,11 @@ fn a_machine_whose_state_needs_a_timer_needs_the_time_driver() {
     std::thread::spawn(move || ended.send(tokio.block_on(states.changed()).is_err()));
     assert_eq!(end.recv_timeout(10 * SECOND), Ok(true), "it panicked arming its timer, and its stream ended");
     drop(machine);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn supervised_work_ends_in_an_outcome_a_panic_included() {
+    assert_eq!(supervised(|| Ok(7)).await, Ok(7));
+    assert_eq!(supervised(|| Err::<u8, _>("refused".to_string())).await, Err("refused".to_string()));
+    assert_eq!(supervised(|| -> Result<u8, String> { panic!("inside the work") }).await, Err("the work panicked".to_string()));
 }

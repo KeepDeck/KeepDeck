@@ -12,10 +12,10 @@ use super::create::{self, Seat};
 use super::queries;
 use super::teardown::{self, Teardown, Unheld};
 use super::{answer_op, Fx, Kind, Op, Session, State};
-use crate::dir::Dir;
-use crate::ids::{AskId, OpId, PaneId, TeamId, WorkspaceId};
-use crate::model::{self, Answer, Continuation, Intent, Landing, Minted, Refusal, Site};
-use crate::world::{TeamAt, Workspace};
+use crate::domain::dir::Dir;
+use crate::domain::ids::{AskId, OpId, PaneId, TeamId, WorkspaceId};
+use crate::domain::model::{self, Answer, Continuation, Intent, Landing, Minted, Refusal, Site};
+use crate::domain::world::{TeamAt, Workspace};
 use std::collections::BTreeSet;
 
 /// What an exclusive operation holds.
@@ -279,7 +279,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             state.world.workspaces.insert(workspace.clone(), Workspace { name, cwd, base: worktree_base, archived: false, repo });
             let id = state.mint_op();
             let mut op = Op::new(workspace.clone(), ask, false, Kind::CreateWorkspace);
-            op.send(crate::command::Cmd::AddWorkspace { workspace, draft });
+            op.send(crate::domain::command::Cmd::AddWorkspace { workspace, draft });
             state.ops.insert(id, op);
         }
         Intent::Describe { workspace, name, cwd, worktree_base, repo } => {
@@ -298,7 +298,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             if let Some(refusal) = workspace_blocked(state, &workspace) {
                 return refuse(fx, ask, refusal);
             }
-            let members = members.into_iter().map(|draft| crate::command::Member { pane: state.mint_pane(), draft }).collect();
+            let members = members.into_iter().map(|draft| crate::domain::command::Member { pane: state.mint_pane(), draft }).collect();
             let create = create::Create::new(team, draft, site, members, None, false);
             let id = state.mint_op();
             state.ops.insert(id, Op::new(workspace, ask, journaled, Kind::Create(Box::new(create))));
@@ -343,7 +343,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
                     if let Some(refusal) = workspace_blocked(state, &workspace) {
                         return refuse(fx, ask, refusal);
                     }
-                    let members = vec![crate::command::Member { pane, draft: member }];
+                    let members = vec![crate::domain::command::Member { pane, draft: member }];
                     let journaled = matches!(site, Site::New { .. });
                     let create = create::Create::new(team, draft, site, members, Some(source), false);
                     state.ops.insert(id, Op::new(workspace, ask, journaled, Kind::Create(Box::new(create))));
@@ -412,7 +412,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             // One pane's close holds that pane only: its team goes on, and
             // nothing of it is deleted.
             let consent = queries::close_agent_offer(pane).agreed(consent);
-            let teardown = Teardown::new(model::Teardown::CloseAgent, crate::journal::Target::Agent { pane }, Vec::new(), vec![pane], consent);
+            let teardown = Teardown::new(model::Teardown::CloseAgent, crate::domain::journal::Target::Agent { pane }, Vec::new(), vec![pane], consent);
             open_teardown(state, ask, workspace, teardown, holders, journaled);
         }
         Intent::Disband { workspace, team, consent } => {
@@ -428,7 +428,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             let consent = offer.agreed(consent);
             // A member's close under way is joined, not refused.
             let (joinable, blocking) = disband_holders(state, &team);
-            let mut teardown = Teardown::new(model::Teardown::Disband, crate::journal::Target::Team { team: team.clone() }, vec![team], Vec::new(), consent);
+            let mut teardown = Teardown::new(model::Teardown::Disband, crate::domain::journal::Target::Team { team: team.clone() }, vec![team], Vec::new(), consent);
             teardown.joined = joinable;
             open_teardown(state, ask, workspace, teardown, blocking, journaled);
         }
@@ -442,7 +442,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
                 return refuse(fx, ask, Refusal::Changed);
             }
             let consent = offer.agreed(consent);
-            let mut teardown = Teardown::new(model::Teardown::CloseWorkspace, crate::journal::Target::Workspace, Vec::new(), Vec::new(), consent);
+            let mut teardown = Teardown::new(model::Teardown::CloseWorkspace, crate::domain::journal::Target::Workspace, Vec::new(), Vec::new(), consent);
             teardown.joined = joinable;
             open_teardown(state, ask, workspace, teardown, blocking, journaled);
         }
@@ -450,7 +450,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             if let Some(refusal) = archive_blocked(state, &workspace) {
                 return refuse(fx, ask, refusal);
             }
-            let teardown = Teardown::new(model::Teardown::Archive, crate::journal::Target::Workspace, Vec::new(), Vec::new(), model::Consent::default());
+            let teardown = Teardown::new(model::Teardown::Archive, crate::domain::journal::Target::Workspace, Vec::new(), Vec::new(), model::Consent::default());
             open_teardown(state, ask, workspace, teardown, Vec::new(), journaled);
         }
         Intent::Restore { workspace } => {
@@ -474,7 +474,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
                 }
             }
             let mut op = Op::new(workspace.clone(), ask, false, Kind::Restore);
-            op.send(crate::command::Cmd::ClearArchived { workspace });
+            op.send(crate::domain::command::Cmd::ClearArchived { workspace });
             answer_op(&mut op, fx, Answer::Accepted { op: id, minted: Minted::default() });
             state.ops.insert(id, op);
         }
@@ -497,7 +497,7 @@ pub fn intent(state: &mut State, ask: AskId, intent: Intent, fx: &mut Fx) {
             }
             let id = state.mint_op();
             let mut op = Op::new(workspace.clone(), ask, false, Kind::Resume { pane });
-            op.send(crate::command::Cmd::ClearSuspended { workspace, pane });
+            op.send(crate::domain::command::Cmd::ClearSuspended { workspace, pane });
             answer_op(&mut op, fx, Answer::Accepted { op: id, minted: Minted::default() });
             state.ops.insert(id, op);
         }
@@ -532,7 +532,7 @@ fn pause(state: &mut State, ask: AskId, workspace: WorkspaceId, pane: PaneId, ki
     if let Some(refusal) = conflict(state, &state.holders_of_pane(&pane)) {
         return refuse(fx, ask, refusal);
     }
-    let teardown = Teardown::new(kind, crate::journal::Target::Agent { pane }, Vec::new(), vec![pane], model::Consent::default());
+    let teardown = Teardown::new(kind, crate::domain::journal::Target::Agent { pane }, Vec::new(), vec![pane], model::Consent::default());
     open_teardown(state, ask, workspace, teardown, Vec::new(), false);
 }
 

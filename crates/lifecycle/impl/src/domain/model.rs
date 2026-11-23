@@ -1,9 +1,9 @@
 //! What the lifecycle is asked to do, what it answers, the consent a
 //! destructive operation carries, and what each teardown does.
 
-use crate::command::Why;
-use crate::dir::Dir;
-use crate::ids::{AttemptId, OpId, PaneId, PermitId, TeamId, WorkspaceId};
+use crate::domain::command::Why;
+use crate::domain::dir::Dir;
+use crate::domain::ids::{AttemptId, OpId, PaneId, PermitId, TeamId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 

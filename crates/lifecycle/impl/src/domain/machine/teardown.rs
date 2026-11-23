@@ -10,14 +10,14 @@
 
 use super::boundary::Boundary;
 use super::launch::{LaunchOwner, Session};
-use super::{answer_op, capture, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer};
+use super::{answer_op, capture, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer, Warning};
 use super::{LEASE_WAIT, RETIRE_WAIT};
-use crate::command::Cmd;
-use crate::dir::Dir;
-use crate::ids::{OpId, PaneId, TeamId, WorkspaceId};
-use crate::journal::{Removal, Step, Target, Work};
-use crate::model::{self, Answer, Consent, Forget, Minted, Rows};
-use crate::world::{TeamAt, World};
+use crate::domain::command::Cmd;
+use crate::domain::dir::Dir;
+use crate::domain::ids::{OpId, PaneId, TeamId, WorkspaceId};
+use crate::domain::journal::{Removal, Step, Target, Work};
+use crate::domain::model::{self, Answer, Consent, Forget, Minted, Rows};
+use crate::domain::world::{TeamAt, World};
 use keepdeck_fsm::Owed;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -530,7 +530,7 @@ pub fn branches_read(state: &mut State, id: OpId, path: Dir, result: Result<Vec<
     }
     let Some(folder) = teardown.consent.folders.iter().find(|folder| folder.path == path).cloned() else { return };
     let mut branches = result.unwrap_or_else(|error| {
-        fx.warn(format!("{id}: the branches of {} could not be read ({error})", path.as_str()));
+        fx.warn(Warning::BranchesUnread { op: id, path: path.clone(), error });
         Vec::new()
     });
     if let Some(branch) = folder.branch {
@@ -621,7 +621,7 @@ fn runnable(teardown: &Teardown) -> Vec<Step> {
 fn clean(state: &mut State, id: OpId, fx: &mut Fx) {
     let saved = state.saved;
     let op = &state.ops[&id];
-    let rows_settled = op.sent.iter().filter(|sent| sent.cmd.owner() == crate::command::Owner::Deck).all(|sent| sent.settled(saved));
+    let rows_settled = op.sent.iter().filter(|sent| sent.cmd.owner() == crate::domain::command::Owner::Deck).all(|sent| sent.settled(saved));
     if rows_settled {
         apply_world(state, id);
     }
@@ -657,7 +657,7 @@ fn clean(state: &mut State, id: OpId, fx: &mut Fx) {
         }
         let failed = teardown.failed.len();
         state.ops.get_mut(&id).expect("the op").owed = true;
-        fx.warn(format!("{id}: {failed} cleanup step(s) failed; the next launch retries them"));
+        fx.warn(Warning::StepsFailed { op: id, failed });
         return;
     }
     finish(state, id);
@@ -732,7 +732,7 @@ pub fn step_done(state: &mut State, id: OpId, step: Step, result: StepResult, fx
             match result {
                 Ok(()) => teardown.done.push(step),
                 Err(reason) => {
-                    fx.warn(format!("{id}: {step:?} failed: {reason}"));
+                    fx.warn(Warning::StepFailed { op: id, step: step.clone(), reason: reason.clone() });
                     if let Step::Checkout { path } = &step {
                         op.sent.push(super::Sent::new(Cmd::WorktreeNotDeleted { workspace, path: path.clone(), reason }));
                     }
@@ -748,7 +748,7 @@ pub fn step_done(state: &mut State, id: OpId, step: Step, result: StepResult, fx
             match result {
                 Ok(()) => unheld.done.push(step),
                 Err(reason) => {
-                    fx.warn(format!("{id}: {step:?} failed: {reason}"));
+                    fx.warn(Warning::StepFailed { op: id, step, reason: reason.clone() });
                     unheld.failed = true;
                     // Said, as a close says a checkout it could not take: the
                     // person asked for it to go and it stands — a tag refused
@@ -762,7 +762,7 @@ pub fn step_done(state: &mut State, id: OpId, step: Step, result: StepResult, fx
         Kind::Create(create) => super::create::undo_step_done(create, step, result, fx, id),
         Kind::Reconcile(reconcile) => {
             if let Err(reason) = result {
-                fx.warn(format!("{id}: the stores kept data of gone workspaces: {reason}; the next launch tries again"));
+                fx.warn(Warning::StoresKept { op: id, reason });
             }
             super::boot::reconcile_done(reconcile);
         }

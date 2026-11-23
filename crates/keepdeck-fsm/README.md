@@ -8,15 +8,32 @@ timers, the handler that touches the world, the stream of its states — is
 
 ## What it is for
 
-The rules of one feature: what happens to its state on each event, and what
-each state needs while the machine is in it. One machine per feature.
+The rules of one complete unit of logic: what happens to its state on each
+event, and what each state needs while the machine is in it.
+
+A machine is one consistency boundary — the state that must be decided
+together, in one step, and nothing else. It is not a whole product feature: a
+feature may use several machines, each finished in itself.
+
+Split a machine when parts of its state never change together, when an event
+concerns one part and leaves the rest untouched, when its rules speak two
+unrelated vocabularies, or when a change for one concern forces the tests of
+another to change. Keep two concerns in one machine when they must agree in
+the same step, or when one cannot decide without reading the other's state.
+
+A machine never holds another — not its handle, not its state, not a call into
+its rules. Machines connect only by events, wired outside both: a fact in one
+machine's state becomes another's event through a subscription to its state
+stream, or an effect one machine asks for is carried out by its handler as
+another machine's event.
 
 A feature has levels, and each owns its own part:
 
 | Level | Owns | Lives in |
 |---|---|---|
-| The machine | The feature's rules. It hands over kinds and data, never wording | A Rust crate, written against this one |
-| The runtime and the feature's handler | IO: processes, files, the network, the answer to whoever asked | The app (`src-tauri`) |
+| A machine | The rules of one unit of logic. It hands over codes — enum variants and their data — never wording | The `domain` module of the feature's crate, written against this one |
+| The runtime and the machine's handler | IO: processes, files, the network, the answer to whoever asked, and the events it sends other machines | The `infrastructure` module of the feature's crate, on `keepdeck-fsm-runtime` |
+| A link between machines | A fact in one machine's state, sent as another machine's event | The feature crate's `infrastructure` for its own machines; the app (`src-tauri`) across features |
 | A UI object | UI decisions: what to show, in what order, with what words | TypeScript presentation |
 | Components | Rendering | TypeScript components |
 
@@ -251,8 +268,8 @@ example does. Each rule gets a test that goes red when the rule is broken.
 
 Timing — a timer, a result that arrives late, the order of a step — is tested
 on the runtime under tokio's paused time; the README of
-`keepdeck-fsm-runtime` says how. A feature takes the runtime as a
-dev-dependency only, so the runtime stays out of the feature's own build.
+`keepdeck-fsm-runtime` says how. A feature's `domain` never names the
+runtime; its `infrastructure` runs the machine on it.
 
 ```sh
 cargo test -p keepdeck-fsm

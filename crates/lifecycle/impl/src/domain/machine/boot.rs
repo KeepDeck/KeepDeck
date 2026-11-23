@@ -5,11 +5,11 @@
 use super::create::{Create, CreateStage, Fork, ForkStage};
 use super::teardown::{TearPhase, Teardown, Unheld};
 use super::{Book, Clean, Effect, Event, Forgotten, Fx, Kind, Op, Sent, State};
-use crate::command::{Cmd, Outcome};
-use crate::ids::{AskId, Counter, OpId, PaneId, TeamId};
-use crate::journal::{Entry, Step, Target, Ticket, Work};
-use crate::model::{self, Answer, Draft, Refusal, Site};
-use crate::world::{DeckFacts, TeamAt, TeamAtFacts, World};
+use crate::domain::command::{Cmd, Outcome};
+use crate::domain::ids::{AskId, Counter, OpId, PaneId, TeamId};
+use crate::domain::journal::{Entry, Step, Target, Ticket, Work};
+use crate::domain::model::{self, Answer, Draft, Refusal, Site};
+use crate::domain::world::{DeckFacts, TeamAt, TeamAtFacts, World};
 use keepdeck_fsm::Owed;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -60,7 +60,7 @@ impl Boot {
 /// panes.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Reconcile {
-    pub workspaces: Vec<crate::ids::WorkspaceId>,
+    pub workspaces: Vec<crate::domain::ids::WorkspaceId>,
     pub done: bool,
 }
 
@@ -119,7 +119,7 @@ pub fn handshake(state: &mut State, ask: AskId, deck: DeckFacts, load: Load, fx:
         // live one. It runs on the operations' own machinery — commands,
         // a step, its end — and no workspace's lookup ever matches it.
         let mut op = Op {
-            workspace: crate::ids::WorkspaceId(String::new()),
+            workspace: crate::domain::ids::WorkspaceId(String::new()),
             ask: None,
             book: None,
             sent: Vec::new(),
@@ -181,7 +181,7 @@ fn taken_over(journal: &[Entry], creation: OpId, ticket: &Ticket) -> Option<OpId
 /// agent's own pane.
 struct Closing {
     teams: BTreeSet<TeamId>,
-    workspaces: BTreeSet<crate::ids::WorkspaceId>,
+    workspaces: BTreeSet<crate::domain::ids::WorkspaceId>,
     panes: BTreeSet<PaneId>,
 }
 

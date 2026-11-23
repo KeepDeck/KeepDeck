@@ -53,6 +53,20 @@ impl<E: Send + 'static> Events<E> {
     }
 }
 
+/// Blocking work under watch: it runs on tokio's blocking pool and always
+/// ends in an outcome — its own result once it has really ended, or an error
+/// when it panicked or was cancelled. A machine hears of work only through
+/// the event the work sends, so a handler that runs blocking work through
+/// this one still sends that event whatever happened. It recovers nothing:
+/// the work is not retried, and nothing it did is taken back.
+pub async fn supervised<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    match tokio::task::spawn_blocking(work).await {
+        Ok(result) => result,
+        Err(error) if error.is_panic() => Err("the work panicked".into()),
+        Err(_) => Err("the work was cancelled".into()),
+    }
+}
+
 /// A state and its version: the number of times `update` gave a new state
 /// since this machine started — an equal state counts too. A new start counts
 /// from 0 again.

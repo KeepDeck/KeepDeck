@@ -4,10 +4,10 @@
 
 use super::snapshot::{snapshot, Due, TeamGates, TeamPhase};
 use super::*;
-use crate::command::{Cmd, Outcome, Revision, Why};
-use crate::journal::{Discard, Entry, Step, Target, Work};
-use crate::model::{self, Answer, Consent, Continuation, Draft, Folder, Intent, Landing, Place, Refusal, SessionKey, Site};
-use crate::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
+use crate::domain::command::{Cmd, Outcome, Revision, Why};
+use crate::domain::journal::{Discard, Entry, Step, Target, Work};
+use crate::domain::model::{self, Answer, Consent, Continuation, Draft, Folder, Intent, Landing, Place, Refusal, SessionKey, Site};
+use crate::domain::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
 use keepdeck_fsm::Work as Owe;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -99,6 +99,17 @@ impl Sim {
     fn next_ask(&mut self) -> AskId {
         self.asks += 1;
         AskId(self.asks)
+    }
+
+    /// What the machine had the log say, in order.
+    fn warnings(&self) -> Vec<Warning> {
+        self.log
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Warn { warning } => Some(warning.clone()),
+                _ => None,
+            })
+            .collect()
     }
 
     fn send(&mut self, event: Event) {
@@ -211,7 +222,7 @@ impl Sim {
     fn outcome_for(&mut self, cmd: &Cmd) -> Outcome {
         match cmd {
             Cmd::Fork { .. } => Outcome::Forked { discard: Discard { plugin: "claude".into(), once_started: vec!["/c/scratch".into()], if_never_started: vec!["/c/copy".into()] } },
-            cmd if cmd.owner() == crate::command::Owner::Deck => {
+            cmd if cmd.owner() == crate::domain::command::Owner::Deck => {
                 self.revision += 1;
                 Outcome::Applied { revision: Some(Revision(self.revision)) }
             }
@@ -632,7 +643,12 @@ fn a_failed_cleanup_step_keeps_the_entry_and_the_place_and_says_the_worktree_was
     let (op, entry) = sim.disk.iter().next().expect("the entry stays");
     assert!(sim.state.ops[op].owed, "a debt for the next launch");
     assert!(!entry.done.iter().any(|step| matches!(step, Step::Checkout { .. })));
-    assert!(sim.log.iter().any(|effect| matches!(effect, Effect::Warn { .. })));
+    let warnings = sim.warnings();
+    assert!(
+        warnings.iter().any(|warning| matches!(warning, Warning::StepFailed { op: failed, step: Step::Checkout { .. }, reason } if failed == op && reason == "busy")),
+        "the step that failed, with git's reason: {warnings:?}"
+    );
+    assert!(warnings.contains(&Warning::StepsFailed { op: *op, failed: 1 }), "and that a step is owed: {warnings:?}");
     let notice = sim.state.ops[op].sent.iter().any(|sent| matches!(sent.cmd, Cmd::WorktreeNotDeleted { .. }));
     assert!(notice, "«worktree not deleted», as today");
     // The place stays held: a new team does not get number 1.
@@ -644,6 +660,32 @@ fn a_failed_cleanup_step_keeps_the_entry_and_the_place_and_says_the_worktree_was
     assert_eq!(probe, Some(Dir::new("/wt/kd-app-2")), "{:?}", sim.answer(create));
 }
 
+/// A checkout whose branches git cannot read is said, with git's word.
+#[test]
+fn a_checkouts_branches_git_cannot_read_are_said() {
+    let mut sim = Sim::booted();
+    sim.close(disband("1", consent_for_team_1()));
+    for _ in 0..30 {
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+        for effect in sim.owed() {
+            let event = match effect {
+                Effect::ReadBranches { op, path, .. } => Event::BranchesRead { op, path, result: Err("no reflog".into()) },
+                Effect::Clean { op, step, .. } => Event::StepDone { op, step, result: Ok(()) },
+                Effect::Stop { session, .. } => Event::SessionEnded { session },
+                _ => continue,
+            };
+            sim.send(event);
+        }
+    }
+    let warnings = sim.warnings();
+    assert!(
+        warnings.iter().any(|warning| matches!(warning, Warning::BranchesUnread { path, error, .. } if *path == Dir::new("/wt/kd-app-1") && error == "no reflog")),
+        "{warnings:?}"
+    );
+}
+
 // ---------------------------------------------------------------- the journal and the one answer
 
 #[test]
@@ -652,6 +694,7 @@ fn a_failed_first_write_takes_the_entry_back_and_answers_journal_unavailable() {
     let ask = sim.intent(close_agent(2));
     let Some(Effect::WriteJournal { op, attempt, .. }) = sim.owed().into_iter().find(|effect| matches!(effect, Effect::WriteJournal { .. })) else { panic!() };
     sim.send(Event::JournalWritten { op, attempt, result: Err("disk full".into()) });
+    assert_eq!(sim.warnings(), [Warning::JournalNotWritten { op, attempt, error: "disk full".into() }]);
     assert_eq!(sim.answer(ask), None, "not before the rollback has ended");
     let Some(Effect::RemoveJournal { attempt, .. }) = sim.owed().into_iter().find(|effect| matches!(effect, Effect::RemoveJournal { .. })) else { panic!("a rollback") };
     sim.send(Event::JournalRemoved { op, attempt, result: Ok(()) });
@@ -670,6 +713,7 @@ fn a_failed_rollback_answers_journal_stuck_and_keeps_the_capture() {
     sim.send(Event::JournalWritten { op, attempt, result: Err("disk full".into()) });
     let Some(Effect::RemoveJournal { attempt, .. }) = sim.owed().into_iter().find(|effect| matches!(effect, Effect::RemoveJournal { .. })) else { panic!() };
     sim.send(Event::JournalRemoved { op, attempt, result: Err("read-only".into()) });
+    assert!(sim.warnings().contains(&Warning::JournalNotRemoved { op, error: "read-only".into() }), "{:?}", sim.warnings());
     assert_eq!(sim.refusal(ask), Some(Refusal::JournalStuck));
     let again = sim.intent(close_agent(2));
     assert_eq!(sim.refusal(again), Some(Refusal::AlreadyClosing), "the next launch finishes it");
@@ -720,6 +764,24 @@ fn a_workspace_close_joins_a_disband_under_way_and_leaves_its_consent_alone() {
     assert_eq!(disband.consent.folders, consent_for_team_1().folders, "its own consent stays");
     assert_eq!(disband.consent.stops, vec![PaneId(1), PaneId(2)]);
     sim.drive();
+    assert!(sim.state.world.workspaces.is_empty());
+}
+
+/// A restored close that joined an operation whose entry did not load is not
+/// held by it: an operation that is not there is done.
+#[test]
+fn a_restored_close_is_not_held_by_a_joined_operation_that_did_not_load() {
+    let close = Entry {
+        op: OpId(10),
+        workspace: ws(),
+        work: Work::Close { target: Target::Workspace, teams: vec![], panes: vec![], consent: Consent::default(), removals: vec![], space: None },
+        joined: vec![OpId(5)],
+        commands: vec![],
+        done: vec![],
+    };
+    let mut sim = Sim::booted_with(deck(), vec![close]);
+    sim.drive();
+    assert!(!sim.state.ops.contains_key(&OpId(10)), "the close finished: {:?}", sim.state.ops);
     assert!(sim.state.world.workspaces.is_empty());
 }
 
@@ -902,6 +964,7 @@ fn a_creation_taken_over_before_a_crash_hands_its_checkout_over_after_it_only_on
     // their entries kept, and the next launch asks again.
     let mut sim = Sim::booted_with(deck(), entries());
     sim.send(Event::Found { op: OpId(5), found: Err("the repository's volume is not mounted".into()) });
+    assert!(sim.warnings().contains(&Warning::CheckoutUnknown { op: OpId(5), reason: "the repository's volume is not mounted".into() }), "{:?}", sim.warnings());
     sim.drive();
     assert!(!deleted(&sim), "{:?}", sim.cleaned);
     assert!(sim.state.ops[&OpId(5)].owed && sim.state.ops[&OpId(7)].owed, "both owed");
@@ -1156,7 +1219,7 @@ fn settle_with_a_hung_hook(sim: &mut Sim) {
 
 /// A fork onto a team made for it in a new worktree, its hook hung past its
 /// deadline: the fork's op, and the ticket of its checkout.
-fn a_worktree_fork_with_a_hung_hook() -> (Sim, OpId, crate::journal::Ticket) {
+fn a_worktree_fork_with_a_hung_hook() -> (Sim, OpId, crate::domain::journal::Ticket) {
     let mut sim = Sim::booted();
     sim.intent(Intent::Continue {
         workspace: ws(),
@@ -1178,13 +1241,13 @@ fn a_worktree_fork_with_a_hung_hook() -> (Sim, OpId, crate::journal::Ticket) {
     (sim, op, ticket)
 }
 
-fn removed(sim: &Sim, ticket: &crate::journal::Ticket) -> bool {
+fn removed(sim: &Sim, ticket: &crate::domain::journal::Ticket) -> bool {
     sim.cleaned.contains(&Clean::Checkout { repo: ticket.repo.clone(), path: ticket.path.clone(), discard: true })
 }
 
 /// `close` with the consent its dialog sends: everything it offers to
 /// delete, ticked — the fork's checkout among it — or nothing.
-fn consented(sim: &Sim, mut close: Intent, ticket: &crate::journal::Ticket, ticked: bool) -> Intent {
+fn consented(sim: &Sim, mut close: Intent, ticket: &crate::domain::journal::Ticket, ticked: bool) -> Intent {
     let consent = if ticked {
         let offer = super::queries::preview(&sim.state, &close);
         assert!(offer.folders.iter().any(|folder| folder.path == ticket.path), "the fork's checkout is not offered: {:?}", offer.folders);
@@ -1356,7 +1419,7 @@ impl Away {
     /// The workspace is where this says: a setup that drifted would refuse
     /// everything for a workspace that is simply gone.
     fn stands_in(self, sim: &Sim) -> bool {
-        let archive = sim.state.ops.values().any(|op| matches!(&op.kind, Kind::Teardown(teardown) if teardown.kind == crate::model::Teardown::Archive));
+        let archive = sim.state.ops.values().any(|op| matches!(&op.kind, Kind::Teardown(teardown) if teardown.kind == crate::domain::model::Teardown::Archive));
         match self {
             Away::Archived => sim.state.world.workspaces.get(&ws()).is_some_and(|row| row.archived) && sim.state.ops.is_empty(),
             Away::Archiving => archive,
@@ -2002,7 +2065,7 @@ fn a_restored_close_holds_its_branches_by_the_repository_its_entry_keeps() {
             teams: vec![team("1")],
             panes: vec![],
             consent: consent_for_team_1(),
-            removals: vec![crate::journal::Removal { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1"), branches: vec!["feature".into()] }],
+            removals: vec![crate::domain::journal::Removal { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1"), branches: vec!["feature".into()] }],
             space: Some(Dir::new("/repo/.git")),
         },
         joined: vec![],
@@ -2264,7 +2327,7 @@ fn an_open_fork_at_boot_is_rolled_back_by_both_discard_lists() {
 #[test]
 fn a_build_asked_in_a_launch_that_ended_is_never_asked_again() {
     let source = SessionKey { agent: "claude".into(), session: "s".into() };
-    let unanswered = |index: u32, cmd: Cmd| crate::journal::Sent { command: crate::command::Command { id: CommandId { op: OpId(6), index }, cmd }, settled: false, rejected: None };
+    let unanswered = |index: u32, cmd: Cmd| crate::domain::journal::Sent { command: crate::domain::command::Command { id: CommandId { op: OpId(6), index }, cmd }, settled: false, rejected: None };
     let entry = Entry {
         op: OpId(6),
         workspace: ws(),
@@ -2296,11 +2359,11 @@ fn a_lapsed_build_owes_no_deadline() {
         workspace: ws(),
         work: Work::Create {
             team: team("lost"),
-            ticket: crate::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
+            ticket: crate::domain::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
         },
         joined: vec![],
-        commands: vec![crate::journal::Sent {
-            command: crate::command::Command { id: CommandId { op: OpId(3), index: 0 }, cmd: Cmd::PrepareResume { workspace: ws(), pane: PaneId(9), source, draft: draft() } },
+        commands: vec![crate::domain::journal::Sent {
+            command: crate::domain::command::Command { id: CommandId { op: OpId(3), index: 0 }, cmd: Cmd::PrepareResume { workspace: ws(), pane: PaneId(9), source, draft: draft() } },
             settled: false,
             rejected: None,
         }],
@@ -2378,8 +2441,8 @@ fn a_quarantined_deck_holds_a_restored_close_whole_its_forgetting_included() {
         joined: vec![],
         // A launch that loaded the deck had already sent the forgetting, and
         // died before the owner carried it.
-        commands: vec![crate::journal::Sent {
-            command: crate::command::Command { id: CommandId { op: OpId(7), index: 0 }, cmd: Cmd::ForgetBoards { workspace: ws() } },
+        commands: vec![crate::domain::journal::Sent {
+            command: crate::domain::command::Command { id: CommandId { op: OpId(7), index: 0 }, cmd: Cmd::ForgetBoards { workspace: ws() } },
             settled: false,
             rejected: None,
         }],
@@ -2404,7 +2467,7 @@ fn a_creation_entry_whose_team_never_reached_the_deck_takes_back_its_checkout() 
         workspace: ws(),
         work: Work::Create {
             team: team("lost"),
-            ticket: crate::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
+            ticket: crate::domain::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
         },
         joined: vec![],
         commands: vec![],
@@ -2445,6 +2508,62 @@ fn boot_reconciles_the_stores_tasks_and_mail_of_what_the_deck_no_longer_holds() 
     assert_eq!(retain, Some(vec![ws()]));
     sim.drive();
     assert!(sim.state.ops.is_empty());
+}
+
+/// Stores that would not let go of what the deck no longer holds are said,
+/// with their reason; the next launch tries again.
+#[test]
+fn boot_says_when_the_stores_kept_what_the_deck_no_longer_holds() {
+    let mut sim = Sim::booted_with(deck(), Vec::new());
+    sim.drive_with(&failing(|how| matches!(how, Clean::Retain { .. })));
+    let warnings = sim.warnings();
+    assert!(warnings.iter().any(|warning| matches!(warning, Warning::StoresKept { reason, .. } if reason == "refused")), "{warnings:?}");
+}
+
+/// A step of a creation's undo that fails is said, with its reason — a
+/// creation the deck no longer holds, restored from its entry.
+#[test]
+fn a_creations_undo_step_that_fails_is_said() {
+    let ticket = Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-5"), branch: "kd/app/5".into(), base: None };
+    let entry = Entry { op: OpId(5), workspace: ws(), work: Work::Create { team: team("gone"), ticket }, joined: vec![], commands: vec![], done: vec![] };
+    let mut sim = Sim::booted_with(deck(), vec![entry]);
+    sim.drive_with(&failing(|how| matches!(how, Clean::Checkout { .. })));
+    let warnings = sim.warnings();
+    assert!(
+        warnings.iter().any(|warning| matches!(warning, Warning::StepFailed { op: OpId(5), step: Step::Checkout { .. }, reason } if reason == "refused")),
+        "{warnings:?}"
+    );
+}
+
+/// A step of a fork's rollback that fails is said, with its reason.
+#[test]
+fn a_forks_rollback_step_that_fails_is_said() {
+    let (mut sim, op, _ticket) = a_worktree_fork_with_a_hung_hook();
+    sim.send(Event::HookEnded { op });
+    sim.drive_with(&failing(|how| matches!(how, Clean::Checkout { .. })));
+    let warnings = sim.warnings();
+    assert!(
+        warnings.iter().any(|warning| matches!(warning, Warning::StepFailed { op: failed, step: Step::Checkout { .. }, reason } if *failed == op && reason == "refused")),
+        "{warnings:?}"
+    );
+}
+
+/// The guard of a creation whose workspace is gone. The capture queues a
+/// workspace's close behind the additions begun before it, so no ordinary
+/// run of events gets here; the test takes the workspace's row away by hand
+/// to stand for one that did. Such a creation adds nothing: it is said, and
+/// the operation is refused and owed.
+#[test]
+fn a_creation_whose_workspace_went_before_its_answer_is_said_and_owed() {
+    let mut sim = Sim::booted();
+    let ask = sim.intent(Intent::CreateTeam { workspace: ws(), team: team("n"), site: Site::Root, draft: draft(), members: vec![] });
+    sim.write_journals();
+    let op = *sim.state.ops.keys().next().expect("the creation");
+    sim.state.world.workspaces.remove(&ws());
+    sim.apply(|cmd| matches!(cmd, Cmd::AddTeam { .. }));
+    assert!(sim.warnings().contains(&Warning::WorkspaceGone { op }), "{:?}", sim.warnings());
+    assert_eq!(sim.refusal(ask), Some(Refusal::NotFound));
+    assert!(sim.state.ops[&op].owed, "neither running on nor ending");
 }
 
 // ---------------------------------------------------------------- the fork
@@ -3269,7 +3388,7 @@ fn an_archive_names_the_agents_it_leaves_suspended_and_its_preview_says_the_same
     facts.workspaces[0].teams.push(TeamFacts { id: team("f"), at: TeamAtFacts::Provisioning { path: Dir::new("/wt/kd-app-9"), branch: Some("kd/app/9".into()) } });
     facts.workspaces[0].panes.push(pane_facts(4, Some("f")));
     let mut sim = Sim::booted_with(facts, Vec::new());
-    assert_eq!(sim.state.world.teams[&team("f")].at, crate::world::TeamAt::Failed { ticket: crate::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-9"), branch: "kd/app/9".into(), base: None } });
+    assert_eq!(sim.state.world.teams[&team("f")].at, crate::domain::world::TeamAt::Failed { ticket: crate::domain::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-9"), branch: "kd/app/9".into(), base: None } });
 
     let intent = Intent::Archive { workspace: ws() };
     assert_eq!(super::queries::preview(&sim.state, &intent).stops, vec![PaneId(3)]);
@@ -3577,6 +3696,11 @@ fn a_creation_git_refused_is_failed_with_retry_and_the_retry_makes_it() {
     }
     let op = *sim.state.ops.keys().next().unwrap();
     sim.send(Event::Created { op, result: Err("a branch of that name exists".into()) });
+    assert!(
+        sim.warnings().iter().any(|warning| matches!(warning, Warning::WorktreeNotCreated { op: failed, reason, .. } if *failed == op && reason == "a branch of that name exists")),
+        "{:?}",
+        sim.warnings()
+    );
     sim.drive();
     assert!(sim.carried.iter().any(|cmd| matches!(cmd, Cmd::FailTeam { .. })));
     assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::SettleTeam { .. })), "no fallback to another folder: {:?}", sim.carried);
@@ -3741,8 +3865,8 @@ fn every_due() -> Vec<Due> {
             workspace: w(),
             team: team("n"),
             draft: draft(),
-            place: crate::command::TeamPlace::Attached { cwd: Dir::new("/repo"), branch: None },
-            members: vec![crate::command::Member { pane: p(4), draft: draft() }],
+            place: crate::domain::command::TeamPlace::Attached { cwd: Dir::new("/repo"), branch: None },
+            members: vec![crate::domain::command::Member { pane: p(4), draft: draft() }],
         },
         Cmd::RetryTeam { workspace: w(), team: team("n") },
         Cmd::SettleTeam { workspace: w(), team: team("n"), cwd: Dir::new("/wt/kd-app-2"), branch: Some("kd/app/2".into()) },
@@ -3804,7 +3928,7 @@ fn every_due() -> Vec<Due> {
     every
         .into_iter()
         .enumerate()
-        .map(|(index, cmd)| Due { id: crate::ids::CommandId { op: OpId(1), index: index as u32 }, owner: cmd.owner(), cmd })
+        .map(|(index, cmd)| Due { id: crate::domain::ids::CommandId { op: OpId(1), index: index as u32 }, owner: cmd.owner(), cmd })
         .collect()
 }
 
@@ -3820,8 +3944,8 @@ fn the_wire_examples_are_written_beside_the_exported_types() {
     assert!(!versioned.snapshot.commands.is_empty(), "the example carries commands owed");
     let answers = vec![
         Answer::Accepted { op: OpId(9), minted: model::Minted { workspace: None, team: Some(team("n")), panes: vec![PaneId(4)] } },
-        Answer::Leased { permit: crate::ids::PermitId(2) },
-        Answer::Admitted { attempt: crate::ids::AttemptId(3) },
+        Answer::Leased { permit: crate::domain::ids::PermitId(2) },
+        Answer::Admitted { attempt: crate::domain::ids::AttemptId(3) },
         Answer::Booted { finishing: vec![OpId(1)] },
     ];
     let mut replies: Vec<model::Reply> = answers.into_iter().map(|answer| model::Reply::Answered { answer }).collect();

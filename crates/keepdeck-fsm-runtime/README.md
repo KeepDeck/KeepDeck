@@ -2,17 +2,17 @@
 
 Runs a machine written against `keepdeck-fsm` (`crates/keepdeck-fsm`): on a
 tokio task of its own, with the feature's handler, its timers and the stream
-of its states. A feature's rules do not depend on this crate. The app that
-starts the machine depends on it, and so does a feature's timing tests, as a
-dev-dependency.
+of its states. A feature's rules — its crate's `domain` — never name this
+crate. Its `infrastructure` does: the handler is there, and it runs the
+machine here; the feature's timing tests use it too.
 
 What a machine is, and how to write `update` and `work`, is in the README of
 `keepdeck-fsm`.
 
 ## When not to use it
 
-- In a feature's own build. The feature's rules depend on `keepdeck-fsm`
-  only; the runtime is a dev-dependency there, for timing tests.
+- In a feature's `domain`. The rules depend on `keepdeck-fsm` only; the
+  runtime is for the `infrastructure` that runs them.
 - To test rules. `update` and `work` are plain functions, tested with no
   runtime.
 - Where no tokio runtime is entered. `start` spawns the machine's task, so it
@@ -36,8 +36,9 @@ machine.state()           the stream of states: At { version, value }
   first timer. `send` needs no runtime: a synchronous command may call it.
 - The machine starts in `initial` and first does the work `initial` needs. A
   machine restored after a restart does the work of its restored state again.
-- One machine per feature. Handles are cheap to clone. Whoever owns the
-  feature's lifetime owns a handle, and dropping the last one is the stop:
+- A machine is one complete unit of logic (see `keepdeck-fsm`'s "What it is
+  for"); a feature may run several. Handles are cheap to clone. Whoever owns
+  the machine's lifetime owns a handle, and dropping the last one is the stop:
   the machine still handles what was sent before, then ends, and its state
   stream and timers end with it. An `Events::send` in the middle of its call
   holds the mailbox open until it returns, so sends that overlap the drop may
@@ -57,7 +58,10 @@ the state needs, each in the order listed — on the machine's own task, one at
 a time. So it must not block. Long work goes through `events.spawn`: the
 future runs on its own task, and the event it returns, if any, comes back to
 the machine. Work that keeps sending — a subscription — calls `events.send`
-and stops when it returns false: the machine is gone.
+and stops when it returns false: the machine is gone. Blocking work goes
+through `supervised`: it runs on tokio's blocking pool and always ends in an
+outcome — its own, or an error when it panicked or was cancelled — so the
+event it owes the machine is sent whatever happened.
 
 A request that needs an answer gets it as an effect of the feature: `update`
 asks for it, and the handler delivers it to whoever is waiting.
@@ -242,6 +246,7 @@ are in the README of `keepdeck-fsm`.
 | Outside sees only the state. Effects go to the handler only; another feature learns about this one from its state | One output: nothing needs a second stream | `one_machine_learns_about_another_from_its_state` |
 | Dropping the last handle is the stop: what was sent before is still handled, then the machine ends. When its task is gone, by a panic too, its state stream ends and its timers stop; the other machines go on. `Events` do not keep a machine alive | Otherwise whoever waits would wait for ever, and a dead machine's timers would sleep on | `what_was_sent_before_the_last_handle_was_dropped_is_still_handled`, `a_machine_ends_with_its_last_handle_and_the_others_go_on`, `when_the_machine_panics_its_state_stream_ends_and_its_timers_stop`, `events_do_not_keep_a_machine_alive_and_say_when_it_is_gone` |
 | The framework recovers nothing. Work that fails or panics sends nothing; a feature that must know turns the failure into an event of its own. A panic in the machine is the app's concern | Recovery belongs to the feature that needs it, not to every feature | `work_that_panics_sends_nothing_and_the_machine_goes_on` |
+| Blocking work run through `supervised` always ends in an outcome: its own result, or an error when it panicked or was cancelled | A machine hears of work only through the event the work sends: work that panicked must still let the handler send it | `supervised_work_ends_in_an_outcome_a_panic_included` |
 | `start` needs an entered tokio runtime, with its time driver if the states need timers; `send` needs none | The machine is a tokio task; a command may be synchronous. A missing time driver fails the machine, not quietly one deadline | `starting_a_machine_outside_a_tokio_runtime_panics`, `with_a_runtime_entered_a_machine_starts_and_send_needs_no_runtime`, `a_machine_whose_state_needs_a_timer_needs_the_time_driver` |
 
 ## Testing a feature's timing
@@ -253,12 +258,14 @@ once, in order, and the test is exact. A race between a timer and an event is
 this runtime's own rule, held by its tests: a feature has none of its own to
 test.
 
-The feature crate takes the runtime as a dev-dependency only, so it stays out
-of the feature's own build:
+The feature crate depends on the runtime for its `infrastructure`, and its
+timing tests need tokio's test utilities:
 
 ```toml
-[dev-dependencies]
+[dependencies]
 keepdeck-fsm-runtime = { path = "../keepdeck-fsm-runtime" }
+
+[dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "test-util"] }
 ```
 

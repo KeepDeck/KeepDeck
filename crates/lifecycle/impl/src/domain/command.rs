@@ -2,10 +2,10 @@
 //! answer. A command stands in the snapshot under its exact id until its
 //! owner answers; it is never withdrawn.
 
-use crate::dir::Dir;
-use crate::ids::{CommandId, OpId, PaneId, TeamId, WorkspaceId};
-use crate::journal::Discard;
-use crate::model::{Draft, SessionKey};
+use crate::domain::dir::Dir;
+use crate::domain::ids::{CommandId, OpId, PaneId, TeamId, WorkspaceId};
+use crate::domain::journal::Discard;
+use crate::domain::model::{Draft, SessionKey};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -258,7 +258,7 @@ mod tests {
         let path = Dir::new("/repo/wt");
         assert_eq!(Cmd::WorktreeNotDeleted { workspace: ws(), path: path.clone(), reason: "busy".into() }.owner(), Owner::Notices);
         let source = SessionKey { agent: "claude".into(), session: "s".into() };
-        assert_eq!(Cmd::Fork { workspace: ws(), pane, source, cwd: path, draft: crate::model::Draft::default() }.owner(), Owner::ForkStep);
+        assert_eq!(Cmd::Fork { workspace: ws(), pane, source, cwd: path, draft: crate::domain::model::Draft::default() }.owner(), Owner::ForkStep);
     }
 
     #[test]

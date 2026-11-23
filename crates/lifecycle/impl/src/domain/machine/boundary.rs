@@ -9,7 +9,7 @@
 
 use super::launch::Attempt;
 use super::{Effect, Event, Kind, Op, State, Timer, REGISTRATION_WAIT};
-use crate::ids::{AttemptId, OpId};
+use crate::domain::ids::{AttemptId, OpId};
 use keepdeck_fsm::Owed;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

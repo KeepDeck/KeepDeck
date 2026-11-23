@@ -4,10 +4,10 @@
 //! answers, a deck command until it is durable or rejected.
 
 use super::{capture, Forgotten, Kind, State, TearPhase};
-use crate::command::{Cmd, Owner};
-use crate::ids::{CommandId, PaneId, TeamId, WorkspaceId};
-use crate::model::{Refusal, Teardown};
-use crate::world::TeamAt;
+use crate::domain::command::{Cmd, Owner};
+use crate::domain::ids::{CommandId, PaneId, TeamId, WorkspaceId};
+use crate::domain::model::{Refusal, Teardown};
+use crate::domain::world::TeamAt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use ts_rs::TS;
@@ -176,7 +176,7 @@ pub fn snapshot(state: &State) -> Snapshot {
             if sent.cmd.forgets() && !state.boot.cleans() {
                 continue;
             }
-            if !sent.settled(saved) && !matches!(sent.outcome, Some(crate::command::Outcome::Rejected { .. })) {
+            if !sent.settled(saved) && !matches!(sent.outcome, Some(crate::domain::command::Outcome::Rejected { .. })) {
                 let id = CommandId { op: op_id, index: index as u32 };
                 commands.push(Due { id, owner: sent.cmd.owner(), cmd: sent.cmd.clone() });
             }

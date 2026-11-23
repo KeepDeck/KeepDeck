@@ -12,13 +12,12 @@ mod tests;
 pub use boundary::{Boundary, NotStarted};
 pub use table::Table;
 
-use crate::supervised::supervised;
 use crate::session::{deliver, resolve_command, DeliveryEnd, SessionEvent, SpawnSpec};
-use keepdeck_fsm_runtime::{Effects, Events, Runtime};
-use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{AttemptId, PaneId, PermitId, SessionId};
-use keepdeck_lifecycle::machine::{Event as LifecycleEvent, LaunchOwner};
-use keepdeck_lifecycle::model::{Answer, Refusal, Reply};
+use keepdeck_fsm_runtime::{supervised, Effects, Events, Runtime};
+use keepdeck_lifecycle::domain::dir::Dir;
+use keepdeck_lifecycle::domain::ids::{AttemptId, PaneId, PermitId, SessionId};
+use keepdeck_lifecycle::domain::machine::{Event as LifecycleEvent, LaunchOwner};
+use keepdeck_lifecycle::domain::model::{Answer, Refusal, Reply};
 use keepdeck_pty::sessions::{self, Effect, Event, Over, Sessions};
 use keepdeck_pty::{Consumer, PtyEvent, PtySession, PtySpec, TermSize};
 use serde::Serialize;
@@ -61,7 +60,7 @@ struct Watching {
 
 impl Watching {
     /// The door of the lifecycle machine in place now.
-    fn door(&self) -> crate::lifecycle::Door {
+    fn door(&self) -> keepdeck_lifecycle::infrastructure::door::Door {
         self.lifecycle.door()
     }
 }
@@ -224,7 +223,7 @@ impl SessionMachine {
     /// this machine. Output goes to `on_event` until the session ends.
     pub async fn open(
         &self,
-        lifecycle: &crate::lifecycle::Door,
+        lifecycle: &keepdeck_lifecycle::infrastructure::door::Door,
         permit: PermitId,
         owner: LaunchOwner,
         spec: SpawnSpec,

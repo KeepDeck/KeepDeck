@@ -10,7 +10,7 @@
 //! terminal that is that pane's now ([`Table::pane_of`]); a terminal that is
 //! no pane's speaks for nobody.
 
-use keepdeck_lifecycle::ids::{PaneId, SessionId};
+use keepdeck_lifecycle::domain::ids::{PaneId, SessionId};
 use keepdeck_pty::PtySession;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

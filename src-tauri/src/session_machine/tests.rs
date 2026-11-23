@@ -4,13 +4,14 @@
 //! session appearing and ending.
 
 use super::{OpenError, SessionMachine, Stopped};
-use crate::lifecycle::{AppDoors, Door, Lifecycle};
+use crate::lifecycle::{AppDoors, Lifecycle};
+use keepdeck_lifecycle::infrastructure::door::Door;
 use crate::session::SpawnSpec;
-use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{PaneId, PermitId, SessionId, TeamId, WorkspaceId};
-use keepdeck_lifecycle::machine::{Event, LaunchOwner, LeaseAsk, Load};
-use keepdeck_lifecycle::model::{Answer, Refusal, Reply};
-use keepdeck_lifecycle::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
+use keepdeck_lifecycle::domain::dir::Dir;
+use keepdeck_lifecycle::domain::ids::{PaneId, PermitId, SessionId, TeamId, WorkspaceId};
+use keepdeck_lifecycle::domain::machine::{Event, LaunchOwner, LeaseAsk, Load};
+use keepdeck_lifecycle::domain::model::{Answer, Refusal, Reply};
+use keepdeck_lifecycle::domain::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -202,7 +203,7 @@ async fn a_launch_cancelled_at_the_boundary_never_starts() {
     let permit = rig.permit(2).await;
     // A Close took the attempt over before the door crossed: the attempt the
     // admission will make is the next one; cancel it ahead.
-    let attempt = keepdeck_lifecycle::ids::AttemptId(rig.door().machine().state().borrow().value.next.attempt.next().0);
+    let attempt = keepdeck_lifecycle::domain::ids::AttemptId(rig.door().machine().state().borrow().value.next.attempt.next().0);
     assert!(rig.sessions.boundary.cancel(&[attempt]).is_empty());
     let opened = rig.open(permit, 2, "sleep 30").await;
     assert_eq!(opened, Err(OpenError::NotStarted(super::NotStarted::Cancelled)));

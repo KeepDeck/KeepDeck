@@ -8,10 +8,10 @@
 //! launch settles it (`Unknown`). An answer ready together with the end is
 //! still the answer.
 
+use crate::domain::ids::AskId;
+use crate::domain::machine::{Event, State};
+use crate::domain::model::{Answer, Reply};
 use keepdeck_fsm_runtime::Runtime;
-use keepdeck_lifecycle::ids::AskId;
-use keepdeck_lifecycle::machine::{Event, State};
-use keepdeck_lifecycle::model::{Answer, Reply};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -97,5 +97,96 @@ impl<S: Send + Sync + 'static, E: Clone + PartialEq + Send + 'static> Door<S, E>
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keepdeck_fsm::{stay, Next, Owed};
+    use keepdeck_fsm_runtime::{Effects, Events};
+    use std::time::Duration;
+
+    /// A machine that answers `Answer` asks, never answers `Silent` ones, and
+    /// dies on `Die` — on its own task, as a panic in a machine does.
+    #[derive(Clone, Debug, PartialEq)]
+    enum Probe {
+        Answer(AskId),
+        Silent(AskId),
+        AnswerThenDie(AskId),
+        Die,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum Said {
+        Answer(AskId),
+        Die,
+    }
+
+    fn probe_update(_: &u8, event: Probe) -> Next<u8, Said> {
+        match event {
+            Probe::Answer(ask) => stay().run(Said::Answer(ask)),
+            Probe::Silent(_) => stay(),
+            Probe::AnswerThenDie(ask) => stay().run(Said::Answer(ask)).run(Said::Die),
+            Probe::Die => stay().run(Said::Die),
+        }
+    }
+
+    fn probe_work(_: &u8) -> Owed<Said, Probe> {
+        Owed::nothing()
+    }
+
+    struct ProbeHandler(Waiters);
+
+    impl Effects<Said, Probe> for ProbeHandler {
+        fn run(&mut self, effect: Said, _: &Events<Probe>) {
+            match effect {
+                Said::Answer(ask) => self.0.deliver(ask, Answer::Booted { finishing: Vec::new() }),
+                Said::Die => panic!("the machine dies"),
+            }
+        }
+    }
+
+    fn probe_door() -> Door<u8, Probe> {
+        let waiters = Waiters::default();
+        let machine = Runtime::start(0, probe_update, probe_work, ProbeHandler(waiters.clone()));
+        Door::new(machine, waiters)
+    }
+
+    async fn dead(door: &Door<u8, Probe>) {
+        let mut states = door.machine().state();
+        door.tell(Probe::Die);
+        while states.changed().await.is_ok() {}
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_door_answers_with_the_machines_answer() {
+        let door = probe_door();
+        assert_eq!(door.ask(Probe::Answer).await, Reply::Answered { answer: Answer::Booted { finishing: Vec::new() } });
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_machine_gone_before_the_ask_is_unavailable() {
+        let door = probe_door();
+        dead(&door).await;
+        assert_eq!(door.ask(Probe::Answer).await, Reply::Unavailable);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_machine_gone_after_the_ask_unanswered_is_unknown() {
+        let door = probe_door();
+        let asking = {
+            let door = door.clone();
+            tokio::spawn(async move { door.ask(Probe::Silent).await })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        door.tell(Probe::Die);
+        assert_eq!(asking.await.unwrap(), Reply::Unknown);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_answer_ready_with_the_end_is_still_the_answer() {
+        let door = probe_door();
+        assert_eq!(door.ask(Probe::AnswerThenDie).await, Reply::Answered { answer: Answer::Booted { finishing: Vec::new() } });
     }
 }

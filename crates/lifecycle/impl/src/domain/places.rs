@@ -3,7 +3,7 @@
 //! given and freed by the machine that creates and cleans up teams, one event
 //! at a time, so two creations never get one number.
 
-use crate::dir::Dir;
+use crate::domain::dir::Dir;
 use std::collections::BTreeSet;
 
 /// The prefix of every branch KeepDeck names, so its cleanup never touches

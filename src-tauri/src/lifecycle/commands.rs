@@ -3,15 +3,15 @@
 //! nothing itself.
 
 use super::Lifecycle;
-use keepdeck_lifecycle::command::{Outcome, Revision};
-use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{CommandId, OpId, PermitId, WorkspaceId};
-use keepdeck_lifecycle::machine::queries::{self, Claim, Location, PlaceHeld, Preview};
+use keepdeck_lifecycle::domain::command::{Outcome, Revision};
+use keepdeck_lifecycle::domain::dir::Dir;
+use keepdeck_lifecycle::domain::ids::{CommandId, OpId, PermitId, WorkspaceId};
+use keepdeck_lifecycle::domain::machine::queries::{self, Claim, Location, PlaceHeld, Preview};
 use keepdeck_fsm_runtime::At;
-use keepdeck_lifecycle::machine::snapshot::{snapshot, Heard, Versioned};
-use keepdeck_lifecycle::machine::{Event, LeaseAsk, Load, State};
-use keepdeck_lifecycle::model::{Intent, Place, Reply};
-use keepdeck_lifecycle::world::DeckFacts;
+use keepdeck_lifecycle::domain::machine::snapshot::{snapshot, Heard, Versioned};
+use keepdeck_lifecycle::domain::machine::{Event, LeaseAsk, Load, State};
+use keepdeck_lifecycle::domain::model::{Intent, Place, Reply};
+use keepdeck_lifecycle::domain::world::DeckFacts;
 use tauri::ipc::Channel;
 use tokio::sync::watch;
 

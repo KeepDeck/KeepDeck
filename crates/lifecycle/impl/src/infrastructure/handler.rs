@@ -4,37 +4,27 @@
 //! its own attempt, because the framework recovers nothing.
 
 use super::door::Waiters;
-use super::store::DiskJournal;
-use crate::supervised::supervised;
-use keepdeck_fsm_runtime::{Effects, Events};
-use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{AttemptId, SessionId};
-use keepdeck_lifecycle::journal::{self, JournalStore, Ticket};
-use keepdeck_lifecycle::machine::{Clean, Effect, Event};
+use super::journal::DiskJournal;
+use crate::domain::doors::Doors;
+use crate::domain::machine::{Clean, Effect, Event, Warning};
+use keepdeck_fsm_runtime::{supervised, Effects, Events};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// What the handler asks of the rest of the app: git, the stores, the
-/// sessions machine, the spawn door's start boundary.
-pub trait Doors: Send + Sync + 'static {
-    /// Whether anything is on disk at a candidate place: the folder, or a
-    /// branch of that name in the repository.
-    fn probe(&self, repo: &Dir, path: &Dir, branch: &str) -> bool;
-    /// `git worktree add` by the ticket; a checkout already at the ticket's
-    /// path is this ticket's and is picked up.
-    fn create_worktree(&self, ticket: &Ticket) -> Result<(), String>;
-    /// Whether the ticket's checkout stands at its path on its branch;
-    /// nothing is made. An error only when git could not read the
-    /// repository.
-    fn find_worktree(&self, ticket: &Ticket) -> Result<bool, String>;
-    /// The branches born in a checkout, from its reflog.
-    fn read_branches(&self, repo: &Dir, path: &Dir) -> Result<Vec<String>, String>;
-    fn clean(&self, how: &Clean) -> Result<(), String>;
-    /// Ask the sessions machine to stop this exact session.
-    fn stop(&self, session: SessionId);
-    /// Cancel admitted launches at the start boundary; answers those whose
-    /// process already exists.
-    fn cancel(&self, attempts: &[AttemptId]) -> Vec<AttemptId>;
+/// The log's line for a warning of the machine.
+fn words(warning: &Warning) -> String {
+    match warning {
+        Warning::JournalNotWritten { op, attempt, error } => format!("{op}: the journal entry was not written ({error}) — attempt {attempt}"),
+        Warning::JournalNotRemoved { op, error } => format!("{op}: the journal entry was not removed ({error}); the next launch finishes it"),
+        Warning::NotSettled { rounds } => format!("the lifecycle machine did not settle in {rounds} rounds"),
+        Warning::BranchesUnread { op, path, error } => format!("{op}: the branches of {} could not be read ({error})", path.as_str()),
+        Warning::StepsFailed { op, failed } => format!("{op}: {failed} cleanup step(s) failed; the next launch retries them"),
+        Warning::StepFailed { op, step, reason } => format!("{op}: {step:?} failed: {reason}"),
+        Warning::StoresKept { op, reason } => format!("{op}: the stores kept data of gone workspaces: {reason}; the next launch tries again"),
+        Warning::CheckoutUnknown { op, reason } => format!("{op}: whether its checkout stands is not known: {reason}"),
+        Warning::WorktreeNotCreated { op, path, reason } => format!("{op}: the worktree of {} was not created: {reason}", path.as_str()),
+        Warning::WorkspaceGone { op } => format!("{op}: its workspace is gone; nothing more is added to it"),
+    }
 }
 
 pub struct Handler {
@@ -80,19 +70,16 @@ impl Effects<Effect, Event> for Handler {
         match effect {
             Effect::Answer { ask, answer } => self.waiters.deliver(ask, answer),
             Effect::WriteJournal { op, attempt, entry } => {
-                let mut store = self.journal.clone();
+                let journal = self.journal.clone();
                 events.spawn(async move {
-                    let result = supervised(move || {
-                        store.write(&journal::file_name(op), &journal::encode(&entry)).map_err(|e| e.to_string())
-                    })
-                    .await;
+                    let result = supervised(move || journal.save(&entry).map_err(|e| e.to_string())).await;
                     Some(Event::JournalWritten { op, attempt, result })
                 });
             }
             Effect::RemoveJournal { op, attempt } => {
-                let mut store = self.journal.clone();
+                let journal = self.journal.clone();
                 events.spawn(async move {
-                    let result = supervised(move || store.remove(&journal::file_name(op)).map_err(|e| e.to_string())).await;
+                    let result = supervised(move || journal.remove(op).map_err(|e| e.to_string())).await;
                     Some(Event::JournalRemoved { op, attempt, result })
                 });
             }
@@ -147,7 +134,7 @@ impl Effects<Effect, Event> for Handler {
                     Some(Event::Cancelled { op, started })
                 });
             }
-            Effect::Warn { message } => log::warn!("lifecycle: {message}"),
+            Effect::Warn { warning } => log::warn!("lifecycle: {}", words(&warning)),
         }
     }
 }
@@ -155,7 +142,32 @@ impl Effects<Effect, Event> for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keepdeck_lifecycle::ids::WorkspaceId;
+    use crate::domain::dir::Dir;
+    use crate::domain::ids::{OpId, WorkspaceId};
+    use crate::domain::journal::Step;
+
+    /// Each warning says in the log what the machine wrote there itself
+    /// before its warnings were codes.
+    #[test]
+    fn each_warning_has_its_line_in_the_log() {
+        let op = OpId(7);
+        let path = Dir::new("/wt/kd-app-1");
+        let lines = [
+            (Warning::JournalNotWritten { op, attempt: 2, error: "disk full".into() }, "op-7: the journal entry was not written (disk full) — attempt 2"),
+            (Warning::JournalNotRemoved { op, error: "read-only".into() }, "op-7: the journal entry was not removed (read-only); the next launch finishes it"),
+            (Warning::NotSettled { rounds: 64 }, "the lifecycle machine did not settle in 64 rounds"),
+            (Warning::BranchesUnread { op, path: path.clone(), error: "no reflog".into() }, "op-7: the branches of /wt/kd-app-1 could not be read (no reflog)"),
+            (Warning::StepsFailed { op, failed: 2 }, "op-7: 2 cleanup step(s) failed; the next launch retries them"),
+            (Warning::StepFailed { op, step: Step::Stores, reason: "locked".into() }, "op-7: Stores failed: locked"),
+            (Warning::StoresKept { op, reason: "locked".into() }, "op-7: the stores kept data of gone workspaces: locked; the next launch tries again"),
+            (Warning::CheckoutUnknown { op, reason: "no volume".into() }, "op-7: whether its checkout stands is not known: no volume"),
+            (Warning::WorktreeNotCreated { op, path, reason: "exists".into() }, "op-7: the worktree of /wt/kd-app-1 was not created: exists"),
+            (Warning::WorkspaceGone { op }, "op-7: its workspace is gone; nothing more is added to it"),
+        ];
+        for (warning, line) in lines {
+            assert_eq!(words(&warning), line);
+        }
+    }
 
     #[tokio::test(start_paused = true)]
     async fn a_store_cleanup_past_its_limit_is_left_owed_and_a_git_step_has_no_clock() {

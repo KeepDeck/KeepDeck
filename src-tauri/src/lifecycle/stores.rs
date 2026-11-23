@@ -10,8 +10,8 @@ use crate::mcp::library::McpLibraryLock;
 use crate::plugin_permissions::PluginGrants;
 use crate::plugin_workspaces::PluginDirsLock;
 use crate::skills::SkillsLocks;
-use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::WorkspaceId;
+use keepdeck_lifecycle::domain::dir::Dir;
+use keepdeck_lifecycle::domain::ids::WorkspaceId;
 use tauri::Manager;
 
 pub trait StoreDoors: Send + Sync + 'static {
