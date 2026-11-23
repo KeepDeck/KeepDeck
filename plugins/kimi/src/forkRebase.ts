@@ -13,8 +13,13 @@ import { isJsonRecord } from "@keepdeck/plugin-api";
  *   `id`, which kimi trusts over the folder name. A clone that keeps the old
  *   id answers "Session not found" for the new one.
  * - every agent's `wire.jsonl`: `runtime.set_binding` names the workspace
- *   (`wd_…`) the agent runs in, and kimi asserts it against the session's on
- *   restore (`runtimeBindingService.ts`). The old one refuses to start.
+ *   (`wd_…`) the agent runs in, and kimi before 2.5.0 asserts it against the
+ *   session's on restore (`runtimeBindingService.ts`). The old one refuses
+ *   to start. Since 2.5.0 the record is no longer written and nothing reads
+ *   it (`environment.set_binding` took its place, with a path only for a
+ *   non-local environment), so on a newer kimi this rewrite changes nothing;
+ *   it stays for sessions an older kimi made, and the plugin declares no
+ *   minimum kimi version.
  * - the MAIN agent's wire: the rendered system prompt — "The current working
  *   directory is …", the directory listing, AGENTS.md — saved once as
  *   `profile.bind` (or, by older kimis, `config.update` with a

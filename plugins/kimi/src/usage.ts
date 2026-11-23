@@ -16,18 +16,21 @@ import {
   type UsageNormalizer,
   type UsageWindow,
 } from "@keepdeck/plugin-api";
+import type { KimiModelTable } from "./models";
 
 /**
  * Kimi usage — two normalizers because kimi splits its data in two:
  *
  * - The session's wire.jsonl, tailed by the host (`{agent:"kimi", event}`),
- *   holds a PER-REQUEST `usage.record` — one call each, and its input
- *   components are THAT turn's context occupancy — and a trimmed
- *   `llm.request` before it: the model the request went to, and its window
- *   size. Each subagent writes a wire of its own beside the main one
- *   (`agents/<id>/wire.jsonl`). NOTE: this on-disk shape is kimi-code's
- *   less-documented internal log (not the documented wire-mode JSON-RPC
- *   surface) — kimi has changed it once already.
+ *   holds a PER-REQUEST `usage.record` — one call each, its input
+ *   components THAT turn's context occupancy, and the alias of the model it
+ *   ran on. The window that occupancy is measured against is the model's,
+ *   from kimi's config (./models.ts). Before kimi 2.6.0 the wire also held a
+ *   trimmed `llm.request` naming the bare model id a request went to; calls
+ *   are still booked under it where it is written. Each subagent writes a
+ *   wire of its own beside the main one (`agents/<id>/wire.jsonl`). NOTE:
+ *   this on-disk shape is kimi-code's less-documented internal log (not the
+ *   documented wire-mode JSON-RPC surface) — kimi has changed it before.
  * - Account rate-limit windows exist NOWHERE on disk — kimi's own /usage
  *   queries the network. The host polls the usages endpoint while a kimi
  *   pane is live; [`normalizeKimiUsages`] reads the response document.
@@ -44,12 +47,14 @@ export function kimiAgentsDirectory(store: string): string {
 /**
  * Which wire records carry the numbers.
  *
- * Both records ride TWO lanes. `llm.request` names the window size the pane's
- * gauge measures against (`usage`) and the model the next calls run on
- * (`calls`, as their context). `usage.record` is the pane's occupancy
- * (`usage`) and a call (`calls`). Each lane's watch keeps only what its
- * reading needs: the full request carries the prompt, and naming a few
- * scalars is what keeps a conversation inside the store.
+ * `usage.record` rides TWO lanes: the pane's occupancy, with the model whose
+ * window it is measured against (`usage`), and a call (`calls`).
+ * `llm.request`, written by kimi before 2.6.0 only, names the bare model id
+ * the next calls ran on (`calls`, as their context). Its `maxTokens` was the
+ * request's output cap, never the window, so it feeds no gauge. Each lane's
+ * watch keeps only what its reading needs: the full request carries the
+ * prompt, and naming a few scalars is what keeps a conversation inside the
+ * store.
  *
  * Kimi writes a call ONCE and gives it no id: its place in the wire is its
  * id. A fork copies the wire whole, places and original times alike — the
@@ -57,13 +62,8 @@ export function kimiAgentsDirectory(store: string): string {
  */
 export const kimiUsageWatches: readonly TailWatch[] = [
   {
-    match: [{ key: "type", equals: "llm.request" }],
-    keep: ["type", "maxTokens"],
-    lane: "usage",
-  },
-  {
     match: [{ key: "type", equals: "usage.record" }],
-    keep: ["type", "usage", "usageScope"],
+    keep: ["type", "model", "usage", "usageScope"],
     lane: "usage",
   },
   {
@@ -119,7 +119,17 @@ function kimiCall(carried: CarriedRecord): UsageCall | null {
   };
 }
 
-export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
+/** The wire normalizer of one registration, reading each record's window
+ * from that registration's model table. */
+export function kimiWireNormalizer(models: Pick<KimiModelTable, "windowOf">): UsageNormalizer {
+  return (payload, at) => normalizeKimiWire(payload, at, models);
+}
+
+function normalizeKimiWire(
+  payload: Parameters<UsageNormalizer>[0],
+  at: number,
+  models: Pick<KimiModelTable, "windowOf">,
+): ReturnType<UsageNormalizer> {
   const carried = carriedRecord(payload);
   if (!carried) return null;
   const event = carried.record;
@@ -130,20 +140,6 @@ export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
     return { account: null, pane: null, calls: call ? [call] : [] };
   }
 
-  if (event.type === "llm.request") {
-    const windowTokens = asFiniteNumber(event.maxTokens);
-    if (windowTokens === undefined) {
-      return { account: null, pane: null };
-    }
-    return {
-      account: null,
-      pane: {
-        agent: "kimi",
-        context: { windowTokens },
-        reportedAt: at,
-      },
-    };
-  }
   if (event.type !== "usage.record") return null;
 
   const usage = isJsonRecord(event.usage) ? event.usage : undefined;
@@ -165,23 +161,25 @@ export const normalizeKimiWire: UsageNormalizer = (payload, at) => {
   // in the window".
   const perTurn = event.usageScope !== "session";
   // The request's full input (fresh + cache read + cache write) is what
-  // occupies the context; the window size arrives via llm.request.
+  // occupies the context; the window is the model's, from kimi's config.
   const occupied =
     perTurn &&
     (input !== undefined || cacheRead !== undefined || cacheWrite !== undefined)
       ? (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)
       : undefined;
   if (occupied === undefined) return { account: null, pane: null };
+  const model = asNonEmptyString(event.model);
+  const windowTokens = model === undefined ? undefined : models.windowOf(model);
 
   return {
     account: null,
     pane: {
       agent: "kimi",
-      context: { usedTokens: occupied },
+      context: { usedTokens: occupied, ...(windowTokens !== undefined && { windowTokens }) },
       reportedAt: at,
     },
   };
-};
+}
 
 /** One window from {limit, used?, remaining?, resetTime?} counts. The
  * count-math lives in plugin-api's [`allowanceWindow`] (codex's plan quota

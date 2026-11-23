@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { HttpAnswer, HttpGet } from "@keepdeck/plugin-api";
+import { parseKimiConfig } from "./config";
 import { declaredDefault } from "./home";
 import { readKimiLimits, tokenStorageName, usageSource, type LimitsPorts } from "./limits";
+import { createKimiModelTable, type KimiModelTable } from "./models";
 
 const MAINLAND = `
 [providers."managed:kimi-code"]
@@ -25,7 +27,7 @@ oauth_host = "https://auth.kimi.ai"
 `;
 
 const DEFAULT_BASE = "https://api.kimi.com/coding/v1";
-const source = (config: string | null, env: string | null = null) => usageSource(config, env, DEFAULT_BASE);
+const source = (config: string | null, env: string | null = null) => usageSource(parseKimiConfig(config), env, DEFAULT_BASE);
 
 describe("kimi usage source", () => {
   it("a mainland login reads the com API with the default token", () => {
@@ -101,11 +103,15 @@ describe("readKimiLimits", () => {
     };
     return { services, get, readFile };
   }
+  /** One limits read, refreshing `models` (a table of its own unless one
+   * is handed in). */
+  const limits = (services: LimitsPorts["services"], models: KimiModelTable = createKimiModelTable()) =>
+    readKimiLimits({ services }, models);
 
   it("reads the default home's config and signs with the default source", async () => {
     const { services, get, readFile } = ports({ files: { "~/.kimi-code/config.toml": GLOBAL } });
 
-    await expect(readKimiLimits({ services })).resolves.toEqual({ body: '{"usage":1}', sourceAt: 5_000 });
+    await expect(limits(services)).resolves.toEqual({ body: '{"usage":1}', sourceAt: 5_000 });
 
     expect(readFile).toHaveBeenCalledWith("~/.kimi-code/config.toml");
     expect(get).toHaveBeenCalledWith({
@@ -116,11 +122,11 @@ describe("readKimiLimits", () => {
 
   it("reads the config under KIMI_CODE_HOME, and the default home when it is empty", async () => {
     const custom = ports({ env: { KIMI_CODE_HOME: "/elsewhere/kimi" }, files: { "/elsewhere/kimi/config.toml": GLOBAL } });
-    await readKimiLimits({ services: custom.services });
+    await limits(custom.services);
     expect(custom.readFile).toHaveBeenCalledWith("/elsewhere/kimi/config.toml");
 
     const empty = ports({ env: { KIMI_CODE_HOME: "" } });
-    await readKimiLimits({ services: empty.services });
+    await limits(empty.services);
     expect(empty.readFile).toHaveBeenCalledWith("~/.kimi-code/config.toml");
     // No config at all is the mainland default, not a failure.
     expect(empty.get).toHaveBeenCalledWith(expect.objectContaining({ url: `${DEFAULT_BASE}/usages` }));
@@ -128,7 +134,7 @@ describe("readKimiLimits", () => {
 
   it("a relative KIMI_CODE_HOME is read as given, as kimi reads it", async () => {
     const relative = ports({ env: { KIMI_CODE_HOME: "rel/kimi" } });
-    await readKimiLimits({ services: relative.services });
+    await limits(relative.services);
     expect(relative.readFile).toHaveBeenCalledWith("rel/kimi/config.toml");
   });
 
@@ -137,7 +143,7 @@ describe("readKimiLimits", () => {
       env: { KIMI_CODE_BASE_URL: "https://custom.example:8443/v9" },
       files: { "~/.kimi-code/config.toml": GLOBAL },
     });
-    await readKimiLimits({ services });
+    await limits(services);
     expect(get).toHaveBeenCalledWith(expect.objectContaining({ url: "https://custom.example:8443/v9/usages" }));
   });
 
@@ -145,14 +151,25 @@ describe("readKimiLimits", () => {
     const { services, get } = ports({
       files: { "~/.kimi-code/config.toml": MAINLAND.replace("oauth/kimi-code", "oauth/../secret") },
     });
-    await expect(readKimiLimits({ services })).rejects.toThrow("outside its credentials directory");
+    await expect(limits(services)).rejects.toThrow("outside its credentials directory");
     expect(get).not.toHaveBeenCalled();
   });
 
   it("a non-200 answer or a cut body is a failure the lane logs", async () => {
     const idle = ports({ answer: { status: 401, body: "", truncated: false, sentAt: 1 } });
-    await expect(readKimiLimits({ services: idle.services })).rejects.toThrow("kimi usages HTTP 401");
+    await expect(limits(idle.services)).rejects.toThrow("kimi usages HTTP 401");
     const cut = ports({ answer: { status: 200, body: "{", truncated: true, sentAt: 1 } });
-    await expect(readKimiLimits({ services: cut.services })).rejects.toThrow("larger than the host carries");
+    await expect(limits(cut.services)).rejects.toThrow("larger than the host carries");
+  });
+
+  it("refreshes the model table from the config it reads — whatever the usages answer", async () => {
+    const config = `${GLOBAL}\n[models."kimi-code/k3"]\nmodel = "k3"\nmax_context_size = 1048576\n`;
+    const models = createKimiModelTable();
+    const idle = ports({
+      files: { "~/.kimi-code/config.toml": config },
+      answer: { status: 401, body: "", truncated: false, sentAt: 1 },
+    });
+    await expect(limits(idle.services, models)).rejects.toThrow("kimi usages HTTP 401");
+    expect(models.windowOf("kimi-code/k3")).toBe(1_048_576);
   });
 });

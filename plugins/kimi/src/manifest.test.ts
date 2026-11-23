@@ -73,8 +73,9 @@ describe("kimi companion manifest", () => {
     }
   });
 
-  it("claims no mid-turn channel, because kimi has none", () => {
-    // The one agent of the four a person cannot correct while it works, and
+  it("claims no mid-turn channel, because kimi's hooks offer none to deliver through", () => {
+    // The one agent of the four that mail cannot reach while it works (kimi
+    // itself steers a turn from its own input line, Ctrl+S, since 2.5.3), and
     // the manifest says so by leaving `mail.mid-turn` out — Settings then
     // renders "Not supported" from the catalog the other three build.
     //

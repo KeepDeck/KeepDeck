@@ -4,14 +4,21 @@ import {
   watchMatches,
   watchProject,
 } from "@keepdeck/plugin-api";
+import { parseKimiConfig } from "./config";
+import { createKimiModelTable } from "./models";
 import {
   kimiAgentsDirectory,
   kimiUsageWatches,
+  kimiWireNormalizer,
   normalizeKimiUsages,
-  normalizeKimiWire,
 } from "./usage";
 
 const AT = 1_784_800_000_000;
+
+/** The normalizer of a registration whose config names one model's window. */
+const models = createKimiModelTable();
+models.refresh(parseKimiConfig('[models."kimi-code/k3"]\nmodel = "k3"\nmax_context_size = 262144\n'));
+const normalizeKimiWire = kimiWireNormalizer(models);
 
 /**
  * One raw wire record, put through the watch kimi actually DECLARES for
@@ -68,13 +75,19 @@ const REQUEST = {
 };
 
 describe("normalizeKimiWire", () => {
-  it("reads a usage.record as the pane's context occupancy", () => {
+  it("reads a usage.record as the pane's context occupancy, against its model's window", () => {
     const result = normalizeKimiWire(tailed(RECORD), AT);
     expect(result).toEqual({
       account: null,
-      // The request's full input IS the context occupancy.
-      pane: { agent: "kimi", context: { usedTokens: 42_100 }, reportedAt: AT },
+      // The request's full input IS the context occupancy; the window is
+      // the one kimi's config names for the model the record ran on.
+      pane: { agent: "kimi", context: { usedTokens: 42_100, windowTokens: 262_144 }, reportedAt: AT },
     });
+  });
+
+  it("reads the occupancy alone for a model the config names no window for", () => {
+    const result = normalizeKimiWire(tailed({ ...RECORD, model: "kimi-code/unknown" }), AT);
+    expect(result?.pane?.context).toEqual({ usedTokens: 42_100 });
   });
 
   it("books a usage.record as one call, its place in the wire its id", () => {
@@ -106,22 +119,17 @@ describe("normalizeKimiWire", () => {
     expect(normalizeKimiWire({ ...carried, sourceAt: undefined }, AT)?.calls).toEqual([]);
   });
 
-  it("reads a trimmed llm.request as the window size", () => {
-    expect(normalizeKimiWire(tailed(REQUEST), AT)?.pane).toEqual({
-      agent: "kimi",
-      context: { windowTokens: 262_144 },
-      reportedAt: AT,
-    });
+  it("feeds no gauge from an llm.request: its maxTokens was the request's output cap, never the window", () => {
+    expect(() => tailed(REQUEST)).toThrow("no declared usage watch");
   });
 
   it("never carries the prompt out of the wire", () => {
     // `llm.request` holds the whole conversation. Each declaration names a
     // few scalars, so the rest was never copied — the guarantee is
     // structural, not a rule anyone has to remember.
-    const gauge = tailed(REQUEST);
     const call = tailed(RECORD, "calls", REQUEST);
-    expect(JSON.stringify([gauge, call])).not.toContain("SECRET");
-    expect(Object.keys(gauge.event.record).sort()).toEqual(["maxTokens", "type"]);
+    expect(JSON.stringify(call)).not.toContain("SECRET");
+    expect(Object.keys(call.event.context ?? {})).toEqual(["model"]);
   });
 
   it("books a compaction's cost without reading it as a turn", () => {

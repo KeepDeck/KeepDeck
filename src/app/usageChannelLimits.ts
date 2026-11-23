@@ -46,6 +46,8 @@ export function createUsageLimitsLane({
   let polledKey = "";
   let polledAgents = new Set<string>();
   const booted = new Set<string>();
+  /** The agents whose last read came back and did not normalize. */
+  const unread = new Set<string>();
   const requestLanes = new Map<string, RequestLane>();
   let timers: ReturnType<typeof setInterval>[] = [];
 
@@ -76,16 +78,25 @@ export function createUsageLimitsLane({
         const sourceAt =
           usageSourceTimestamp(read.sourceAt, Date.now()) ?? requestedAt;
         const account = limits.normalize(read.body, sourceAt);
-        if (account) usage.setAccount(agentId, account);
-        else
-          // A fetch that THROWS is logged below; a fetch that succeeded and
-          // didn't normalize was silent — indistinguishable from "no data
-          // yet", which is how codex's unread business-plan quota hid for a
-          // whole release cycle. Every polled source, one line.
-          log.debug(
+        // A fetch that THROWS is logged below; a fetch that succeeded and
+        // didn't normalize was silent — indistinguishable from "no data
+        // yet", which is how codex's unread business-plan quota hid for a
+        // whole release cycle. So it is said where a release log sees it,
+        // but once when an agent's answer stops normalizing and once when it
+        // starts again: this lane polls every live agent each minute, and a
+        // line per poll would bury the log.
+        if (account) {
+          usage.setAccount(agentId, account);
+          if (unread.delete(agentId)) {
+            log.info("web:usage", `${agentId} limits ${phase}: the response normalizes again`);
+          }
+        } else if (!unread.has(agentId)) {
+          unread.add(agentId);
+          log.info(
             "web:usage",
-            `${agentId} limits ${phase}: response did not normalize — no account claim recorded`,
+            `${agentId} limits ${phase}: response did not normalize — no account claim recorded until it does`,
           );
+        }
       } catch (error) {
         log.debug("web:usage", `${agentId} limits ${phase} failed: ${error}`);
       }
