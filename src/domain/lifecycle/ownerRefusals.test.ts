@@ -11,6 +11,7 @@ const EVERY: OwnerRefusal[] = [
   { kind: "sessionHeld" },
   { kind: "noBranch" },
   { kind: "wrongOwner", command: "addTeam" },
+  { kind: "notAsked" },
   { kind: "failed" },
   { kind: "unknown" },
 ];

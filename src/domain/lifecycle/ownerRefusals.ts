@@ -26,6 +26,10 @@ export type OwnerRefusal =
   | { kind: "noBranch" }
   /** The owner carries no such command: KeepDeck asked the wrong one. */
   | { kind: "wrongOwner"; command: string }
+  /** A continued conversation's plan, with nothing asked of it in this run:
+   * a command journaled before KeepDeck restarted, its operation being
+   * taken back — never a plan rebuilt from the journal. */
+  | { kind: "notAsked" }
   /** Carrying it out failed; what failed is in the log. */
   | { kind: "failed" }
   /** None this build knows: an entry another build journaled. */
@@ -62,6 +66,7 @@ export function ownerRefusalOf(why: unknown): OwnerRefusal {
     case "teamFull":
     case "sessionHeld":
     case "noBranch":
+    case "notAsked":
     case "failed":
       return { kind: why.kind };
     default:

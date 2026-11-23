@@ -179,11 +179,12 @@ export function createLifecycleDoors(deps: LifecycleDoorsDeps): LifecycleDoors {
     );
     const transcriptPath = how === "fork" ? await forkTranscriptOf(record, deps.transcripts.locateTranscript) : undefined;
     const source = { agent: record.agent, session: record.sessionId };
+    // What is known of the conversation; what this ask wants — its YOLO
+    // included — rides the intent's member, and comes back on the command.
     deps.continuations.expect(ws.id, source, {
       workspace: { id: ws.id, instance: ws.instance },
       cwd: record.cwd,
       ...(record.branch !== undefined && { branch: record.branch }),
-      ...(yolo !== undefined && { yolo }),
       ...(transcriptPath !== undefined && { transcriptPath }),
     });
     return ask({

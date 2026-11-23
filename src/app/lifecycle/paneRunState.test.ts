@@ -3,17 +3,20 @@ import type { Cmd } from "../../ipc/generated/lifecycle/Cmd";
 import type { Discard } from "../../ipc/generated/lifecycle/Discard";
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
 import type { CommandOwner } from "../lifecycleSnapshot";
+import type { Built } from "./continuationPlans";
 import { createPaneRunState, type RunStatePorts } from "./paneRunState";
 
 const SOURCE = { agent: "claude", session: "s-1" };
+const DRAFT = { agentType: "claude", role: "impl-1", yolo: true };
 const DISCARD: Discard = { plugin: "keepdeck.claude", onceStarted: ["/kd/spec"], ifNeverStarted: ["/c/fork.jsonl"] };
-const fork: Cmd = { kind: "fork", workspace: "ws-a", pane: "pane-7", source: SOURCE, cwd: "/repo" };
+const fork: Cmd = { kind: "fork", workspace: "ws-a", pane: "pane-7", source: SOURCE, cwd: "/repo", draft: DRAFT };
+const BUILT: Built<null> = { kind: "built", value: null };
 
-function rig(build: () => Promise<Discard> = () => Promise.resolve(DISCARD)) {
+function rig(build: () => Promise<Built<Discard>> = () => Promise.resolve({ kind: "built", value: DISCARD })) {
   let accept: (bound: { paneId: string }) => void = () => {};
   const ports: RunStatePorts = {
     buildFork: vi.fn(build),
-    buildResume: vi.fn(() => Promise.resolve()),
+    buildResume: vi.fn(() => Promise.resolve(BUILT)),
     dropPlan: vi.fn(),
     letGo: vi.fn(() => Promise.resolve()),
     bindings: {
@@ -42,13 +45,25 @@ describe("the pane's run state, as the machine commands it", () => {
     expect(ports.hookEnded).toHaveBeenCalledWith(3);
   });
 
+  it("hands the build its own ask's draft, and gives the machine a build's refusal as the owner's", async () => {
+    const { ports, runState, forkStep, carry } = rig(() => Promise.resolve({ kind: "refused", why: { kind: "notAsked" } }));
+    expect(await carry(forkStep, fork)).toEqual({ kind: "rejected", why: { kind: "notAsked" } });
+    expect(ports.buildFork).toHaveBeenCalledWith({ workspace: "ws-a", pane: "pane-7", source: SOURCE, cwd: "/repo", draft: DRAFT });
+    expect(ports.hookEnded).toHaveBeenCalledWith(3);
+    vi.mocked(ports.buildResume).mockResolvedValue({ kind: "refused", why: { kind: "unreadable", what: "agent" } });
+    expect(await carry(runState, { kind: "prepareResume", workspace: "ws-a", pane: "pane-2", source: SOURCE, draft: null })).toEqual({
+      kind: "rejected",
+      why: { kind: "unreadable", what: "agent" },
+    });
+  });
+
   it("drops a dropped attempt's plan, and still hands back what its late build made", async () => {
-    let finish: (discard: Discard) => void = () => {};
+    let finish: (built: Built<Discard>) => void = () => {};
     const { ports, runState, forkStep, carry } = rig(() => new Promise((resolve) => (finish = resolve)));
     const forking = carry(forkStep, fork);
     expect(await carry(runState, { kind: "dropBuild", op: 3 })).toEqual({ kind: "applied", revision: null });
     expect(ports.dropPlan).toHaveBeenCalledWith("pane-7");
-    finish(DISCARD);
+    finish({ kind: "built", value: DISCARD });
     // The plan goes again, never spawned; the lists go to the machine, whose
     // rollback takes back what the hook made.
     expect(await forking).toEqual({ kind: "forked", discard: DISCARD });
@@ -59,8 +74,8 @@ describe("the pane's run state, as the machine commands it", () => {
   it("drops a resume's plan the machine dropped for its deadline, and again when its late build lands", async () => {
     let finish = () => {};
     const { ports, runState, carry } = rig();
-    vi.mocked(ports.buildResume).mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
-    const preparing = carry(runState, { kind: "prepareResume", workspace: "ws-a", pane: "pane-2", source: SOURCE }, 5);
+    vi.mocked(ports.buildResume).mockReturnValue(new Promise<Built<null>>((resolve) => (finish = () => resolve(BUILT))));
+    const preparing = carry(runState, { kind: "prepareResume", workspace: "ws-a", pane: "pane-2", source: SOURCE, draft: DRAFT }, 5);
     await carry(runState, { kind: "dropBuild", op: 5 });
     expect(ports.dropPlan).toHaveBeenCalledWith("pane-2");
     finish();
@@ -85,8 +100,8 @@ describe("the pane's run state, as the machine commands it", () => {
     const { ports, runState, carry } = rig();
     await carry(runState, { kind: "retire", workspace: "ws-a", pane: "pane-1" });
     expect(ports.dropPlan).toHaveBeenCalledWith("pane-1");
-    await carry(runState, { kind: "prepareResume", workspace: "ws-a", pane: "pane-2", source: SOURCE });
-    expect(ports.buildResume).toHaveBeenCalledWith({ workspace: "ws-a", pane: "pane-2", source: SOURCE });
+    await carry(runState, { kind: "prepareResume", workspace: "ws-a", pane: "pane-2", source: SOURCE, draft: DRAFT });
+    expect(ports.buildResume).toHaveBeenCalledWith({ workspace: "ws-a", pane: "pane-2", source: SOURCE, draft: DRAFT });
     expect((await carry(runState, fork)).kind).toBe("rejected");
   });
 

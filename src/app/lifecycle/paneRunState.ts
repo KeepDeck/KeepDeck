@@ -21,13 +21,16 @@ import type { Discard } from "../../ipc/generated/lifecycle/Discard";
 import type { Outcome } from "../../ipc/generated/lifecycle/Outcome";
 import type { SessionKey } from "../../ipc/generated/lifecycle/SessionKey";
 import { ownerRefused, type CommandOwner } from "../lifecycleSnapshot";
+import type { Built } from "./continuationPlans";
 
 export interface RunStatePorts {
-  /** Build the fork plan of `pane` from `source`, into `cwd`, through the
-   * plugin's fork hook — the scaffolding it declared, under its plugin. */
-  buildFork(args: { workspace: string; pane: string; source: SessionKey; cwd: string }): Promise<Discard>;
-  /** Build the plan that resumes `source` in `pane`. */
-  buildResume(args: { workspace: string; pane: string; source: SessionKey }): Promise<void>;
+  /** Build the fork plan of `pane` from `source`, into `cwd`, as its own
+   * ask's `draft` says, through the plugin's fork hook — the scaffolding it
+   * declared, under its plugin; or why it was not built. */
+  buildFork(args: { workspace: string; pane: string; source: SessionKey; cwd: string; draft: unknown }): Promise<Built<Discard>>;
+  /** Build the plan that resumes `source` in `pane`, as its own ask's
+   * `draft` says; or why it was not built. */
+  buildResume(args: { workspace: string; pane: string; source: SessionKey; draft: unknown }): Promise<Built<null>>;
   /** End a pane's plan and the secrets in it; a build still running for it
    * lands nowhere. */
   dropPlan(pane: string): void;
@@ -88,9 +91,10 @@ export function createPaneRunState(ports: RunStatePorts): PaneRunState {
         case "release":
           await ports.letGo({ workspace: cmd.workspace, pane: cmd.pane, replacedInPlace: cmd.inPlace });
           return DONE;
-        case "prepareResume":
-          await buildFor(id.op, cmd.pane, () => ports.buildResume({ workspace: cmd.workspace, pane: cmd.pane, source: cmd.source }));
-          return DONE;
+        case "prepareResume": {
+          const built = await buildFor(id.op, cmd.pane, () => ports.buildResume({ workspace: cmd.workspace, pane: cmd.pane, source: cmd.source, draft: cmd.draft }));
+          return built.kind === "refused" ? ownerRefused(built.why) : DONE;
+        }
         case "dropBuild": {
           dropped.add(cmd.op);
           const pane = attempts.get(cmd.op);
@@ -111,13 +115,13 @@ export function createPaneRunState(ports: RunStatePorts): PaneRunState {
       if (cmd.kind !== "fork") return ownerRefused({ kind: "wrongOwner", command: cmd.kind });
       // What the hook made, even for a dropped attempt, is still there: the
       // machine's rollback takes it back from these lists.
-      let discard: Discard;
+      let built: Built<Discard>;
       try {
-        discard = await buildFor(id.op, cmd.pane, () => ports.buildFork({ workspace: cmd.workspace, pane: cmd.pane, source: cmd.source, cwd: cmd.cwd }));
+        built = await buildFor(id.op, cmd.pane, () => ports.buildFork({ workspace: cmd.workspace, pane: cmd.pane, source: cmd.source, cwd: cmd.cwd, draft: cmd.draft }));
       } finally {
         ports.hookEnded(id.op);
       }
-      return { kind: "forked", discard };
+      return built.kind === "refused" ? ownerRefused(built.why) : { kind: "forked", discard: built.value };
     },
   };
 
