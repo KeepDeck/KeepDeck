@@ -33,7 +33,7 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 keepdeck-pty = { path = "../crates/keepdeck-pty" }
 keepdeck-git = { path = "../crates/keepdeck-git" }
 keepdeck-fsm-runtime = { path = "../crates/keepdeck-fsm-runtime" }
-keepdeck-lifecycle = { path = "../crates/keepdeck-lifecycle" }
+keepdeck-lifecycle = { path = "../crates/lifecycle/impl" }
 keepdeck-index = { path = "../crates/keepdeck-index" }
 keepdeck-tasks = { path = "../crates/keepdeck-tasks" }
 keepdeck-usage = { path = "../crates/keepdeck-usage" }

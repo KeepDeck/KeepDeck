@@ -3,7 +3,7 @@
  * did not do what was asked, and how its waiting door comes back without an
  * answer. Kinds and data only — the words are presentation's.
  *
- * The machine is Rust's (crates/keepdeck-lifecycle); these types are its
+ * The machine is Rust's (crates/lifecycle/impl); these types are its
  * wire types seen from the domain, which may not read the IPC layer. The app
  * layer's contract test holds them equal to the generated ones, so neither
  * side can move alone.
