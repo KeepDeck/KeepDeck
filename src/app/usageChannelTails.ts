@@ -163,9 +163,17 @@ export function createUsageTailsLane({
     }
   };
 
+  /** Stop following a pane's file. Nothing waits on it, so a failure is
+   * said rather than left unhandled. */
+  const unwatch = (paneId: string) => {
+    void unwatchSessionFile(paneId).catch((error: unknown) => {
+      log.warn("web:usage", `${paneId}: session file not let go: ${errorMessage(error)}`);
+    });
+  };
+
   const settleArm = (paneId: string) => {
     if (disposed || !tailed.has(paneId)) {
-      void unwatchSessionFile(paneId);
+      unwatch(paneId);
     }
   };
 
@@ -277,7 +285,7 @@ export function createUsageTailsLane({
       tailed.delete(paneId);
       armedWith.delete(paneId);
       links.delete(paneId);
-      void unwatchSessionFile(paneId);
+      unwatch(paneId);
     }
     // A pane that left the deck while its store was being looked for: the
     // answer, when it comes, has nowhere to go.
@@ -392,7 +400,7 @@ export function createUsageTailsLane({
       unsubscribePlans();
       globalThis.clearInterval(retryTimer);
       unsubscribeBindings();
-      for (const paneId of tailed) void unwatchSessionFile(paneId);
+      for (const paneId of tailed) unwatch(paneId);
       tailed.clear();
       searching.clear();
       links.clear();

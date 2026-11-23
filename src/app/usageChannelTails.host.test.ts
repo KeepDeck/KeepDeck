@@ -71,6 +71,15 @@ describe("following a pane's file, on the host", () => {
       expect(field(tailsOf(host(), paneId, resumed)[0], "token")).not.toBe(before);
     });
 
+    it("says a file it could not let go of, rather than leave the failure unhandled", async () => {
+      const d = await open();
+      const { ws, paneId } = await followedUp(d);
+      host().fail("usage_unwatch_session_file");
+      expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
+      await until("the page says it", () =>
+        host().tape.some(({ way, line }) => way === "page log" && line.includes(`${paneId}: session file not let go`)));
+    });
+
     it("follows a rising pane's file already, under the secret its new process reports with", async () => {
       const d = await open();
       const { ws, paneId } = await followedUp(d);
