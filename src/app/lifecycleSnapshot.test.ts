@@ -115,4 +115,29 @@ describe("the lifecycle snapshot", () => {
     await vi.advanceTimersByTimeAsync(BACKOFF.firstMs);
     expect(answer).toHaveBeenCalledTimes(2);
   });
+
+  // A command's id names a command only in its own machine's life: an answer
+  // that outlived the runtime would answer another command of the next one.
+  it("sends nothing once disposed, and leaves no timer to send it", async () => {
+    const { store, answer } = rig();
+    store.receive(at(1, [removePane]));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(answer).toHaveBeenCalledTimes(1);
+    store.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(BACKOFF.maxMs * 4);
+    expect(answer).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the answer of a carry that ends after the dispose, and carries nothing it hears after", async () => {
+    let finish: (outcome: Outcome) => void = () => {};
+    const { store, carried, answer } = rig(() => new Promise((resolve) => (finish = resolve)));
+    store.receive(at(1, [removePane]));
+    store.dispose();
+    finish(APPLIED);
+    await vi.advanceTimersByTimeAsync(BACKOFF.maxMs * 4);
+    expect(answer).not.toHaveBeenCalled();
+    store.receive(at(2, [removePane, forgetMail]));
+    expect(carried.map((due) => due.cmd.kind)).toEqual(["removePane"]);
+  });
 });

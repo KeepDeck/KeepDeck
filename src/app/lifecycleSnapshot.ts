@@ -57,6 +57,12 @@ export interface LifecycleSnapshot {
   receive(versioned: Versioned): void;
   /** The machine started over: its versions count from the start again. */
   restarted(): void;
+  /** The runtime is going: no command is carried and no answer sent any
+   * more, and no timer is left to send one. A command's id names a command
+   * only in its own machine's life — an answer that outlived the runtime
+   * would reach whichever machine runs next and answer some other command
+   * under the same id. */
+  dispose(): void;
 }
 
 const BACKOFF = { firstMs: 1_000, maxMs: 30_000 };
@@ -82,10 +88,12 @@ export function createLifecycleSnapshot(deps: LifecycleSnapshotDeps): LifecycleS
   const carrying = new Set<string>();
   /** The answers being sent, by command name: the next send's timer. */
   const sending = new Map<string, ReturnType<typeof setTimeout>>();
+  let disposed = false;
 
   const due = (name: string) => held?.snapshot.commands.some((command) => nameOf(command.id) === name) ?? false;
 
   function send(id: CommandId, outcome: Outcome, waitMs: number): void {
+    if (disposed) return;
     const name = nameOf(id);
     deps.answer(id, outcome).catch(() => {
       // The timer below sends it again.
@@ -134,7 +142,7 @@ export function createLifecycleSnapshot(deps: LifecycleSnapshotDeps): LifecycleS
     },
     forgotten: (source) => (held ? isForgotten(held.snapshot.forgotten, source) : false),
     receive(versioned) {
-      if (held && versioned.version <= held.version) return;
+      if (disposed || (held && versioned.version <= held.version)) return;
       held = versioned;
       for (const [name, timer] of sending) {
         if (!due(name)) {
@@ -147,6 +155,11 @@ export function createLifecycleSnapshot(deps: LifecycleSnapshotDeps): LifecycleS
     },
     restarted() {
       held = null;
+    },
+    dispose() {
+      disposed = true;
+      for (const timer of sending.values()) clearTimeout(timer);
+      sending.clear();
     },
   };
 }
