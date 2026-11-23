@@ -36,17 +36,13 @@ export interface KimiFork {
  * into the TARGET cwd's `wd_` folder, rebase what names the old place
  * (`forkRebase.ts` owns which records and why), and append the new id to the
  * index. The original stays resumable where it was. The `wd_` key is
- * `wd_<slug-of-basename>_<sha256(cwd)[:12]>`.
+ * `wd_<slug-of-basename>_<sha256(cwd)[:12]>`, derived as kimi derives it
+ * ([`wdKey`]).
  *
- * Its SHAPE is upstream's own contract — kimi-code 0.38 validates
- * `^wd_[a-z0-9._-]+_[0-9a-f]{12}$` in `packages/protocol/src/workspace.ts`
- * ("workspace_id must be a wd_<slug>_<hash12> string"), and
- * `session_index.jsonl` is still the index it files ids in
- * (`packages/migration-legacy/src/paths.ts`). The DERIVATION — which
- * basename, lowercased, over which digest of which path — is published
- * nowhere and stays probe-derived: a validator that accepts our output
- * proves the string is well-formed, never that it names the directory
- * kimi would have picked. The layout gate below is what catches that.
+ * The key's shape and its derivation are both kimi's own, in kimi's source
+ * (`packages/agent-core-v2/src/_base/utils/workdir-slug.ts`), and
+ * `session_index.jsonl` is still the index it files ids in. The layout gate
+ * below catches a store whose layout moved.
  */
 export async function kimiForkPlan(
   ctx: ForkPorts,
@@ -231,28 +227,33 @@ async function readWholeText(ctx: ForkPorts, path: string): Promise<string> {
   }
 }
 
-/** `wd_<slug-of-basename>_<sha256(absolute-cwd)[:12]>` — the store folder
- * kimi files a directory's sessions under.
- *
- * The shape this returns is upstream-validated (see the module docblock);
- * the derivation is ours, from probing, and no upstream source states it.
- *
- * The SLUG is what kimi's own encoder does to the basename and what a plain
- * lowercase missed: anything outside `[a-z0-9._-]` becomes a dash, the result
- * is cut to forty characters, and an empty one becomes "workspace". A folder
- * named with spaces, non-Latin letters, or simply a long name would otherwise
- * derive a key kimi never files anything under — a fork that lands in a
- * directory nobody looks in, and no error to say so. */
-function slugOfBasename(cwd: string): string {
-  const slug = cwd
-    .slice(cwd.lastIndexOf("/") + 1)
+/** A directory name as kimi slugs it for its store folder: lowercased, a run
+ * of anything outside `[a-z0-9._-]` made ONE dash, dashes trimmed off both
+ * ends before and after the cut to forty characters, and "workspace" for
+ * what comes out empty, "." or "..". */
+function slugOfBasename(name: string): string {
+  const slug = name
     .toLowerCase()
-    .replace(/[^a-z0-9._-]/g, "-")
-    .slice(0, 40);
-  return slug === "" ? "workspace" : slug;
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, "");
+  return slug === "" || slug === "." || slug === ".." ? "workspace" : slug;
 }
 
+/** `wd_<slug>_<sha256(path)[:12]>` — the store folder kimi files a
+ * directory's sessions under, as kimi's own `encodeWorkDirKey` derives it
+ * (packages/agent-core-v2/src/_base/utils/workdir-slug.ts; the same rule
+ * since kimi 2.2.0). The path is normalized first — backslashes made
+ * slashes, trailing slashes dropped — and the slug and the digest both read
+ * the normalized path, so a directory named with or without a trailing slash
+ * files in one place. A folder named with spaces, non-Latin letters or a
+ * long name otherwise lands where kimi never looks, with no error to say so.
+ *
+ * kimi keys a directory by its REAL path; this reads the deck's path as it
+ * is, so a directory reached through a symlink keys apart from kimi's. */
 export async function wdKey(cwd: string): Promise<string> {
-  const base = slugOfBasename(cwd);
-  return `wd_${base}_${(await sha256Hex(cwd)).slice(0, 12)}`;
+  const normalized = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
+  const base = normalized.slice(normalized.lastIndexOf("/") + 1);
+  return `wd_${slugOfBasename(base)}_${(await sha256Hex(normalized)).slice(0, 12)}`;
 }

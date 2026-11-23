@@ -152,21 +152,30 @@ describe("wdKey", () => {
   });
 });
 
-  it("slugs a basename kimi's own encoder would slug", async () => {
-    // Kimi slugs the basename before it files anything under the key:
-    // anything outside [a-z0-9._-] becomes a dash, the result is cut to
-    // forty characters, an empty one becomes "workspace". A plain lowercase
-    // derived a key kimi never uses — a fork landing in a directory nobody
-    // looks in, with no error to say so.
-    expect(await wdKey("/Users/u/My Project")).toMatch(/^wd_my-project_[0-9a-f]{12}$/);
-    expect(await wdKey("/Users/u/проект")).toMatch(/^wd_[-]{6}_[0-9a-f]{12}$/);
-    expect(await wdKey(`/Users/u/${"a".repeat(60)}`)).toMatch(
-      new RegExp(`^wd_${"a".repeat(40)}_[0-9a-f]{12}$`),
-    );
+  it("derives every key exactly as kimi's own encodeWorkDirKey does", async () => {
+    // Each pair computed by running kimi 2.7.2's own
+    // `_base/utils/workdir-slug.ts` on the path — not by this plugin's rule.
+    const kimis: [string, string][] = [
+      ["/Users/u/a  b", "wd_a-b_0ab72c7b99d7"],
+      ["/Users/u/(wip)", "wd_wip_d4733882dacb"],
+      ["/Users/u/Пример", "wd_workspace_b9c63975d53b"],
+      ["/Users/u/C++ Projects", "wd_c-projects_c90214fc7722"],
+      ["/Users/u/My Project", "wd_my-project_9ff7252fa05d"],
+      ["/Users/u/проект", "wd_workspace_0f1775ad2896"],
+      [`/Users/u/${"a".repeat(60)}`, `wd_${"a".repeat(40)}_e2b624f7618f`],
+      [`/Users/u/${"x".repeat(39)}-tail`, `wd_${"x".repeat(39)}_599e7e5f980a`],
+      // Leading dashes go before the cut, so forty letters survive it.
+      [`/Users/u/((${"b".repeat(45)}`, `wd_${"b".repeat(40)}_84bf020baffc`],
+      ["C:\\Users\\u\\Win Dir\\", "wd_win-dir_1ecca2a8fbd1"],
+      ["/Users/u/kd-KeepDeck-11", "wd_kd-keepdeck-11_90a896739319"],
+      ["/Users/u/..", "wd_workspace_eca51d1bd9ba"],
+      ["/", "wd_workspace_e3b0c44298fc"],
+    ];
+    for (const [cwd, key] of kimis) expect(await wdKey(cwd), cwd).toBe(key);
   });
 
-  it("names an empty basename `workspace`, as kimi does", async () => {
-    expect(await wdKey("/")).toMatch(/^wd_workspace_[0-9a-f]{12}$/);
+  it("files a directory named with a trailing slash where it files without one", async () => {
+    expect(await wdKey("/Users/u/kd-KeepDeck-11/")).toBe("wd_kd-keepdeck-11_90a896739319");
   });
 
 describe("kimiForkPlan", () => {
