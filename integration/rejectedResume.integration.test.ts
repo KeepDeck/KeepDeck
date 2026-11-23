@@ -69,7 +69,7 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     const answer = await askLiveRegistry(plugins, "claude", "s-1");
     expect(answer).toBe("live");
     expect(spawns[0]).toEqual({ args: ["agents", "--json"] });
-    expect(decideRejectedResume("restore", answer, false)).toEqual({
+    expect(decideRejectedResume(answer, false)).toEqual({
       kind: "keep",
       registry: "live",
     });
@@ -81,8 +81,8 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     ]);
     const answer = await askLiveRegistry(plugins, "claude", "s-1");
     expect(answer).toBe("absent");
-    expect(decideRejectedResume("restore", answer, false)).toEqual({ kind: "retry-once" });
-    expect(decideRejectedResume("restore", answer, true)).toEqual({
+    expect(decideRejectedResume(answer, false)).toEqual({ kind: "retry-once" });
+    expect(decideRejectedResume(answer, true)).toEqual({
       kind: "legacy-fresh",
     });
   });
@@ -91,7 +91,7 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     const { plugins } = claudeWithAgentsJson([], 2); // the query itself dies
     const answer = await askLiveRegistry(plugins, "claude", "s-1");
     expect(answer).toBe("unknown");
-    expect(decideRejectedResume("restore", answer, false)).toEqual({
+    expect(decideRejectedResume(answer, false)).toEqual({
       kind: "keep",
       registry: "unknown",
     });
@@ -101,8 +101,8 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     const { plugins } = createSpawnPluginsFake();
     const answer = await askLiveRegistry(plugins, "codex", "s-1");
     expect(answer).toBe(null);
-    expect(decideRejectedResume("restore", answer, false)).toEqual({ kind: "retry-once" });
-    expect(decideRejectedResume("restore", answer, true)).toEqual({
+    expect(decideRejectedResume(answer, false)).toEqual({ kind: "retry-once" });
+    expect(decideRejectedResume(answer, true)).toEqual({
       kind: "legacy-fresh",
     });
   });

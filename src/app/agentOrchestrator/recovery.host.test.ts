@@ -199,17 +199,20 @@ describe("a rejected resume the person asked for, on the host", () => {
     return launches[launches.length - 1]?.args ?? [];
   };
 
-  /** An agent up, then suspended, then asked back with its agent told to
-   * refuse the next `refusals` resumes. */
-  async function askedBack(refusals: number) {
+  /** An agent up, then suspended, then asked back with its agent told
+   * `told` first — how many resumes it refuses, whether it reports. */
+  async function askedBack(told: Partial<StubAgentControl>) {
     const d = (deck = await startDeck(host()));
     const { ws, paneId, session } = await d.agentUp();
-    expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
-    await host().until("suspended", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none", 15_000);
+    const suspend = async () => {
+      expect(await d.runtime.orchestrator.suspend(ws.id, paneId)).toEqual({ kind: "suspending" });
+      await host().until("suspended", () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none", 15_000);
+    };
+    await suspend();
     const launched = d.launches(paneId).length;
-    d.stub.rejectResumes = refusals;
+    Object.assign(d.stub, told);
     expect(await d.runtime.orchestrator.resume(ws.id, paneId)).toMatchObject({ kind: "resuming" });
-    return { d, paneId, session, launched };
+    return { d, paneId, session, launched, suspend };
   }
 
   /** The `launch`-th process of the pane exited, having reported nothing —
@@ -220,7 +223,7 @@ describe("a rejected resume the person asked for, on the host", () => {
   }
 
   it("is retried once, quietly, on its own conversation", async () => {
-    const { d, paneId, session, launched } = await askedBack(1);
+    const { d, paneId, session, launched } = await askedBack({ rejectResumes: 1 });
     expect(await exitedSilently(d, paneId, launched + 1)).toBe(true);
     await host().until("resumed again, and up", () => d.launches(paneId).length === launched + 2 && d.slot(paneId) === "live", 15_000);
     expect(lastArgs(d, paneId)).toEqual(expect.arrayContaining(["--resume", session]));
@@ -229,13 +232,36 @@ describe("a rejected resume the person asked for, on the host", () => {
   });
 
   it("stays down on its conversation when the retry is rejected too — not taken over, never fresh", async () => {
-    const { d, paneId, session, launched } = await askedBack(2);
+    const { d, paneId, session, launched } = await askedBack({ rejectResumes: 2 });
     expect(await exitedSilently(d, paneId, launched + 1)).toBe(true);
     expect(await exitedSilently(d, paneId, launched + 2)).toBe(false);
     await host().until("settled", () => d.settled());
     expect(d.launches(paneId)).toHaveLength(launched + 2);
     expect(d.slot(paneId)).toBe("exited");
     expect(d.pane(paneId).session?.id).toBe(session);
+  });
+
+  it("is left alone when it ended cleanly — the person quit it while it was restoring", async () => {
+    const { d, paneId, session, launched } = await askedBack({ rejectResumes: 1 });
+    await host().until("it ended", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "exited", 15_000);
+    expect(d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 0)).toBe(false);
+    await host().until("settled", () => d.settled());
+    expect(d.launches(paneId)).toHaveLength(launched + 1);
+    expect(d.pane(paneId).session?.id).toBe(session);
+  });
+
+  it("is not started again when the deck itself stopped it before it reported", async () => {
+    // Up, but silent: it has not reported yet when the person suspends it.
+    // Two things hold this, each enough alone: the machine drops the
+    // pane's plan before its stop, and a suspended pane is not taken over.
+    // The row goes red only when both go.
+    const { d, paneId, launched, suspend } = await askedBack({ unbound: true });
+    await host().until("up, silent", () => d.launches(paneId).length === launched + 1 && d.slot(paneId) === "live", 15_000);
+    await suspend();
+    expect(d.runtime.orchestrator.recoverRejectedResume(d.workspace().id, paneId, 1)).toBe(false);
+    await host().until("settled", () => d.settled());
+    expect(d.launches(paneId)).toHaveLength(launched + 1);
+    expect(d.phase(paneId)).toBe("suspended");
   });
 });
 

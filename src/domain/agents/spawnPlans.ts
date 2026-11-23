@@ -25,7 +25,7 @@ export type ResumeOrigin = "restore" | "manual";
 export type LiveRegistryAnswer = "live" | "absent" | "unknown";
 
 /** What to do with a resume the CLI refused — it died before it became a
- * session — the ONE decision this module owns for that exit. */
+ * session — once the page has taken it over. */
 export type RejectedResumeAction =
   /** Held by an outside process: the binding stays, the pane offers the
    * person a choice (fork a copy, leave it). */
@@ -38,22 +38,45 @@ export type RejectedResumeAction =
   | { kind: "retry-once" }
   /** The old behavior, whole: drop the binding, one automatic fresh
    * spawn — the recorded session really is gone. Boot restoration only. */
-  | { kind: "legacy-fresh" }
-  /** A resume the person asked for, refused again after its retry: the
-   * pane stays exited on its conversation, and its exit is said as any
-   * other — the page does not take it over. */
-  | { kind: "leave" };
+  | { kind: "legacy-fresh" };
 
-/** Whether the page takes a refused resume over at all — the part of the
- * decision no registry answer changes. A resume the person asked for is
- * taken over for its one retry and no further. */
-export function takesOverRejectedResume(origin: ResumeOrigin, alreadyRetried: boolean): boolean {
-  return origin === "restore" || !alreadyRetried;
+/** What the page does next with a resume that died before it became a
+ * session — the ONE decision this module owns for that exit. */
+export type RejectedResumeNext =
+  /** Not taken over: the pane stays exited on its conversation, and its
+   * exit is said as any other. */
+  | { kind: "leave" }
+  /** Taken over, and decided already. */
+  | { kind: "act"; action: RejectedResumeAction }
+  /** Taken over; the agent's live-session registry is asked, and
+   * [`decideRejectedResume`] decides from its answer. */
+  | { kind: "ask-registry" };
+
+/**
+ * What a resume that died before it became a session earns, by who asked
+ * for it, whether this was already its retry, and whether its process
+ * failed.
+ *
+ * A boot restore is the registry's to decide: nobody is watching, and only
+ * it may become another conversation. A resume the person asked for by
+ * name never does, whatever the registry says, so the registry is not
+ * asked: a failed one gets its one quiet retry on the same conversation,
+ * then stays visibly down. One that ended cleanly was ended on purpose —
+ * the person quit it while it was still restoring — and is left alone. A
+ * kill by a signal cannot be told from a crash here; both read as failed.
+ */
+export function rejectedResumeNext(
+  origin: ResumeOrigin,
+  alreadyRetried: boolean,
+  failed: boolean,
+): RejectedResumeNext {
+  if (origin === "restore") return { kind: "ask-registry" };
+  if (!failed || alreadyRetried) return { kind: "leave" };
+  return { kind: "act", action: { kind: "retry-once" } };
 }
 
 /**
- * Decide a refused resume from who asked for it, what the registry said,
- * and whether this was already its retry.
+ * Decide a refused boot restore from what the registry said.
  *
  * The rule this replaces read a silent CLI refusal as "the session is
  * gone" — sound when refusals had three causes (deleted, GC'd, never
@@ -66,20 +89,13 @@ export function takesOverRejectedResume(origin: ResumeOrigin, alreadyRetried: bo
  * a choice. The asymmetry is the point. No registry at all — the agent
  * has none, or its answer never came — is not a claim either way, and
  * earns the retry like "absent": one transient refusal must never cost a
- * conversation.
- *
- * A resume the user asked for by name never becomes another conversation,
- * whatever the registry says: its one retry, then it stays visibly down.
- * `alreadyRetried` is how the one quiet retry stays one: it is the same
- * marker the retry's own plan carries.
+ * conversation. `alreadyRetried` is how the one quiet retry stays one: it
+ * is the same marker the retry's own plan carries.
  */
 export function decideRejectedResume(
-  origin: ResumeOrigin,
   answer: LiveRegistryAnswer | null,
   alreadyRetried: boolean,
 ): RejectedResumeAction {
-  if (!takesOverRejectedResume(origin, alreadyRetried)) return { kind: "leave" };
-  if (origin === "manual") return { kind: "retry-once" };
   if (answer === "live") return { kind: "keep", registry: "live" };
   if (answer === "unknown") return { kind: "keep", registry: "unknown" };
   return alreadyRetried ? { kind: "legacy-fresh" } : { kind: "retry-once" };

@@ -6,7 +6,7 @@
  * lease.
  */
 import { findPane, findWorkspace, paneBranch, paneExecutionCwd, paneResumeSessionId } from "../../domain/deck";
-import { decideRejectedResume, takesOverRejectedResume } from "../../domain/agents";
+import { decideRejectedResume, rejectedResumeNext } from "../../domain/agents";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { log } from "../../ipc/log";
 import type { DeckActions } from "../deckActions";
@@ -93,9 +93,9 @@ export function createRecovery(deps: RecoveryDeps): Recovery {
     // another conversation.
     const origin = spec.resumeOrigin ?? "manual";
     const retried = spec.resumeRetry === true;
-    // What no registry answer changes is decided now: a resume left down is
-    // not taken over, and its exit is said as any other.
-    if (!takesOverRejectedResume(origin, retried)) return false;
+    const next = rejectedResumeNext(origin, retried, code !== 0);
+    // A resume left down is not taken over, and its exit is said as any other.
+    if (next.kind === "leave") return false;
     if (findPane(deps.deck.getSnapshot().workspaces, wsId, paneId)?.idle) return false;
     const target = targetOf(wsId, paneId);
     if (!target) return false;
@@ -109,10 +109,10 @@ export function createRecovery(deps: RecoveryDeps): Recovery {
         // ASK, don't parse the refusal: the string is not a contract, the
         // registry is the state. `null` (no capability to ask) is its own
         // answer and the rule reads it apart from "absent".
-        const answer = spec.resumeOf ? await askLiveRegistry(deps.plugins, target.pane.agentType, spec.resumeOf) : null;
-        const action = decideRejectedResume(origin, answer, retried);
-        // Decided above, before the pane was taken over.
-        if (action.kind === "leave") return;
+        const action =
+          next.kind === "act"
+            ? next.action
+            : decideRejectedResume(spec.resumeOf ? await askLiveRegistry(deps.plugins, target.pane.agentType, spec.resumeOf) : null, retried);
         if (action.kind === "keep") {
           // The conversation is alive in an outside process: the binding
           // STAYS, the pane stays exited, and its card offers the choice.

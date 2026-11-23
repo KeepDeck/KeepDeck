@@ -10,7 +10,7 @@ import type {
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
 import { EMPTY_SPAWN_CONTEXT, type SpawnPlan } from "./plans";
-import { decideRejectedResume } from "../../domain/agents";
+import { rejectedResumeNext } from "../../domain/agents";
 import type { Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createSpawnPluginsFake, installedPlugin } from "./planTestSupport";
@@ -496,9 +496,10 @@ describe("the plan builders — live pane, resume, fork", () => {
     expect(after.token).toBe(before.token);
     expect(after.resumeOf).toBe(before.resumeOf);
     // And the flip disarms the auto-fresh fallback, which is the point: a
-    // retried resume the person asked for is left down, never made fresh.
-    expect(decideRejectedResume(after.resumeOrigin ?? "manual", null, true)).toEqual({ kind: "leave" });
-    expect(decideRejectedResume(before.resumeOrigin ?? "manual", null, true)).toEqual({ kind: "legacy-fresh" });
+    // retried resume the person asked for is left down, where a restore
+    // would have gone to the registry and on to a fresh start.
+    expect(rejectedResumeNext(after.resumeOrigin ?? "manual", true, true)).toEqual({ kind: "leave" });
+    expect(rejectedResumeNext(before.resumeOrigin ?? "manual", true, true)).toEqual({ kind: "ask-registry" });
   });
 
   it("refuses a plan that is not a resume, and a pane with no plan at all", async () => {
