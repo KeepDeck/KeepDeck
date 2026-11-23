@@ -411,7 +411,10 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
   async function workspaceUp(): Promise<WorkspaceRef> {
     if (runtime.deckStore.getSnapshot().workspaces.length === 0) {
       const made = await runtime.orchestrator.createWorkspace({ name: "ws", cwd: host.work, worktreeBaseDir: host.trees });
-      if (made.kind !== "accepted") throw new Error(`no workspace: ${JSON.stringify(made)}`);
+      const id = made.kind === "accepted" ? made.minted.workspace : null;
+      if (!id) throw new Error(`no workspace: ${JSON.stringify(made)}`);
+      // Accepted is the machine's word; the deck has it once its command lands.
+      await host.until("the workspace is on the deck", () => runtime.deckStore.getSnapshot().workspaces.some((ws) => ws.id === id));
     }
     const ws = workspace();
     return { id: ws.id, instance: ws.instance };
