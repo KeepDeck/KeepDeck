@@ -317,7 +317,36 @@ pub enum Effect {
     Stop { session: SessionId },
     /// Cancel these admitted launches at the spawn door's start boundary.
     Cancel { op: OpId, attempts: Vec<AttemptId> },
-    Warn { message: String },
+    /// Something for the log. The machine names it; the handler words it.
+    Warn { warning: Warning },
+}
+
+/// What the machine has the log say: a code and its data, never a sentence.
+/// An error or a reason from the world travels as data.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Warning {
+    /// An operation's entry was not written, by the write `attempt`.
+    JournalNotWritten { op: OpId, attempt: u32, error: String },
+    /// An operation's entry was not removed: the next launch finishes it.
+    JournalNotRemoved { op: OpId, error: String },
+    /// The operations were still moving after `rounds` rounds of settling.
+    NotSettled { rounds: u32 },
+    /// The branches of a checkout to remove could not be read.
+    BranchesUnread { op: OpId, path: Dir, error: String },
+    /// Cleanup steps failed: the next launch retries them.
+    StepsFailed { op: OpId, failed: usize },
+    /// One step of an operation failed.
+    StepFailed { op: OpId, step: Step, reason: String },
+    /// The stores kept data of workspaces that are gone: the next launch
+    /// tries again.
+    StoresKept { op: OpId, reason: String },
+    /// Whether a ticket's checkout stands is not known.
+    CheckoutUnknown { op: OpId, reason: String },
+    /// A ticket's worktree was not created at `path`.
+    WorktreeNotCreated { op: OpId, path: Dir, reason: String },
+    /// The workspace an operation adds to is gone: nothing more is added.
+    WorkspaceGone { op: OpId },
 }
 
 /// What a cleanup step needs to be done.
@@ -397,8 +426,8 @@ impl Fx {
         self.0.push(Effect::Answer { ask, answer });
     }
 
-    pub fn warn(&mut self, message: String) {
-        self.0.push(Effect::Warn { message });
+    pub fn warn(&mut self, warning: Warning) {
+        self.0.push(Effect::Warn { warning });
     }
 }
 
@@ -493,7 +522,7 @@ fn journal_written(state: &mut State, id: OpId, attempt: u32, result: StepResult
     match result {
         Ok(()) => book.written = Some(entry),
         Err(error) => {
-            fx.warn(format!("{id}: the journal entry was not written ({error}) — attempt {flying}"));
+            fx.warn(Warning::JournalNotWritten { op: id, attempt: flying, error });
             if book.written.is_none() {
                 // Nothing of the operation is on disk yet, but the file may
                 // be: take it back before letting the capture go.
@@ -544,7 +573,7 @@ fn journal_removed(state: &mut State, id: OpId, attempt: u32, result: StepResult
             state.ops.remove(&id);
         }
         Err(error) => {
-            fx.warn(format!("{id}: the journal entry was not removed ({error}); the next launch finishes it"));
+            fx.warn(Warning::JournalNotRemoved { op: id, error });
             if rolled_back {
                 answer_op(op, fx, Answer::refused(Refusal::JournalStuck));
             }
@@ -556,7 +585,8 @@ fn journal_removed(state: &mut State, id: OpId, attempt: u32, result: StepResult
 /// Let every operation go as far as the state allows, then keep each
 /// journal in step with its operation.
 fn settle(state: &mut State, fx: &mut Fx) {
-    for _ in 0..64 {
+    const ROUNDS: u32 = 64;
+    for _ in 0..ROUNDS {
         let before = state.clone();
         let ids: Vec<OpId> = state.ops.keys().copied().collect();
         for id in ids {
@@ -570,7 +600,7 @@ fn settle(state: &mut State, fx: &mut Fx) {
             return;
         }
     }
-    fx.warn("the lifecycle machine did not settle in 64 rounds".into());
+    fx.warn(Warning::NotSettled { rounds: ROUNDS });
 }
 
 fn advance(state: &mut State, id: OpId, fx: &mut Fx) {

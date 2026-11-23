@@ -8,7 +8,7 @@
 //! back everything the fork made.
 
 use super::boundary::Boundary;
-use super::{answer_op, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer, HOOK_DEADLINE};
+use super::{answer_op, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer, Warning, HOOK_DEADLINE};
 use crate::domain::command::{Cmd, Member, Outcome, Revision, TeamPlace};
 use crate::domain::dir::Dir;
 use crate::domain::ids::{AttemptId, OpId, PaneId, SessionId, TeamId, WorkspaceId};
@@ -527,7 +527,7 @@ pub fn found(state: &mut State, id: OpId, found: Result<bool, String>, fx: &mut 
                 return;
             }
             let taker = create.taken_by;
-            fx.warn(format!("{id}: whether its checkout stands is not known: {reason}"));
+            fx.warn(Warning::CheckoutUnknown { op: id, reason });
             op.owed = true;
             if let Some(close) = taker.and_then(|close| state.ops.get_mut(&close)) {
                 close.owed = true;
@@ -569,7 +569,7 @@ pub fn created(state: &mut State, id: OpId, result: StepResult, fx: &mut Fx) {
             }
         }
         Err(reason) => {
-            fx.warn(format!("{id}: the worktree of {} was not created: {reason}", ticket.path.as_str()));
+            fx.warn(Warning::WorktreeNotCreated { op: id, path: ticket.path.clone(), reason: reason.clone() });
             if let Some(row) = state.world.teams.get_mut(&team) {
                 row.at = TeamAt::Failed { ticket };
             }
@@ -685,7 +685,7 @@ pub fn undo_step_done(create: &mut Create, step: Step, result: StepResult, fx: &
     match result {
         Ok(()) => create.undone.push(step),
         Err(reason) => {
-            fx.warn(format!("{id}: {step:?} failed: {reason}"));
+            fx.warn(Warning::StepFailed { op: id, step, reason });
             create.undo_failed = true;
         }
     }
@@ -794,7 +794,7 @@ fn attached_cwd(state: &State, workspace: &WorkspaceId, site: &Site) -> Option<D
 /// taken up by the next launch.
 fn workspace_gone(state: &mut State, id: OpId, fx: &mut Fx) {
     let Some(op) = state.ops.get_mut(&id) else { return };
-    fx.warn(format!("{id}: its workspace is gone; nothing more is added to it"));
+    fx.warn(Warning::WorkspaceGone { op: id });
     answer_op(op, fx, Answer::refused(Refusal::NotFound));
     op.owed = true;
 }
@@ -1030,7 +1030,7 @@ pub fn fork_step_done(fork: &mut Fork, step: Step, result: StepResult, fx: &mut 
     match result {
         Ok(()) => fork.done.push(step),
         Err(reason) => {
-            fx.warn(format!("{id}: {step:?} failed: {reason}"));
+            fx.warn(Warning::StepFailed { op: id, step, reason });
             fork.failed = true;
         }
     }

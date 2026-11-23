@@ -6,10 +6,26 @@
 use super::door::Waiters;
 use super::journal::DiskJournal;
 use crate::domain::doors::Doors;
-use crate::domain::machine::{Clean, Effect, Event};
+use crate::domain::machine::{Clean, Effect, Event, Warning};
 use keepdeck_fsm_runtime::{supervised, Effects, Events};
 use std::sync::Arc;
 use std::time::Duration;
+
+/// The log's line for a warning of the machine.
+fn words(warning: &Warning) -> String {
+    match warning {
+        Warning::JournalNotWritten { op, attempt, error } => format!("{op}: the journal entry was not written ({error}) — attempt {attempt}"),
+        Warning::JournalNotRemoved { op, error } => format!("{op}: the journal entry was not removed ({error}); the next launch finishes it"),
+        Warning::NotSettled { rounds } => format!("the lifecycle machine did not settle in {rounds} rounds"),
+        Warning::BranchesUnread { op, path, error } => format!("{op}: the branches of {} could not be read ({error})", path.as_str()),
+        Warning::StepsFailed { op, failed } => format!("{op}: {failed} cleanup step(s) failed; the next launch retries them"),
+        Warning::StepFailed { op, step, reason } => format!("{op}: {step:?} failed: {reason}"),
+        Warning::StoresKept { op, reason } => format!("{op}: the stores kept data of gone workspaces: {reason}; the next launch tries again"),
+        Warning::CheckoutUnknown { op, reason } => format!("{op}: whether its checkout stands is not known: {reason}"),
+        Warning::WorktreeNotCreated { op, path, reason } => format!("{op}: the worktree of {} was not created: {reason}", path.as_str()),
+        Warning::WorkspaceGone { op } => format!("{op}: its workspace is gone; nothing more is added to it"),
+    }
+}
 
 pub struct Handler {
     doors: Arc<dyn Doors>,
@@ -118,7 +134,7 @@ impl Effects<Effect, Event> for Handler {
                     Some(Event::Cancelled { op, started })
                 });
             }
-            Effect::Warn { message } => log::warn!("lifecycle: {message}"),
+            Effect::Warn { warning } => log::warn!("lifecycle: {}", words(&warning)),
         }
     }
 }
@@ -127,7 +143,31 @@ impl Effects<Effect, Event> for Handler {
 mod tests {
     use super::*;
     use crate::domain::dir::Dir;
-    use crate::domain::ids::WorkspaceId;
+    use crate::domain::ids::{OpId, WorkspaceId};
+    use crate::domain::journal::Step;
+
+    /// Each warning says in the log what the machine wrote there itself
+    /// before its warnings were codes.
+    #[test]
+    fn each_warning_has_its_line_in_the_log() {
+        let op = OpId(7);
+        let path = Dir::new("/wt/kd-app-1");
+        let lines = [
+            (Warning::JournalNotWritten { op, attempt: 2, error: "disk full".into() }, "op-7: the journal entry was not written (disk full) — attempt 2"),
+            (Warning::JournalNotRemoved { op, error: "read-only".into() }, "op-7: the journal entry was not removed (read-only); the next launch finishes it"),
+            (Warning::NotSettled { rounds: 64 }, "the lifecycle machine did not settle in 64 rounds"),
+            (Warning::BranchesUnread { op, path: path.clone(), error: "no reflog".into() }, "op-7: the branches of /wt/kd-app-1 could not be read (no reflog)"),
+            (Warning::StepsFailed { op, failed: 2 }, "op-7: 2 cleanup step(s) failed; the next launch retries them"),
+            (Warning::StepFailed { op, step: Step::Stores, reason: "locked".into() }, "op-7: Stores failed: locked"),
+            (Warning::StoresKept { op, reason: "locked".into() }, "op-7: the stores kept data of gone workspaces: locked; the next launch tries again"),
+            (Warning::CheckoutUnknown { op, reason: "no volume".into() }, "op-7: whether its checkout stands is not known: no volume"),
+            (Warning::WorktreeNotCreated { op, path, reason: "exists".into() }, "op-7: the worktree of /wt/kd-app-1 was not created: exists"),
+            (Warning::WorkspaceGone { op }, "op-7: its workspace is gone; nothing more is added to it"),
+        ];
+        for (warning, line) in lines {
+            assert_eq!(words(&warning), line);
+        }
+    }
 
     #[tokio::test(start_paused = true)]
     async fn a_store_cleanup_past_its_limit_is_left_owed_and_a_git_step_has_no_clock() {

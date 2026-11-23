@@ -101,6 +101,17 @@ impl Sim {
         AskId(self.asks)
     }
 
+    /// What the machine had the log say, in order.
+    fn warnings(&self) -> Vec<Warning> {
+        self.log
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Warn { warning } => Some(warning.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     fn send(&mut self, event: Event) {
         let next = update(&self.state, event);
         if let Some(state) = next.state {
@@ -632,7 +643,12 @@ fn a_failed_cleanup_step_keeps_the_entry_and_the_place_and_says_the_worktree_was
     let (op, entry) = sim.disk.iter().next().expect("the entry stays");
     assert!(sim.state.ops[op].owed, "a debt for the next launch");
     assert!(!entry.done.iter().any(|step| matches!(step, Step::Checkout { .. })));
-    assert!(sim.log.iter().any(|effect| matches!(effect, Effect::Warn { .. })));
+    let warnings = sim.warnings();
+    assert!(
+        warnings.iter().any(|warning| matches!(warning, Warning::StepFailed { op: failed, step: Step::Checkout { .. }, reason } if failed == op && reason == "busy")),
+        "the step that failed, with git's reason: {warnings:?}"
+    );
+    assert!(warnings.contains(&Warning::StepsFailed { op: *op, failed: 1 }), "and that a step is owed: {warnings:?}");
     let notice = sim.state.ops[op].sent.iter().any(|sent| matches!(sent.cmd, Cmd::WorktreeNotDeleted { .. }));
     assert!(notice, "«worktree not deleted», as today");
     // The place stays held: a new team does not get number 1.
@@ -652,6 +668,7 @@ fn a_failed_first_write_takes_the_entry_back_and_answers_journal_unavailable() {
     let ask = sim.intent(close_agent(2));
     let Some(Effect::WriteJournal { op, attempt, .. }) = sim.owed().into_iter().find(|effect| matches!(effect, Effect::WriteJournal { .. })) else { panic!() };
     sim.send(Event::JournalWritten { op, attempt, result: Err("disk full".into()) });
+    assert_eq!(sim.warnings(), [Warning::JournalNotWritten { op, attempt, error: "disk full".into() }]);
     assert_eq!(sim.answer(ask), None, "not before the rollback has ended");
     let Some(Effect::RemoveJournal { attempt, .. }) = sim.owed().into_iter().find(|effect| matches!(effect, Effect::RemoveJournal { .. })) else { panic!("a rollback") };
     sim.send(Event::JournalRemoved { op, attempt, result: Ok(()) });
@@ -670,6 +687,7 @@ fn a_failed_rollback_answers_journal_stuck_and_keeps_the_capture() {
     sim.send(Event::JournalWritten { op, attempt, result: Err("disk full".into()) });
     let Some(Effect::RemoveJournal { attempt, .. }) = sim.owed().into_iter().find(|effect| matches!(effect, Effect::RemoveJournal { .. })) else { panic!() };
     sim.send(Event::JournalRemoved { op, attempt, result: Err("read-only".into()) });
+    assert!(sim.warnings().contains(&Warning::JournalNotRemoved { op, error: "read-only".into() }), "{:?}", sim.warnings());
     assert_eq!(sim.refusal(ask), Some(Refusal::JournalStuck));
     let again = sim.intent(close_agent(2));
     assert_eq!(sim.refusal(again), Some(Refusal::AlreadyClosing), "the next launch finishes it");
@@ -920,6 +938,7 @@ fn a_creation_taken_over_before_a_crash_hands_its_checkout_over_after_it_only_on
     // their entries kept, and the next launch asks again.
     let mut sim = Sim::booted_with(deck(), entries());
     sim.send(Event::Found { op: OpId(5), found: Err("the repository's volume is not mounted".into()) });
+    assert!(sim.warnings().contains(&Warning::CheckoutUnknown { op: OpId(5), reason: "the repository's volume is not mounted".into() }), "{:?}", sim.warnings());
     sim.drive();
     assert!(!deleted(&sim), "{:?}", sim.cleaned);
     assert!(sim.state.ops[&OpId(5)].owed && sim.state.ops[&OpId(7)].owed, "both owed");
@@ -3595,6 +3614,11 @@ fn a_creation_git_refused_is_failed_with_retry_and_the_retry_makes_it() {
     }
     let op = *sim.state.ops.keys().next().unwrap();
     sim.send(Event::Created { op, result: Err("a branch of that name exists".into()) });
+    assert!(
+        sim.warnings().iter().any(|warning| matches!(warning, Warning::WorktreeNotCreated { op: failed, reason, .. } if *failed == op && reason == "a branch of that name exists")),
+        "{:?}",
+        sim.warnings()
+    );
     sim.drive();
     assert!(sim.carried.iter().any(|cmd| matches!(cmd, Cmd::FailTeam { .. })));
     assert!(!sim.carried.iter().any(|cmd| matches!(cmd, Cmd::SettleTeam { .. })), "no fallback to another folder: {:?}", sim.carried);

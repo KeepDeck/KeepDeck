@@ -19,7 +19,7 @@ use keepdeck_lifecycle::domain::ids::{AskId, AttemptId, CommandId, OpId, PaneId,
 use keepdeck_lifecycle::domain::journal::{Discard, Step};
 use keepdeck_lifecycle::domain::machine::queries::close_workspace_offer;
 use keepdeck_lifecycle::domain::machine::snapshot::snapshot;
-use keepdeck_lifecycle::domain::machine::{update, work, Effect, Event, Kind, LaunchOwner, LeaseAsk, Load, State, TearPhase, Timer};
+use keepdeck_lifecycle::domain::machine::{update, work, Effect, Event, Kind, LaunchOwner, LeaseAsk, Load, State, TearPhase, Timer, Warning};
 use keepdeck_lifecycle::domain::model::{Answer, Consent, Continuation, Draft, Intent, Landing, Place, Refusal, SessionKey, Site};
 use keepdeck_lifecycle::domain::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
 use std::cell::RefCell;
@@ -238,7 +238,7 @@ impl World {
                 }
                 self.mail.push_back(Event::Cancelled { op, started });
             }
-            Effect::Warn { message } => assert!(!message.contains("did not settle"), "the machine did not settle"),
+            Effect::Warn { warning } => assert!(!matches!(warning, Warning::NotSettled { .. }), "the machine did not settle"),
         }
     }
 
