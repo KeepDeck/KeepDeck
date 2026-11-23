@@ -36,8 +36,9 @@ machine.state()           the stream of states: At { version, value }
   first timer. `send` needs no runtime: a synchronous command may call it.
 - The machine starts in `initial` and first does the work `initial` needs. A
   machine restored after a restart does the work of its restored state again.
-- One machine per feature. Handles are cheap to clone. Whoever owns the
-  feature's lifetime owns a handle, and dropping the last one is the stop:
+- A machine is one complete unit of logic (see `keepdeck-fsm`'s "What it is
+  for"); a feature may run several. Handles are cheap to clone. Whoever owns
+  the machine's lifetime owns a handle, and dropping the last one is the stop:
   the machine still handles what was sent before, then ends, and its state
   stream and timers end with it. An `Events::send` in the middle of its call
   holds the mailbox open until it returns, so sends that overlap the drop may
