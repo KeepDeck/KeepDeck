@@ -28,8 +28,7 @@ Processes are stopped by the sessions machine, a feature of its own.
 | `domain::places` | A team's place — `kd-<ws>-N`, `kd/<ws>/N` — and the first one nobody holds |
 | `domain::world` | The living part of the deck as the machine keeps it: workspaces, teams and where they run, panes |
 | `domain::machine` | The machine itself — `State`, `Event`, `Effect`, `update`, `work` — and the snapshot TS reads |
-| `infrastructure::journal` | An entry's file and format, the port of its store, and how boot reads the files back |
-| `infrastructure::store` | The journal on disk: one file per entry, written atomically |
+| `infrastructure::journal` | The journal on disk: one file per entry, written atomically; an entry's file name and format; how boot reads the files back |
 | `infrastructure::handler` | The machine's effects carried out: the journal, the doors, the answers to the waiting door |
 | `infrastructure::door` | The waiting door: an ask and its one answer, or the machine's end |
 | `infrastructure::machine` | The machine started on the journal in a folder, behind its door |

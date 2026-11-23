@@ -6,4 +6,3 @@ pub mod door;
 pub mod handler;
 pub mod journal;
 pub mod machine;
-pub mod store;

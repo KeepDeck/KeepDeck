@@ -4,8 +4,7 @@
 //! its own attempt, because the framework recovers nothing.
 
 use super::door::Waiters;
-use super::journal::{self, JournalStore};
-use super::store::DiskJournal;
+use super::journal::DiskJournal;
 use crate::domain::doors::Doors;
 use crate::domain::machine::{Clean, Effect, Event};
 use keepdeck_fsm_runtime::{supervised, Effects, Events};
@@ -55,19 +54,16 @@ impl Effects<Effect, Event> for Handler {
         match effect {
             Effect::Answer { ask, answer } => self.waiters.deliver(ask, answer),
             Effect::WriteJournal { op, attempt, entry } => {
-                let mut store = self.journal.clone();
+                let journal = self.journal.clone();
                 events.spawn(async move {
-                    let result = supervised(move || {
-                        store.write(&journal::file_name(op), &journal::encode(&entry)).map_err(|e| e.to_string())
-                    })
-                    .await;
+                    let result = supervised(move || journal.save(&entry).map_err(|e| e.to_string())).await;
                     Some(Event::JournalWritten { op, attempt, result })
                 });
             }
             Effect::RemoveJournal { op, attempt } => {
-                let mut store = self.journal.clone();
+                let journal = self.journal.clone();
                 events.spawn(async move {
-                    let result = supervised(move || store.remove(&journal::file_name(op)).map_err(|e| e.to_string())).await;
+                    let result = supervised(move || journal.remove(op).map_err(|e| e.to_string())).await;
                     Some(Event::JournalRemoved { op, attempt, result })
                 });
             }

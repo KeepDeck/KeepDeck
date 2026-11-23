@@ -5,8 +5,7 @@
 
 use super::door::{Door, Waiters};
 use super::handler::Handler;
-use super::journal;
-use super::store::DiskJournal;
+use super::journal::DiskJournal;
 use crate::domain::doors::Doors;
 use crate::domain::journal::Entry;
 use crate::domain::machine::{update, work, State};
@@ -17,8 +16,7 @@ use std::sync::Arc;
 /// The journal of `root`: every readable entry; every other file is logged
 /// with its content and removed. None when the folder cannot be read at all.
 fn read_journal(root: &Path) -> Option<Vec<Entry>> {
-    let mut store = DiskJournal::new(root.to_path_buf());
-    match journal::load(&mut store) {
+    match DiskJournal::new(root.to_path_buf()).load() {
         Ok(loaded) => {
             for dropped in &loaded.dropped {
                 log::error!(

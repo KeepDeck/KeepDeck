@@ -1,17 +1,24 @@
-//! The journal on disk: an entry's file and format, the port of the store
-//! that keeps the files, and how boot reads them back. What an entry holds is
-//! the domain's ([`crate::domain::journal`]); writing to disk is the store's,
-//! in the app.
+//! The journal on disk: one file per entry in one folder, written atomically —
+//! a temporary file, fsync, rename, fsync of the folder — so a file is the old
+//! entry or the new one, never half of either. Each entry's file name and
+//! format, and how boot reads the files back. What an entry holds is the
+//! domain's ([`crate::domain::journal`]).
 
 use crate::domain::ids::OpId;
 use crate::domain::journal::Entry;
 use serde::{Deserialize, Serialize};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Write};
+use std::path::PathBuf;
 
 /// The format of an entry. An entry of a newer format is never replayed.
 pub const FORMAT: u32 = 1;
 
 /// How much of an unreadable file goes to the log with it.
 pub const RAW_LIMIT: usize = 4096;
+
+/// The claim's lock file lives in the same folder; it is not an entry.
+const LOCK_FILE: &str = "lock";
 
 #[derive(Serialize, Deserialize)]
 struct OnDisk {
@@ -21,7 +28,7 @@ struct OnDisk {
 }
 
 /// The file an operation's entry lives in.
-pub fn file_name(op: OpId) -> String {
+fn file_name(op: OpId) -> String {
     format!("{op}.json")
 }
 
@@ -33,8 +40,7 @@ fn op_of(name: &str) -> Option<OpId> {
     digits.parse().ok().map(OpId)
 }
 
-/// The bytes of an entry, as the store writes them.
-pub fn encode(entry: &Entry) -> Vec<u8> {
+fn encode(entry: &Entry) -> Vec<u8> {
     let on_disk = OnDisk { format: FORMAT, entry: entry.clone() };
     serde_json::to_vec_pretty(&on_disk).expect("an entry is plain data")
 }
@@ -53,7 +59,7 @@ pub enum Unreadable {
 }
 
 /// The entry in `name`, or why it is not one.
-pub fn decode(name: &str, bytes: &[u8]) -> Result<Entry, Unreadable> {
+fn decode(name: &str, bytes: &[u8]) -> Result<Entry, Unreadable> {
     let op = op_of(name).ok_or(Unreadable::StrayFile)?;
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| Unreadable::Corrupt(e.to_string()))?;
     let format = value
@@ -72,17 +78,6 @@ pub fn decode(name: &str, bytes: &[u8]) -> Result<Entry, Unreadable> {
         return Err(Unreadable::Misfiled(on_disk.entry.op));
     }
     Ok(on_disk.entry)
-}
-
-/// The store of the journal: one file per entry in one folder. Writes are
-/// atomic — a temporary file, fsync, rename, fsync of the folder — so a file
-/// is either the old entry or the new one.
-pub trait JournalStore {
-    type Error: std::fmt::Display;
-    /// Every file in the journal's folder, with its bytes.
-    fn files(&mut self) -> Result<Vec<(String, Vec<u8>)>, Self::Error>;
-    fn write(&mut self, name: &str, bytes: &[u8]) -> Result<(), Self::Error>;
-    fn remove(&mut self, name: &str) -> Result<(), Self::Error>;
 }
 
 /// A file boot dropped: logged with its content, then removed — never
@@ -104,23 +99,6 @@ pub struct Loaded {
     pub dropped: Vec<Dropped>,
 }
 
-/// Read the journal: every readable entry, in operation order; every other
-/// file dropped and removed.
-pub fn load<S: JournalStore>(store: &mut S) -> Result<Loaded, S::Error> {
-    let mut loaded = Loaded::default();
-    for (name, bytes) in store.files()? {
-        match decode(&name, &bytes) {
-            Ok(entry) => loaded.entries.push(entry),
-            Err(why) => {
-                let removed = store.remove(&name).map_err(|e| e.to_string());
-                loaded.dropped.push(Dropped { raw: bounded(&bytes), name, why, removed });
-            }
-        }
-    }
-    loaded.entries.sort_by_key(|entry| entry.op);
-    Ok(loaded)
-}
-
 fn bounded(bytes: &[u8]) -> String {
     let head = &bytes[..bytes.len().min(RAW_LIMIT)];
     let text = String::from_utf8_lossy(head).into_owned();
@@ -128,6 +106,82 @@ fn bounded(bytes: &[u8]) -> String {
         format!("{text}… ({} bytes in all)", bytes.len())
     } else {
         text
+    }
+}
+
+/// The journal in one folder.
+#[derive(Clone, Debug)]
+pub struct DiskJournal {
+    root: PathBuf,
+}
+
+impl DiskJournal {
+    pub fn new(root: PathBuf) -> DiskJournal {
+        DiskJournal { root }
+    }
+
+    /// Write an operation's entry, whole, over the one it had.
+    pub fn save(&self, entry: &Entry) -> io::Result<()> {
+        let name = file_name(entry.op);
+        let temp = self.root.join(format!(".{name}.tmp"));
+        let mut file = OpenOptions::new().create(true).truncate(true).write(true).open(&temp)?;
+        file.write_all(&encode(entry))?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&temp, self.root.join(&name))?;
+        self.sync_root()
+    }
+
+    /// Remove an operation's entry. Already gone is what a remove asks for.
+    pub fn remove(&self, op: OpId) -> io::Result<()> {
+        self.remove_file(&file_name(op))
+    }
+
+    /// Read the journal: every readable entry, in operation order; every
+    /// other file dropped and removed.
+    pub fn load(&self) -> io::Result<Loaded> {
+        let mut loaded = Loaded::default();
+        for (name, bytes) in self.files()? {
+            match decode(&name, &bytes) {
+                Ok(entry) => loaded.entries.push(entry),
+                Err(why) => {
+                    let removed = self.remove_file(&name).map_err(|e| e.to_string());
+                    loaded.dropped.push(Dropped { raw: bounded(&bytes), name, why, removed });
+                }
+            }
+        }
+        loaded.entries.sort_by_key(|entry| entry.op);
+        Ok(loaded)
+    }
+
+    /// Every file in the folder but the claim's lock, with its bytes.
+    fn files(&self) -> io::Result<Vec<(String, Vec<u8>)>> {
+        let mut files = Vec::new();
+        for entry in fs::read_dir(&self.root)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                continue;
+            }
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+            if name == LOCK_FILE {
+                continue;
+            }
+            files.push((name, fs::read(entry.path())?));
+        }
+        files.sort();
+        Ok(files)
+    }
+
+    fn remove_file(&self, name: &str) -> io::Result<()> {
+        match fs::remove_file(self.root.join(name)) {
+            Ok(()) => self.sync_root(),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn sync_root(&self) -> io::Result<()> {
+        File::open(&self.root)?.sync_all()
     }
 }
 
@@ -139,33 +193,7 @@ mod tests {
     use crate::domain::ids::{CommandId, PaneId, TeamId, WorkspaceId};
     use crate::domain::journal::{Removal, Sent, Step, Target, Work};
     use crate::domain::model::{Consent, Draft, Folder, SessionKey};
-    use std::collections::BTreeMap;
-
-    /// A store in memory, as the app's adapter behaves: a write replaces the
-    /// file whole.
-    #[derive(Default)]
-    struct Memory {
-        files: BTreeMap<String, Vec<u8>>,
-        refuse_remove: bool,
-    }
-
-    impl JournalStore for Memory {
-        type Error = String;
-        fn files(&mut self) -> Result<Vec<(String, Vec<u8>)>, String> {
-            Ok(self.files.iter().map(|(name, bytes)| (name.clone(), bytes.clone())).collect())
-        }
-        fn write(&mut self, name: &str, bytes: &[u8]) -> Result<(), String> {
-            self.files.insert(name.into(), bytes.into());
-            Ok(())
-        }
-        fn remove(&mut self, name: &str) -> Result<(), String> {
-            if self.refuse_remove {
-                return Err("read-only".into());
-            }
-            self.files.remove(name);
-            Ok(())
-        }
-    }
+    use std::path::Path;
 
     fn ws() -> WorkspaceId {
         WorkspaceId("ws-a1".into())
@@ -206,19 +234,23 @@ mod tests {
         }
     }
 
-    fn save(store: &mut Memory, entry: &Entry) {
-        store.write(&file_name(entry.op), &encode(entry)).unwrap();
+    fn names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().file_name().into_string().unwrap()).collect();
+        names.sort();
+        names
     }
 
     #[test]
-    fn an_entry_reads_back_as_it_was_written() {
-        let mut store = Memory::default();
-        let entry = disband(5);
-        save(&mut store, &entry);
-        assert_eq!(store.files.keys().collect::<Vec<_>>(), ["op-5.json"]);
-        let loaded = load(&mut store).unwrap();
-        assert_eq!(loaded.entries, [entry]);
-        assert!(loaded.dropped.is_empty());
+    fn an_entry_saved_is_read_back_whole_and_the_claim_lock_is_no_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(LOCK_FILE), b"").unwrap();
+        let journal = DiskJournal::new(dir.path().to_path_buf());
+        journal.save(&disband(5)).unwrap();
+        assert_eq!(names(dir.path()), [LOCK_FILE, "op-5.json"], "no temporary file is left");
+        let loaded = journal.load().unwrap();
+        assert_eq!(loaded.entries, [disband(5)]);
+        assert!(loaded.dropped.is_empty(), "the lock is not a stray: {:?}", loaded.dropped);
+        assert!(dir.path().join(LOCK_FILE).exists());
     }
 
     #[test]
@@ -268,17 +300,18 @@ mod tests {
 
     #[test]
     fn a_corrupt_entry_is_dropped_with_its_content_and_removed_never_replayed() {
-        let mut store = Memory::default();
-        save(&mut store, &disband(1));
-        store.write("op-2.json", b"{\"format\": 1, \"op\": 2, \"work\": ").unwrap();
-        let loaded = load(&mut store).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let journal = DiskJournal::new(dir.path().to_path_buf());
+        journal.save(&disband(1)).unwrap();
+        fs::write(dir.path().join("op-2.json"), b"{\"format\": 1, \"op\": 2, \"work\": ").unwrap();
+        let loaded = journal.load().unwrap();
         assert_eq!(loaded.entries.iter().map(|entry| entry.op).collect::<Vec<_>>(), [OpId(1)]);
         let [dropped] = loaded.dropped.as_slice() else { panic!("one dropped: {:?}", loaded.dropped) };
         assert_eq!(dropped.name, "op-2.json");
         assert!(matches!(dropped.why, Unreadable::Corrupt(_)));
         assert!(dropped.raw.starts_with("{\"format\": 1"), "the content goes to the log");
         assert_eq!(dropped.removed, Ok(()));
-        assert!(!store.files.contains_key("op-2.json"), "no .corrupt file is kept");
+        assert_eq!(names(dir.path()), ["op-1.json"], "no .corrupt file is kept");
     }
 
     #[test]
@@ -287,12 +320,12 @@ mod tests {
         bytes["format"] = serde_json::json!(FORMAT + 1);
         let bytes = serde_json::to_vec(&bytes).unwrap();
         assert_eq!(decode("op-3.json", &bytes), Err(Unreadable::Newer(FORMAT + 1)));
-        let mut store = Memory::default();
-        store.write("op-3.json", &bytes).unwrap();
-        let loaded = load(&mut store).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("op-3.json"), &bytes).unwrap();
+        let loaded = DiskJournal::new(dir.path().to_path_buf()).load().unwrap();
         assert!(loaded.entries.is_empty());
         assert_eq!(loaded.dropped[0].why, Unreadable::Newer(FORMAT + 1));
-        assert!(store.files.is_empty());
+        assert!(names(dir.path()).is_empty());
     }
 
     #[test]
@@ -303,30 +336,59 @@ mod tests {
     }
 
     #[test]
+    fn a_save_cut_short_leaves_the_old_entry_and_boot_removes_the_stray() {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = DiskJournal::new(dir.path().to_path_buf());
+        journal.save(&disband(4)).unwrap();
+        // A crash between the temporary file and the rename.
+        fs::write(dir.path().join(".op-4.json.tmp"), b"{\"format\": 1, \"op\":").unwrap();
+        let loaded = journal.load().unwrap();
+        assert_eq!(loaded.entries, [disband(4)], "the old entry, whole");
+        assert_eq!(loaded.dropped.len(), 1);
+        assert_eq!(names(dir.path()), ["op-4.json"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn a_file_that_cannot_be_removed_is_still_dropped_and_said() {
-        let mut store = Memory { refuse_remove: true, ..Memory::default() };
-        store.files.insert("op-4.json".into(), b"not json".to_vec());
-        let loaded = load(&mut store).unwrap();
-        assert_eq!(loaded.dropped[0].removed, Err("read-only".into()));
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("op-4.json"), b"not json").unwrap();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
+        let loaded = DiskJournal::new(dir.path().to_path_buf()).load();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        let loaded = loaded.unwrap();
+        assert!(loaded.dropped[0].removed.is_err(), "{:?}", loaded.dropped);
         assert!(loaded.entries.is_empty());
     }
 
     #[test]
     fn the_content_that_goes_to_the_log_is_bounded() {
-        let mut store = Memory::default();
-        store.files.insert("op-6.json".into(), vec![b'x'; RAW_LIMIT * 2]);
-        let raw = &load(&mut store).unwrap().dropped[0].raw;
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("op-6.json"), vec![b'x'; RAW_LIMIT * 2]).unwrap();
+        let raw = &DiskJournal::new(dir.path().to_path_buf()).load().unwrap().dropped[0].raw;
         assert!(raw.len() < RAW_LIMIT + 64);
         assert!(raw.ends_with(&format!("({} bytes in all)", RAW_LIMIT * 2)));
     }
 
     #[test]
     fn entries_load_in_operation_order() {
-        let mut store = Memory::default();
+        let dir = tempfile::tempdir().unwrap();
+        let journal = DiskJournal::new(dir.path().to_path_buf());
         for op in [12, 3, 7] {
-            save(&mut store, &disband(op));
+            journal.save(&disband(op)).unwrap();
         }
-        let ops: Vec<_> = load(&mut store).unwrap().entries.iter().map(|entry| entry.op).collect();
+        let ops: Vec<_> = journal.load().unwrap().entries.iter().map(|entry| entry.op).collect();
         assert_eq!(ops, [OpId(3), OpId(7), OpId(12)]);
+    }
+
+    #[test]
+    fn removing_what_is_gone_is_done() {
+        let dir = tempfile::tempdir().unwrap();
+        let journal = DiskJournal::new(dir.path().to_path_buf());
+        journal.save(&disband(9)).unwrap();
+        journal.remove(OpId(9)).unwrap();
+        assert!(names(dir.path()).is_empty());
+        journal.remove(OpId(9)).unwrap();
     }
 }
