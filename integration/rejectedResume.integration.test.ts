@@ -69,7 +69,7 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     const answer = await askLiveRegistry(plugins, "claude", "s-1");
     expect(answer).toBe("live");
     expect(spawns[0]).toEqual({ args: ["agents", "--json"] });
-    expect(decideRejectedResume(answer, false)).toEqual({
+    expect(decideRejectedResume("restore", answer, false)).toEqual({
       kind: "keep",
       registry: "live",
     });
@@ -81,8 +81,8 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     ]);
     const answer = await askLiveRegistry(plugins, "claude", "s-1");
     expect(answer).toBe("absent");
-    expect(decideRejectedResume(answer, false)).toEqual({ kind: "retry-once" });
-    expect(decideRejectedResume(answer, true)).toEqual({
+    expect(decideRejectedResume("restore", answer, false)).toEqual({ kind: "retry-once" });
+    expect(decideRejectedResume("restore", answer, true)).toEqual({
       kind: "legacy-fresh",
     });
   });
@@ -91,17 +91,18 @@ describe("the refused-resume return path (real plugin, real seam, real rule)", (
     const { plugins } = claudeWithAgentsJson([], 2); // the query itself dies
     const answer = await askLiveRegistry(plugins, "claude", "s-1");
     expect(answer).toBe("unknown");
-    expect(decideRejectedResume(answer, false)).toEqual({
+    expect(decideRejectedResume("restore", answer, false)).toEqual({
       kind: "keep",
       registry: "unknown",
     });
   });
 
-  it("an agent without the capability never runs the query — the legacy path", async () => {
+  it("an agent without the capability never runs the query — one quiet retry, then the legacy path", async () => {
     const { plugins } = createSpawnPluginsFake();
     const answer = await askLiveRegistry(plugins, "codex", "s-1");
     expect(answer).toBe(null);
-    expect(decideRejectedResume(answer, false)).toEqual({
+    expect(decideRejectedResume("restore", answer, false)).toEqual({ kind: "retry-once" });
+    expect(decideRejectedResume("restore", answer, true)).toEqual({
       kind: "legacy-fresh",
     });
   });

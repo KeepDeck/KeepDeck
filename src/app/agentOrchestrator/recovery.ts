@@ -6,7 +6,7 @@
  * lease.
  */
 import { findPane, findWorkspace, paneBranch, paneExecutionCwd, paneResumeSessionId } from "../../domain/deck";
-import { decideRejectedResume } from "../../domain/agents";
+import { decideRejectedResume, takesOverRejectedResume } from "../../domain/agents";
 import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import { log } from "../../ipc/log";
 import type { DeckActions } from "../deckActions";
@@ -87,8 +87,15 @@ export function createRecovery(deps: RecoveryDeps): Recovery {
 
   const recoverRejectedResume: AgentOrchestrator["recoverRejectedResume"] = (wsId, paneId, code) => {
     const spec = peekPaneSpawnSpec(paneId);
-    if (!resumeDiedSilently(spec, postbackCount(paneId))) return false;
+    if (!spec || !resumeDiedSilently(spec, postbackCount(paneId))) return false;
     if (recovering.has(paneId)) return true;
+    // A plan with no origin is read as the person's: it is never turned into
+    // another conversation.
+    const origin = spec.resumeOrigin ?? "manual";
+    const retried = spec.resumeRetry === true;
+    // What no registry answer changes is decided now: a resume left down is
+    // not taken over, and its exit is said as any other.
+    if (!takesOverRejectedResume(origin, retried)) return false;
     if (findPane(deps.deck.getSnapshot().workspaces, wsId, paneId)?.idle) return false;
     const target = targetOf(wsId, paneId);
     if (!target) return false;
@@ -102,8 +109,10 @@ export function createRecovery(deps: RecoveryDeps): Recovery {
         // ASK, don't parse the refusal: the string is not a contract, the
         // registry is the state. `null` (no capability to ask) is its own
         // answer and the rule reads it apart from "absent".
-        const answer = spec?.resumeOf ? await askLiveRegistry(deps.plugins, target.pane.agentType, spec.resumeOf) : null;
-        const action = decideRejectedResume(answer, spec?.resumeRetry === true);
+        const answer = spec.resumeOf ? await askLiveRegistry(deps.plugins, target.pane.agentType, spec.resumeOf) : null;
+        const action = decideRejectedResume(origin, answer, retried);
+        // Decided above, before the pane was taken over.
+        if (action.kind === "leave") return;
         if (action.kind === "keep") {
           // The conversation is alive in an outside process: the binding
           // STAYS, the pane stays exited, and its card offers the choice.
@@ -111,15 +120,15 @@ export function createRecovery(deps: RecoveryDeps): Recovery {
           deps.publish();
           log.warn(
             "web:orchestrator",
-            `${paneId}: resume of ${spec?.resumeOf} refused — the session is ${action.registry === "live" ? "live outside" : "possibly live (registry unanswered)"}; binding kept, choice offered`,
+            `${paneId}: resume of ${spec.resumeOf} refused — the session is ${action.registry === "live" ? "live outside" : "possibly live (registry unanswered)"}; binding kept, choice offered`,
           );
           return;
         }
         if (action.kind === "retry-once") {
-          // The registry says the session is NOT held — but a refusal a
-          // moment ago proved it exists. An agent that finished in between
-          // vanished from the registry while the conversation became fully
-          // resumable: one quiet retry recovers exactly that race.
+          // A refusal is not proof the conversation is gone: an agent that
+          // finished between the refusal and the registry's answer, or one
+          // that tripped over its own write while restoring, takes the same
+          // resume a moment later. One quiet retry, under the same origin.
           if (target.sessionId === null) {
             throw new Error("a quiet retry resumes the pane's session, and it has none bound");
           }
@@ -141,17 +150,17 @@ export function createRecovery(deps: RecoveryDeps): Recovery {
               },
               context,
               target.sessionId,
-              "restore",
+              origin,
               true,
             );
           }
           await letGo(wsId, paneId);
-          log.warn("web:orchestrator", `${paneId}: resume of ${spec?.resumeOf} exited silently, registry says free — one quiet retry`);
+          log.warn("web:orchestrator", `${paneId}: ${origin} resume of ${spec.resumeOf} exited (${code ?? "?"}) without reporting — one quiet retry`);
           return;
         }
         // The recorded session is truly gone: one automatic fresh start.
         deps.owe(paneId);
-        log.warn("web:orchestrator", `${paneId}: resume of ${spec?.resumeOf} exited (${code ?? "?"}) without reporting — respawning fresh`);
+        log.warn("web:orchestrator", `${paneId}: resume of ${spec.resumeOf} exited (${code ?? "?"}) again without reporting — respawning fresh`);
         deps.actions.setPaneSession(wsId, paneId, null);
         dropPaneSpawnSpec(paneId);
         await letGo(wsId, paneId);
