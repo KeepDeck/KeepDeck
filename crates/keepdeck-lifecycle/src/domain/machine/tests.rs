@@ -660,6 +660,32 @@ fn a_failed_cleanup_step_keeps_the_entry_and_the_place_and_says_the_worktree_was
     assert_eq!(probe, Some(Dir::new("/wt/kd-app-2")), "{:?}", sim.answer(create));
 }
 
+/// A checkout whose branches git cannot read is said, with git's word.
+#[test]
+fn a_checkouts_branches_git_cannot_read_are_said() {
+    let mut sim = Sim::booted();
+    sim.close(disband("1", consent_for_team_1()));
+    for _ in 0..30 {
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+        for effect in sim.owed() {
+            let event = match effect {
+                Effect::ReadBranches { op, path, .. } => Event::BranchesRead { op, path, result: Err("no reflog".into()) },
+                Effect::Clean { op, step, .. } => Event::StepDone { op, step, result: Ok(()) },
+                Effect::Stop { session, .. } => Event::SessionEnded { session },
+                _ => continue,
+            };
+            sim.send(event);
+        }
+    }
+    let warnings = sim.warnings();
+    assert!(
+        warnings.iter().any(|warning| matches!(warning, Warning::BranchesUnread { path, error, .. } if *path == Dir::new("/wt/kd-app-1") && error == "no reflog")),
+        "{warnings:?}"
+    );
+}
+
 // ---------------------------------------------------------------- the journal and the one answer
 
 #[test]
@@ -2482,6 +2508,16 @@ fn boot_reconciles_the_stores_tasks_and_mail_of_what_the_deck_no_longer_holds() 
     assert_eq!(retain, Some(vec![ws()]));
     sim.drive();
     assert!(sim.state.ops.is_empty());
+}
+
+/// Stores that would not let go of what the deck no longer holds are said,
+/// with their reason; the next launch tries again.
+#[test]
+fn boot_says_when_the_stores_kept_what_the_deck_no_longer_holds() {
+    let mut sim = Sim::booted_with(deck(), Vec::new());
+    sim.drive_with(&failing(|how| matches!(how, Clean::Retain { .. })));
+    let warnings = sim.warnings();
+    assert!(warnings.iter().any(|warning| matches!(warning, Warning::StoresKept { reason, .. } if reason == "refused")), "{warnings:?}");
 }
 
 // ---------------------------------------------------------------- the fork

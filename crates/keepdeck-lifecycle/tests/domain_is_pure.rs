@@ -46,6 +46,13 @@ const MACROS: &[&str] = &["print", "println", "eprint", "eprintln", "dbg", "thre
 /// The collections whose order is drawn at random for each run.
 const HASHED: &[&str] = &["HashMap", "HashSet", "RandomState"];
 
+/// The words of Rust that can stand right before a path's leading `::`; a
+/// path segment never is one of them.
+const KEYWORDS: &[&str] = &[
+    "as", "async", "box", "break", "const", "dyn", "else", "enum", "extern", "fn", "for", "if", "impl", "in", "let", "loop", "match",
+    "mod", "move", "mut", "pub", "ref", "return", "static", "struct", "trait", "type", "unsafe", "use", "where", "while", "yield",
+];
+
 fn crate_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -265,9 +272,15 @@ fn breaches(file: &Path, code: &str, dependencies: &BTreeSet<String>) -> Vec<Str
             found.push(format!("{at}: `{root}` walks in an order drawn at random"));
             continue;
         }
-        // A segment after `::` is no root — unless that `::` leads the path,
-        // with nothing named before it (`::std`).
-        let leads = i < 2 || !matches!(tokens.get(i - 2), Some((_, Token::Ident(_) | Token::Other('>'))));
+        // A segment after `::` is no root — unless that `::` leads the path:
+        // nothing named before it, or only a keyword (`use ::std`,
+        // `return ::std::…`).
+        let named_before = match tokens.get(i.wrapping_sub(2)) {
+            Some((_, Token::Ident(before))) => !KEYWORDS.contains(&before.as_str()),
+            Some((_, Token::Other('>'))) => true,
+            _ => false,
+        };
+        let leads = i < 2 || !named_before;
         if !is_path(i + 1) || (i > 0 && is_path(i - 1) && !leads) {
             continue;
         }
