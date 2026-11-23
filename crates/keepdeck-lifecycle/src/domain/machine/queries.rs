@@ -227,7 +227,7 @@ pub fn suggest(state: &State, workspace: &WorkspaceId, from: u32) -> Option<(u32
 }
 
 /// What holds a place typed by hand for `workspace`, if anything does, by
-/// the rule a creation meets ([`create::held`]): any workspace's path, and
+/// the rule a creation meets (`create::held`): any workspace's path, and
 /// the branches of its own repository.
 pub fn check(state: &State, workspace: &WorkspaceId, place: &Place) -> Option<PlaceHeld> {
     for team in state.world.teams.values() {
