@@ -579,6 +579,11 @@ describe("the agent dialog, on the host", () => {
       });
       return team;
     };
+    /** The team is on the deck with its worktree made — not still being
+     * created, when git may yet be writing into the repository the row's
+     * teardown removes. */
+    const made = (d: Deck, name: string) =>
+      (d.workspace().teams ?? []).some((team) => team.name === name && team.location?.kind === "attached");
 
     it("is named the deck's next auto name, is made with nothing on it, and is entered", async () => {
       const d = await open();
@@ -590,7 +595,7 @@ describe("the agent dialog, on the host", () => {
       const team = await plusTeam(flow, d, { teamName: "docs" });
       expect(team.target).toMatchObject({ kind: "new-team", suggestedName: expect.stringMatching(/\S/) });
       if (team.target.kind === "new-team") expect(names).not.toContain(team.target.suggestedName);
-      await until("the team stands", () => (d.workspace().teams ?? []).some((made) => made.name === "docs"));
+      await until("the team is made", () => made(d, "docs"));
       expect(d.intents().slice(asked)).toEqual([
         expect.objectContaining({ kind: "createTeam", draft: { name: "docs" }, site: { kind: "new", place: { path: team.suggestedPath, branch: team.suggestedBranch }, base: null }, members: [] }),
       ]);
@@ -612,7 +617,7 @@ describe("the agent dialog, on the host", () => {
       // A worktree another team already stands in: its place is held.
       const docs = await plusTeam(flow, d, { teamName: "docs" });
       const docsId = () => d.workspace().teams?.find((made) => made.name === "docs")?.id;
-      await until("docs stands, entered", () => docsId() !== undefined && teamOpen(d) === docsId());
+      await until("docs is made, entered", () => made(d, "docs") && teamOpen(d) === docsId());
       await plusTeam(flow, d, { teamName: "web", location: { kind: "new", path: docs.suggestedPath, branch: "kd/web" } });
       await until("the held place is said", () => failures.length === 2);
       expect(failures[1]).toMatch(/^team: .+/);
@@ -654,7 +659,7 @@ describe("the agent dialog, on the host", () => {
       // A team asked for after it does go out — and by then a create the
       // cancel let through would have gone first.
       await plusTeam(flow, d, { teamName: "web" });
-      await until("the next team stands", () => (d.workspace().teams ?? []).some((made) => made.name === "web"));
+      await until("the next team is made", () => made(d, "web"));
       expect(d.intents().slice(asked)).toEqual([expect.objectContaining({ kind: "createTeam", draft: { name: "web" } })]);
     });
   });
