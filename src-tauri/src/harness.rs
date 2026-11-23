@@ -126,8 +126,11 @@ pub fn serve() {
             );
         }
         // The pipe closed: the test is over, and its agents go with it. The
-        // process ends itself — the test runtime has no exit to ask for.
+        // process ends itself — the test runtime has no exit to ask for —
+        // between two lines: a line another thread is saying holds stdout
+        // until it is whole, and none starts after.
         handle.state::<SessionMachine>().table.shutdown(keepdeck_pty::STOP_GRACE);
+        let _between_lines = std::io::stdout().lock();
         std::process::exit(0);
     });
     app.run(move |_app, event| {

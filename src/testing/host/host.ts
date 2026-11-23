@@ -175,7 +175,16 @@ export async function startHost(): Promise<Host> {
     createInterface({ input: child.stderr }).on("line", (line) => note("host log", line));
     createInterface({ input: child.stdout }).on("line", (line) => {
       note("← host", line);
-      const said: unknown = JSON.parse(line);
+      let said: unknown;
+      try {
+        said = JSON.parse(line);
+      } catch (error) {
+        // A kill ends the app wherever it is, mid-line included: the last
+        // line it cut is no message. Any other line that does not read is
+        // the wire broken.
+        if (child.killed && child.stdout.readableEnded) return;
+        throw error;
+      }
       if (typeof said !== "object" || said === null) return;
       if (field(said, "ready") === true) return readySignal();
       const channel = field(said, "channel");
