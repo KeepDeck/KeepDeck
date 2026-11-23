@@ -1,0 +1,4 @@
+# Code a generator writes keeps the generator's whitespace: ts-rs leaves a
+# space at the end of some lines, and a whitespace check is about what
+# people write, not what a tool regenerates on every test run.
+src/ipc/generated/** whitespace=-trailing-space
