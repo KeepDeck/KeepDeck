@@ -1,16 +1,11 @@
-import {
-  classifyLocation,
-  type DirectoryState,
-  type PathProbe,
-} from "../agents";
 import type {
   WorkspaceInstance,
   WorkspaceRef,
 } from "../workspaceInstance";
-import { appendPane, paneStopsWithArchive, removePane, type Pane } from "./panes";
+import { appendPane, removePane, type Pane } from "./panes";
 import { suspendedAt } from "./panes/stamp";
 import { teamsOf } from "./teams/collection";
-import { claimPath, normalizePath, sameDirectory, teamOccupyingPath } from "./teams/claims";
+import { normalizePath, sameDirectory } from "./teams/claims";
 import type { Team } from "./teams/model";
 
 /** What the create-workspace form submits: the spec a new workspace is
@@ -198,47 +193,14 @@ export interface RepoCheckout {
 
 /** A checkout no team holds, to remove. */
 export interface UnheldRemovalRequest {
-  repo: string;
   path: string;
+  /** The person agreed to lose its uncommitted work — what its confirm
+   * named. Without it, a checkout found dirty when it goes stays. */
+  discardDirty: boolean;
   /** Keep its commit as `refs/tags/<keepHeadAs>` before it goes — for a
    * detached checkout, whose commits no branch holds. */
   keepHeadAs?: string;
-  /** The person agreed to lose its uncommitted work. */
-  discardDirty: boolean;
 }
-
-/** What removing an unheld checkout did. */
-export type UnheldRemoval =
-  | { kind: "removed"; keptAs?: string }
-  /** A team holds it now; nothing was touched. */
-  | { kind: "held" }
-  /** Its commit could not be kept; nothing was removed. */
-  | { kind: "not-kept"; reason: string }
-  /** Git refused, or finished only part of it. */
-  | { kind: "failed"; reason: string; keptAs?: string };
-
-/** A git worktree (and its branch, when one is known) to tear down when an
- * agent or workspace closes. */
-export interface WorktreeTarget {
-  /** The repository (the workspace cwd) the git ops run against. */
-  repo: string;
-  /** The worktree directory to remove. */
-  path: string;
-  /** The branch to delete BY NAME once the worktree is gone, when the pane
-   * still tracks one. Absent for a detached-HEAD worktree — the dir is still
-   * removed, and no branch is named here. Naming is not the whole story:
-   * the delete flow also reaps branches BORN in the worktree (the user's
-   * checkbox says "and its branches"), so absence means "nothing to name",
-   * never "no branch will be touched". */
-  branch?: string;
-}
-
-/** Why a worktree teardown left its target in place — a kind, never a
- * sentence (the words are presentation's `teardownFailureText`): another
- * live workspace still works in the folder, or git refused. */
-export type WorktreeTeardownFailure =
-  | { kind: "held-elsewhere"; target: WorktreeTarget }
-  | { kind: "git-refused"; target: WorktreeTarget; reason: string };
 
 /** Runtime git position for a path, supplied by the app layer when available.
  * This is intentionally not pane domain state: panes own durable worktree
@@ -248,53 +210,6 @@ export interface GitPosition {
   head?: string;
 }
 
-/**
- * The worktrees a workspace's TEAMS hold — just the one team when `teamId`
- * is given (a disband), else every team (a workspace close). A directory is
- * a team's, never a pane's, so a member closing is never asked about one.
- *
- * A team on the workspace root holds no worktree of its own: the root is
- * never a deletion target, structurally — a team there disbands without
- * the offer. A team whose create is still out has no directory yet to
- * name (the close flow covers it by its ticket), and a non-worktree
- * workspace's teams all run in the root — an empty result is the signal
- * that there's nothing to offer deleting.
- *
- * The directory is ALWAYS offered; only the NAMED branch varies with what's
- * known about the worktree's HEAD:
- * - runtime HEAD observed on a branch → that currently checked-out branch;
- * - runtime HEAD observed but DETACHED → none named (naming one would be
- *   ambiguous on a bare commit — the dir is not: skipping it, as this once
- *   did, stranded the directory on disk with the delete checkbox gone);
- * - HEAD not observed → the team's durable owned branch, when it has one.
- *
- * Naming is only the explicit half: the delete flow additionally reaps
- * branches born in the worktree (`reapCreatedBranches`) — see
- * [`WorktreeTarget.branch`].
- */
-export function worktreeTargets(
-  ws: Workspace,
-  teamId?: string,
-  gitPositions?: ReadonlyMap<string, GitPosition>,
-): WorktreeTarget[] {
-  const root = normalizePath(ws.cwd);
-  return teamsOf(ws)
-    .filter((team) => teamId === undefined || team.id === teamId)
-    .flatMap((team) => {
-      const location = team.location;
-      if (location?.kind !== "attached" || normalizePath(location.cwd) === root) {
-        return [];
-      }
-      const observed = gitPositions?.get(location.cwd);
-      return [
-        {
-          repo: ws.cwd,
-          path: location.cwd,
-          branch: observed ? observed.branch : location.branch,
-        },
-      ];
-    });
-}
 
 /** Set (or, via `undefined`, delete) one plugin's opaque persisted slot in a
  * workspace's plugin bag. The slot's CONTENT is never inspected here — only
@@ -472,67 +387,6 @@ export function updateWorkspace(
 
 /** Set a pane's manual display name; an empty name clears it, reverting to the
  * auto title / derived label ([F11]). */
-/**
- * What the deck says about `path` for a location field — see
- * [`DirectoryState`]. The ONE deck reader behind every such field: the agent
- * dialog's worktree path and the fork target's alike, so the two cannot
- * answer the same directory differently.
- */
-export function directoryState(
-  workspaces: readonly Workspace[],
-  /** The workspace the field belongs to — its root is its own, and a team
-   * abroad on it is not a claim here. */
-  ws: Workspace,
-  path: string,
-): DirectoryState {
-  const claim = claimPath(workspaces, ws, path);
-  if (claim.kind === "free") return "free";
-  return claim.creating ? "being-created" : "worked-in";
-}
-
-/** One worktree branch/folder name suggestion (mirrors the Rust
- * `WorktreeSuggestion`); `suggest` in [`firstFreeTeamWorktree`] yields these per
- * index, `null` when no suggestion could be produced. */
-export interface WorktreeNameSuggestion {
-  branch: string;
-  folder: string;
-}
-
-/** How many suggestion indices [`firstFreeTeamWorktree`] tries before giving up.
- * Occupied paths are bounded by the open pane count, so any real deck resolves
- * in a handful of steps — the cap only backstops a pathological `suggest`. */
-const MAX_SUGGESTION_TRIES = 100;
-
-/**
- * The first suggested worktree path under `baseDir` NOT held by an open pane,
- * with its matching branch — folder and branch advance together so the pair
- * stays consistent (`kd-ws-3` ↔ `kd/ws/3`). A path that merely exists on disk
- * stays suggestible (attaching to an idle worktree is a valid outcome) —
- * EXCEPT when `probe` classifies it as blocked (a non-empty non-worktree dir,
- * e.g. a leftover folder): suggesting one would open the dialog straight onto
- * an error. `probe` must never reject; a `null` probe result (backend down)
- * keeps the candidate — the dialog's live hint still guards the actual create.
- * `null` when `suggest` yields nothing or every try is taken.
- */
-export async function firstFreeTeamWorktree(
-  workspaces: Workspace[],
-  baseDir: string,
-  suggest: (index: number) => Promise<WorktreeNameSuggestion | null>,
-  startIndex: number,
-  probe?: (path: string) => Promise<PathProbe | null>,
-): Promise<{ path: string; branch: string } | null> {
-  const base = normalizePath(baseDir);
-  for (let i = startIndex; i < startIndex + MAX_SUGGESTION_TRIES; i++) {
-    const s = await suggest(i);
-    if (!s) return null;
-    const path = `${base}/${s.folder}`;
-    if (teamOccupyingPath(workspaces, path)) continue;
-    const p = probe ? await probe(path) : null;
-    if (p && classifyLocation(path, p) === "blocked") continue;
-    return { path, branch: s.branch };
-  }
-  return null;
-}
 
 /** The directory containing `path`, or `""` when there is no usable parent
  * (a bare name, or a direct child of the filesystem root) — string-only, no
@@ -608,13 +462,6 @@ export function stepPlaces(
   };
 }
 
-/** What asking to put a workspace away did: it is archived now, it already
- * was, a close of it is under way, or it is no longer there. */
-export type ArchiveOutcome = "archived" | "already" | "closing" | "gone";
-
-/** What asking for a workspace back did. */
-export type RestoreOutcome = "restored" | "not-archived" | "gone";
-
 /** The workspaces a person navigates — every one not archived, in deck
  * order: the strip's, the selection's. Identity, ownership and retention
  * keep reading the whole list. */
@@ -633,36 +480,32 @@ export function resolveActiveId(workspaces: Workspace[], activeId: string): stri
   return visible[0]?.id ?? "";
 }
 
-/** Every pane the archive stops ([`paneStopsWithArchive`]), marked suspended as of
- * `at`; the same list when none is left to mark. */
-function suspendedForArchive(ws: Workspace, at: string): Pane[] {
-  let marked = false;
-  const panes = ws.panes.map((pane): Pane => {
-    if (!paneStopsWithArchive(ws, pane)) return pane;
-    marked = true;
-    return suspendedAt(pane, at);
-  });
-  return marked ? panes : ws.panes;
-}
-
 /** Put workspace `id` away as of `at`, in phase `"archiving"` — and, in the
- * same change, every pane the archive stops marked suspended: one snapshot,
- * one save, so no crash can leave the workspace put away with a pane on disk
- * that would rise by itself. Ending the processes is the caller's. Same ref
- * when there is no such workspace or it is already archived. */
-export function archiveWorkspace(workspaces: Workspace[], id: string, at: string): Workspace[] {
+ * same change, the panes `suspending` names (the agents the archive stops,
+ * as the lifecycle machine says them) marked suspended as of `at`; one
+ * already suspended keeps its own date. One snapshot, one save, so no crash
+ * can leave the workspace put away with a pane on disk that would rise by
+ * itself. Ending the processes is the caller's. Same ref when there is no
+ * such workspace or it is already archived. */
+export function archiveWorkspace(
+  workspaces: Workspace[],
+  id: string,
+  at: string,
+  suspending: readonly string[],
+): Workspace[] {
   const ws = findWorkspace(workspaces, id);
   if (!ws || ws.archived) return workspaces;
-  return workspaces.map((w) =>
-    w.id === id ? { ...w, archived: { at, phase: "archiving" }, panes: suspendedForArchive(w, at) } : w,
+  const panes = ws.panes.map((pane) =>
+    suspending.includes(pane.id) && pane.idle?.reason !== "suspended" ? suspendedAt(pane, at) : pane,
   );
+  return workspaces.map((w) => (w.id === id ? { ...w, archived: { at, phase: "archiving" }, panes } : w));
 }
 
 /** The archive of `id` has done what it could: phase `"archived"`, owing
- * `warnings` (kept only when something is owed) — and any pane that landed
- * since the archive began (a create that finished) marked suspended like the
- * rest. Boot repair settles again after each retry, with what is still owed.
- * Same ref when the workspace is not archived, or already settled exactly so. */
+ * `warnings` (kept only when something is owed). Its panes were marked when
+ * it began — nothing lands in a workspace while it is put away. Boot repair
+ * settles again after each retry, with what is still owed. Same ref when the
+ * workspace is not archived, or already settled exactly so. */
 export function settleArchive(
   workspaces: Workspace[],
   id: string,
@@ -671,11 +514,9 @@ export function settleArchive(
   const ws = findWorkspace(workspaces, id);
   const archived = ws?.archived;
   if (!ws || !archived) return workspaces;
-  const panes = suspendedForArchive(ws, archived.at);
   const owed = warnings.reaps.length > 0 || warnings.disarm;
   const was = archived.warnings;
   const unchanged =
-    panes === ws.panes &&
     archived.phase === "archived" &&
     (owed
       ? was !== undefined &&
@@ -689,7 +530,7 @@ export function settleArchive(
     phase: "archived",
     ...(owed && { warnings: { reaps: [...warnings.reaps], disarm: warnings.disarm } }),
   };
-  return workspaces.map((w) => (w.id === id ? { ...w, archived: settled, panes } : w));
+  return workspaces.map((w) => (w.id === id ? { ...w, archived: settled } : w));
 }
 
 /** Bring workspace `id` back: the marker goes and nothing else changes —

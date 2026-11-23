@@ -5,7 +5,10 @@ import {
   type Workspace,
 } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import type { IntentOutcome } from "../domain/lifecycle";
 import type { Notification } from "../domain/notifications";
+import { intentOutcomeText } from "../presentation/lifecycleWords";
+import { resumeOutcomeText } from "../presentation/resumeWords";
 import { createDeckStore } from "./deckStore";
 import { createDeckActions } from "./deckActions";
 import {
@@ -33,20 +36,18 @@ function dependencies() {
     bootstrapPlugins: vi.fn<ApplicationPlugins["bootstrapPlugins"]>(async () => {}),
     revealPluginDockTab: vi.fn<ApplicationPlugins["revealPluginDockTab"]>(() => true),
   } satisfies ApplicationPlugins;
+  const accepted: IntentOutcome = { kind: "accepted", op: 1, minted: { workspace: null, team: "team-1", panes: [] } };
   const orchestrator = {
-    suspend: vi.fn<ApplicationOrchestrator["suspend"]>(async () => "suspended"),
-    resume: vi.fn<ApplicationOrchestrator["resume"]>(() => "resuming"),
-    createPane: vi.fn<ApplicationOrchestrator["createPane"]>(() => ({
-      kind: "created",
-      teamId: "team-1",
-    })),
-    createTeam: vi.fn<ApplicationOrchestrator["createTeam"]>(() => ({
-      kind: "created",
-      teamId: "team-1",
-    })),
-    retryProvisioning: vi.fn<ApplicationOrchestrator["retryProvisioning"]>(),
-    createWorkspace: vi.fn<ApplicationOrchestrator["createWorkspace"]>(() => workspace()),
+    suspend: vi.fn<ApplicationOrchestrator["suspend"]>(async () => ({ kind: "suspending" })),
+    resume: vi.fn<ApplicationOrchestrator["resume"]>(async () => ({ kind: "resuming" })),
+    resumeTeam: vi.fn<ApplicationOrchestrator["resumeTeam"]>(async () => []),
+    restore: vi.fn<ApplicationOrchestrator["restore"]>(async () => accepted),
+    createPane: vi.fn<ApplicationOrchestrator["createPane"]>(async () => accepted),
+    createTeam: vi.fn<ApplicationOrchestrator["createTeam"]>(async () => accepted),
+    retryProvisioning: vi.fn<ApplicationOrchestrator["retryProvisioning"]>(async () => accepted),
+    createWorkspace: vi.fn<ApplicationOrchestrator["createWorkspace"]>(async () => accepted),
     reachOf: vi.fn<ApplicationOrchestrator["reachOf"]>(() => ({ kind: "running" })),
+    updateWorkspace: vi.fn<ApplicationOrchestrator["updateWorkspace"]>(() => ({ ok: false, refusal: { kind: "unknown-workspace" } })),
   } satisfies ApplicationOrchestrator;
   return { plugins, orchestrator };
 }
@@ -92,6 +93,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry,
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
@@ -142,6 +144,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry,
+      teamsIn: async () => [],
     });
     controller.bindUi(ui());
     controller.start();
@@ -191,6 +194,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
@@ -234,6 +238,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
@@ -279,6 +284,7 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
@@ -288,7 +294,7 @@ describe("application controller", () => {
     expect(view.openUsage).toHaveBeenLastCalledWith("weekly", 1_000);
   });
 
-  it("creates the workspace and closes the form — a create is never refused", () => {
+  it("asks for the workspace and closes the form, and says the machine's refusal", async () => {
     const deck = createDeckStore();
     const { plugins, orchestrator } = dependencies();
     const controller = createApplicationController({
@@ -300,14 +306,115 @@ describe("application controller", () => {
       skills: noSkills(),
       mcpLibrary: noMcp(),
       registry: createCommandRegistry(),
+      teamsIn: async () => [],
     });
     const view = ui();
     controller.bindUi(view);
 
     controller.createWorkspace({ name: "Workspace", cwd: "/repo", worktreeBaseDir: null });
+    await Promise.resolve();
 
     expect(orchestrator.createWorkspace).toHaveBeenCalledWith({ name: "Workspace", cwd: "/repo", worktreeBaseDir: null });
     expect(view.setCreating).toHaveBeenCalledWith(false);
     expect(view.pushAlert).not.toHaveBeenCalled();
+
+    // The machine's refusal is said, in its words.
+    const barred: IntentOutcome = { kind: "refused", refusal: { kind: "barrierUp" } };
+    orchestrator.createWorkspace.mockResolvedValueOnce(barred);
+    controller.createWorkspace({ name: "Other", cwd: "/other", worktreeBaseDir: null });
+    await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledWith("Couldn't create the workspace", intentOutcomeText(barred)));
+  });
+
+  it("retries a team's worktree and says the machine's refusal, never drops it", async () => {
+    const deck = createDeckStore();
+    const { plugins, orchestrator } = dependencies();
+    const controller = createApplicationController({
+      deck,
+      plugins,
+      orchestrator,
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      mcpLibrary: noMcp(),
+      registry: createCommandRegistry(),
+      teamsIn: async () => [],
+    });
+    const view = ui();
+    controller.bindUi(view);
+
+    controller.retryProvisioning("ws-1", "team-1");
+    await Promise.resolve();
+    expect(orchestrator.retryProvisioning).toHaveBeenCalledWith("ws-1", "team-1");
+    expect(view.pushAlert).not.toHaveBeenCalled();
+
+    const leaving: IntentOutcome = { kind: "refused", refusal: { kind: "targetLeaving" } };
+    orchestrator.retryProvisioning.mockResolvedValueOnce(leaving);
+    controller.retryProvisioning("ws-1", "team-1");
+    await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledWith("Couldn't retry the worktree", intentOutcomeText(leaving)));
+  });
+
+  it("asks a team back and names every member that is not coming, and why", async () => {
+    const deck = createDeckStore({ ...initialDeckState, workspaces: [workspace()] });
+    const { plugins, orchestrator } = dependencies();
+    const controller = createApplicationController({
+      deck,
+      plugins,
+      orchestrator,
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      mcpLibrary: noMcp(),
+      registry: createCommandRegistry(),
+      teamsIn: async () => [],
+    });
+    const view = ui();
+    controller.bindUi(view);
+
+    orchestrator.resumeTeam.mockResolvedValueOnce([
+      { paneId: "pane-1", outcome: { kind: "resuming" } },
+      { paneId: "pane-2", outcome: { kind: "refused", refusal: { kind: "alreadyClosing" } } },
+    ]);
+    controller.resumeTeam("ws-1", "team-1");
+    await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledTimes(1));
+    expect(orchestrator.resumeTeam).toHaveBeenCalledWith("ws-1", "team-1");
+    const [title, message] = view.pushAlert.mock.calls[0];
+    expect(title).toBe("Can't resume the team");
+    expect(message).toBe(resumeOutcomeText({ kind: "refused", refusal: { kind: "alreadyClosing" } }, "Agent 2"));
+
+    // Everyone coming: nothing to say.
+    view.pushAlert.mockClear();
+    orchestrator.resumeTeam.mockResolvedValueOnce([{ paneId: "pane-1", outcome: { kind: "resuming" } }]);
+    controller.resumeTeam("ws-1", "team-1");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(view.pushAlert).not.toHaveBeenCalled();
+  });
+
+  it("restores a workspace by its live instance and says the machine's refusal", async () => {
+    const ws = workspace();
+    const deck = createDeckStore({ ...initialDeckState, workspaces: [ws] });
+    const { plugins, orchestrator } = dependencies();
+    const controller = createApplicationController({
+      deck,
+      plugins,
+      orchestrator,
+      paneInputFocus: paneInputFocus(),
+      paneView: paneView(),
+      skills: noSkills(),
+      mcpLibrary: noMcp(),
+      registry: createCommandRegistry(),
+      teamsIn: async () => [],
+    });
+    const view = ui();
+    controller.bindUi(view);
+
+    const busy: IntentOutcome = { kind: "refused", refusal: { kind: "busy" } };
+    orchestrator.restore.mockResolvedValueOnce(busy);
+    controller.restoreWorkspace("ws-1");
+    expect(orchestrator.restore).toHaveBeenCalledWith({ id: "ws-1", instance: ws.instance });
+    await vi.waitFor(() => expect(view.pushAlert).toHaveBeenCalledWith("Couldn't restore the workspace", intentOutcomeText(busy)));
+
+    controller.restoreWorkspace("ws-gone");
+    expect(orchestrator.restore).toHaveBeenCalledTimes(1);
   });
 });

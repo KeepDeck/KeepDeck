@@ -27,11 +27,10 @@ describe("prepared status reports", () => {
     expect(changed).toHaveBeenCalledOnce();
   });
 
-  it.each(["clear", "retain", "normalizer"])("invalidates even unpublished activity on %s", (cause) => {
+  it.each(["clear", "normalizer"])("invalidates even unpublished activity on %s", (cause) => {
     const tracker = setup();
     const pending = tracker.prepare("pane", payload("start"), 100);
     if (cause === "clear") tracker.clear("pane");
-    if (cause === "retain") tracker.retain(new Set());
     if (cause === "normalizer") tracker.registerNormalizer("test", () => null);
     pending.finish();
     expect(tracker.getSnapshot().panes.size).toBe(0);
@@ -335,26 +334,6 @@ describe("agentStatusTracker", () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
-  it("retain keeps a surviving pane's open brackets, not just its activity", () => {
-    // retain() rebuilds the map; a rebuild that reconstructed the state
-    // field by field would drop the brackets and the pane would announce a
-    // finished turn while its agents were still running.
-    const tracker = createAgentStatusTracker();
-    tracker.registerNormalizer("claude", literal);
-    const report = (kind: string, at: number) =>
-      tracker.report("pane-1", { agent: "claude", event: { kind } }, at);
-
-    report("start", 100);
-    report("agent-start", 110);
-    tracker.retain(new Set(["pane-1"]));
-
-    report("end", 120);
-    expect(tracker.getSnapshot().panes.get("pane-1")).toEqual({
-      state: "working",
-      since: 100,
-    });
-  });
-
   it("drops reports for unknown agents, malformed payloads and untracked events", () => {
     const tracker = createAgentStatusTracker();
     tracker.registerNormalizer("claude", literal);
@@ -405,24 +384,6 @@ describe("agentStatusTracker", () => {
       state: "working",
       since: 200,
     });
-  });
-
-  it("retain() drops only panes that no longer exist, and says so once", () => {
-    const tracker = createAgentStatusTracker();
-    tracker.registerNormalizer("claude", literal);
-    const listener = vi.fn();
-    tracker.report("pane-1", { agent: "claude", event: { kind: "start" } }, 100);
-    tracker.report("pane-2", { agent: "claude", event: { kind: "start" } }, 100);
-    tracker.subscribe(listener);
-    tracker.retain(new Set(["pane-2"]));
-    expect([...tracker.getSnapshot().panes.keys()]).toEqual(["pane-2"]);
-    // A pane leaving the roster IS a visible change — the visibility test
-    // that keeps bracket churn silent must not swallow this one.
-    expect(listener).toHaveBeenCalledTimes(1);
-    const stable = tracker.getSnapshot();
-    tracker.retain(new Set(["pane-2"]));
-    expect(tracker.getSnapshot()).toBe(stable);
-    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("a replacing registration wins; its unregister only removes itself", () => {
@@ -587,13 +548,5 @@ describe("agentStatusTracker — the mode an agent says it runs in", () => {
     tracker.report("pane-1", say("auto"), 1);
     tracker.clear("pane-1");
     expect(tracker.getSnapshot().modes.has("pane-1")).toBe(false);
-  });
-
-  it("drops the mode of a pane that is gone", () => {
-    const tracker = setup();
-    tracker.report("pane-1", say("auto"), 1);
-    tracker.report("pane-2", say("yolo"), 1);
-    tracker.retain(new Set(["pane-2"]));
-    expect([...tracker.getSnapshot().modes]).toEqual([["pane-2", "yolo"]]);
   });
 });

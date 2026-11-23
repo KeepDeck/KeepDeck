@@ -27,6 +27,7 @@ import {
 } from "./domain/deck";
 import { pickFolder } from "./ipc/dialogs";
 import { inspectRepo, listBranches, listWorktrees, probeWorktree } from "./ipc/worktree";
+import { claimsOn } from "./ipc/lifecycle";
 import {
   notifyAgentCrashed,
   notifyAgentSpawnFailed,
@@ -218,7 +219,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
             onRenameTeam={deck.renameTeam}
             onDisbandTeam={closeFlow.requestDisbandTeam}
             teamActsOf={orchestrator.teamActs}
-            onResumeTeam={orchestrator.resumeTeam}
+            onResumeTeam={runtime.application.resumeTeam}
             onSuspendTeam={teamSuspendFlow.request}
             onPaneTitle={deck.setPaneAutoTitle}
             idleBlocked={runView.blocked}
@@ -232,16 +233,11 @@ function App({ runtime }: { runtime: AppRuntime }) {
             failedPanes={failedPanes}
             onStartFresh={orchestrator.startFresh}
             onResumeAgent={(wsId, paneId) => {
-              const refused = askForPaneBack(
-                orchestrator.resume,
-                deck.workspaces,
-                agents,
-                wsId,
-                paneId,
-              );
-              if (refused) pushAlert("Can't resume this agent", refused);
+              void askForPaneBack(orchestrator.resume, deck.workspaces, agents, wsId, paneId).then((refused) => {
+                if (refused) pushAlert("Can't resume this agent", refused);
+              });
             }}
-            onRetryProvision={orchestrator.retryProvisioning}
+            onRetryProvision={runtime.application.retryProvisioning}
             onAgentExited={(wsId, paneId, code) => {
               // Activity cleanup is NOT wired here on purpose: the status
               // channel watches the session registry and clears a dead
@@ -417,6 +413,7 @@ function App({ runtime }: { runtime: AppRuntime }) {
               onUpdate={workspacesWindow.onUpdate}
               pickFolder={pickFolder}
               listWorktrees={listWorktrees}
+              claimsOn={claimsOn}
               onRemoveWorktree={workspacesWindow.onRemoveWorktree}
               onNewTeam={workspacesWindow.onNewTeam}
               onOpenTeam={workspacesWindow.onOpenTeam}

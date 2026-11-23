@@ -1,6 +1,7 @@
 /// <reference types="vitest/config" />
 import { defineConfig, loadEnv, type UserConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { configDefaults } from "vitest/config";
 
 // https://vite.dev/config/
 export default defineConfig(async ({ mode }): Promise<UserConfig> => {
@@ -80,6 +81,9 @@ export default defineConfig(async ({ mode }): Promise<UserConfig> => {
         "plugins/*/src/**/*.test.{ts,tsx}",
         "integration/**/*.test.{ts,tsx}",
       ],
+      // The tests on the real host run apart: `pnpm test:host`
+      // (vitest.host.config.ts), which builds the host binary first.
+      exclude: [...configDefaults.exclude, "**/*.host.test.{ts,tsx}"],
     },
   };
 });

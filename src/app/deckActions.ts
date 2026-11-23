@@ -98,8 +98,8 @@ function buildDeckActions(store: DeckStore) {
       dispatch({ type: "closeAgent", wsId, paneId, at: nowIso(), ...sealTitle(wsId, paneId) }),
     closeWorkspace: (id: string) =>
       dispatch({ type: "closeWorkspace", id, at: nowIso() }),
-    archiveWorkspace: (id: string) =>
-      dispatch({ type: "archiveWorkspace", id, at: nowIso() }),
+    archiveWorkspace: (id: string, panes: readonly string[]) =>
+      dispatch({ type: "archiveWorkspace", id, at: nowIso(), panes }),
     settleArchive: (id: string, warnings: ArchiveWarnings) =>
       dispatch({ type: "settleArchive", id, warnings }),
     restoreWorkspace: (id: string) => dispatch({ type: "restoreWorkspace", id }),
@@ -168,19 +168,8 @@ function buildDeckActions(store: DeckStore) {
       const ws = findWorkspace(store.getSnapshot().workspaces, wsId);
       return !!ws && findTeam(ws, teamId) !== undefined;
     },
-    createTeam: (
-      wsId: string,
-      team: Team & { location: TeamLocation },
-      /** Named, not a bare positional `true` at the call site — and spread
-       * only when set, like every other optional field dispatched here. */
-      options: { shared?: boolean } = {},
-    ) =>
-      dispatch({
-        type: "createTeam",
-        wsId,
-        team,
-        ...(options.shared !== undefined && { shared: options.shared }),
-      }),
+    createTeam: (wsId: string, team: Team & { location: TeamLocation }) =>
+      dispatch({ type: "createTeam", wsId, team }),
     resolveTeamProvisioning: (
       wsId: string,
       teamId: string,

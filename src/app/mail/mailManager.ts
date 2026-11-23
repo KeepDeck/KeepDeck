@@ -33,6 +33,7 @@ import {
   sendRefusal,
   droppedNotice,
   forgottenNotice,
+  closedNotice,
   isOverdue,
   isResponse,
   isStandingContext,
@@ -182,6 +183,10 @@ export interface MailManagerDeps {
    * True means a running turn is worth waiting out — the answer given at
    * that boundary is labelled, and a paste is not. */
   asksAtTurnEnd?(paneId: string): boolean;
+  /** Whether the lifecycle has forgotten this pane — its close under way,
+   * the command to forget its queue maybe not carried yet. Its hook takes
+   * nothing more. */
+  forgotten?(paneId: string): boolean;
   now?(): number;
   /** `setTimeout`, injected so tests drive the clock. Returns its cancel. */
   schedule?(fn: () => void, ms: number): () => void;
@@ -304,6 +309,9 @@ export interface MailManager {
   cancel(fromPaneId: string, id: string): CancelOutcome;
   /** Forget everything belonging to panes that no longer exist. */
   retain(liveIds: ReadonlySet<string>): void;
+  /** Forget everything belonging to these closed panes — the same as
+   * [`retain`] leaving them out, and nothing of anyone else's. */
+  forget(paneIds: ReadonlySet<string>): void;
   /** The pane's process was retired (restart, suspend). Its delivery spacing
    * describes that process and means nothing to the next one; queued and
    * delivered mail is addressed to the PANE and stays. */
@@ -345,6 +353,14 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   /** Panes whose last nudge is known to have started no turn, for the one
    * pass [`MailManager.wakeLost`] runs — never across passes. */
   const lostWakes = new Set<string>();
+  /** Panes whose mail was forgotten or let go: nothing is queued for them
+   * again, a hand-over coming back included. A pane number never comes
+   * back within a launch, so the set only grows. */
+  const closedPanes = new Set<string>();
+  /** Messages whose sender was already told they came back to a closed
+   * pane — the one notice per message, however often it comes back. */
+  const bounced = new Set<string>();
+  const closed = (paneId: string) => closedPanes.has(paneId) || (deps.forgotten?.(paneId) ?? false);
 
   /** Queued messages whose sender has already been told they are waiting.
    * An id leaves when its message leaves the queue. */
@@ -864,6 +880,50 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     if (queue.length === 0) queues.delete(paneId);
   }
 
+  /** Everything belonging to the panes that are `gone`: what is addressed to
+   * them, and every message they sent that another pane still holds. */
+  function drop(gone: (paneId: string) => boolean): void {
+    /** Queued for panes that are going, and collected rather than reported
+     * on the spot.
+     *
+     * A report goes INTO its recipient's queue, so reporting mid-walk
+     * recreated a queue keyed to a pane this very call had already passed
+     * or deleted — a queue for a pane that no longer exists, which nothing
+     * would ever drain again. */
+    const orphaned: Mail[] = [];
+    for (const map of [queues, inboxes, lastWakeAt]) {
+      for (const id of [...map.keys()]) {
+        if (gone(id)) {
+          if (map === queues) orphaned.push(...(queues.get(id) ?? []));
+          map.delete(id);
+          closedPanes.add(id);
+        }
+      }
+    }
+    // Whatever was queued for a pane that no longer exists can never be
+    // delivered; its senders are owed the same word they get when a queue
+    // overflows — and a sender that is itself gone is owed nothing at all.
+    for (const mail of orphaned) {
+      if (mail.from.kind === "pane" && !gone(mail.from.pane.paneId)) {
+        reportDropped(mail);
+      }
+    }
+    // A debt names its creditor by pane id, and `pane-N` is a slot a later
+    // pane inherits. Pruning only by RECEIVER left those references in
+    // living journals, so an answer written months of session-time later
+    // arrived at a fresh agent labelled a reply to a question it never
+    // asked. The other half of every pair goes too.
+    for (const held of inboxes.values()) {
+      for (let i = held.length - 1; i >= 0; i -= 1) {
+        const from = held[i].mail.from;
+        if (from.kind === "pane" && gone(from.pane.paneId)) held.splice(i, 1);
+      }
+    }
+    // `reportedOverdue` needs nothing here: it is pruned to what is still
+    // queued on every pass, which is the only place that can see the
+    // difference between a message gone and a message put back.
+  }
+
   return {
     send(request) {
       const refusal = sendRefusal(request.from, request.toPaneId, request.kind);
@@ -900,6 +960,9 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     takeAtTurnEnd(paneId, activity, door = "turn-boundary") {
+      // A pane being closed takes nothing more: what waits for it goes with
+      // the forget, and its senders hear so once.
+      if (closed(paneId)) return [];
       const taken: Mail[] = [];
       drainQueue(paneId, taken, door, activity);
       // Whatever is left (a held prompt, a fresh notice) still needs its
@@ -932,6 +995,16 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     restore(messages) {
       for (let i = messages.length - 1; i >= 0; i -= 1) {
         const mail = messages[i];
+        // Handed to a pane that was closed since: its queue is not brought
+        // back. The sender hears it once, however often it comes back.
+        if (closed(mail.toPaneId)) {
+          log.info("web:mail", `came back for a closed pane: ${trace(mail)}`);
+          if (!bounced.has(mail.id)) {
+            bounced.add(mail.id);
+            if (mail.from.kind !== "pane" || !closed(mail.from.pane.paneId)) pushNotice(closedNotice(mail, mintId(), now()));
+          }
+          continue;
+        }
         log.info("web:mail", `put back, nobody took it: ${trace(mail)}`);
         const queue = queues.get(mail.toPaneId);
         if (!queue) {
@@ -1097,44 +1170,11 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
     },
 
     retain(liveIds) {
-      /** Queued for panes that are going, and collected rather than reported
-       * on the spot.
-       *
-       * A report goes INTO its recipient's queue, so reporting mid-walk
-       * recreated a queue keyed to a pane this very call had already passed
-       * or deleted — a queue for a pane that no longer exists, which nothing
-       * would ever drain again. */
-      const orphaned: Mail[] = [];
-      for (const map of [queues, inboxes, lastWakeAt]) {
-        for (const id of [...map.keys()]) {
-          if (!liveIds.has(id)) {
-            if (map === queues) orphaned.push(...(queues.get(id) ?? []));
-            map.delete(id);
-          }
-        }
-      }
-      // Whatever was queued for a pane that no longer exists can never be
-      // delivered; its senders are owed the same word they get when a queue
-      // overflows — and a sender that is itself gone is owed nothing at all.
-      for (const mail of orphaned) {
-        if (mail.from.kind === "pane" && liveIds.has(mail.from.pane.paneId)) {
-          reportDropped(mail);
-        }
-      }
-      // A debt names its creditor by pane id, and `pane-N` is a slot a later
-      // pane inherits. Pruning only by RECEIVER left those references in
-      // living journals, so an answer written months of session-time later
-      // arrived at a fresh agent labelled a reply to a question it never
-      // asked. The other half of every pair goes too.
-      for (const held of inboxes.values()) {
-        for (let i = held.length - 1; i >= 0; i -= 1) {
-          const from = held[i].mail.from;
-          if (from.kind === "pane" && !liveIds.has(from.pane.paneId)) held.splice(i, 1);
-        }
-      }
-      // `reportedOverdue` needs nothing here: it is pruned to what is still
-      // queued on every pass, which is the only place that can see the
-      // difference between a message gone and a message put back.
+      drop((paneId) => !liveIds.has(paneId));
+    },
+
+    forget(paneIds) {
+      drop((paneId) => paneIds.has(paneId));
     },
 
     clear(paneId) {

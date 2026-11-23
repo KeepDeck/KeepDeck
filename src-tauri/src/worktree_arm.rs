@@ -35,6 +35,11 @@ impl ExcludeRepo {
         Ok(Some(Self { common_dir, below_root: repo.below_root }))
     }
 
+    /// The repo's common git dir, canonical: one for all its checkouts.
+    pub(crate) fn common_dir(&self) -> &Path {
+        &self.common_dir
+    }
+
     /// `relative`, an entry's path below the armed cwd, as a path below the
     /// root of any worktree of the repo.
     pub(crate) fn below_root(&self, relative: &str) -> PathBuf {

@@ -1,6 +1,7 @@
 import type { AgentInfo } from "../domain/agents";
 import type { CommandRegistry } from "../domain/commands";
-import type { SpawnConfig } from "../domain/deck";
+import { findWorkspace, type SpawnConfig } from "../domain/deck";
+import type { IntentOutcome } from "../domain/lifecycle";
 import type { Notification } from "../domain/notifications";
 import type { PaneActivity } from "../domain/status";
 import type { StatsTab } from "../domain/usage/statsTabs";
@@ -21,6 +22,8 @@ import {
 import type { AgentOrchestrator } from "./agentOrchestrator";
 import type { PaneInputFocusPort } from "../presentation/paneInputFocusController";
 import type { PaneViewPort } from "../presentation/paneViewActions";
+import { intentOutcomeText } from "../presentation/lifecycleWords";
+import { askForTeamBack } from "./resumeOutcome";
 
 /** The plugin side the controller drives: the one bootstrap at start, and
  * a plugin's dock tab revealed for its notification. */
@@ -31,7 +34,16 @@ export type ApplicationPlugins = Pick<
 /** The landings the controller and its commands go through. */
 export type ApplicationOrchestrator = Pick<
   AgentOrchestrator,
-  "suspend" | "resume" | "createPane" | "createTeam" | "retryProvisioning" | "createWorkspace" | "reachOf"
+  | "suspend"
+  | "resume"
+  | "resumeTeam"
+  | "createPane"
+  | "createTeam"
+  | "retryProvisioning"
+  | "createWorkspace"
+  | "restore"
+  | "reachOf"
+  | "updateWorkspace"
 >;
 
 export interface ApplicationUi {
@@ -62,6 +74,13 @@ export interface ApplicationController {
   activatePane(wsId: string, paneId: string): void;
   openNotification(notification: Notification): void;
   createWorkspace(config: SpawnConfig): void;
+  /** Retry a team's failed worktree create, saying the machine's refusal. */
+  retryProvisioning(wsId: string, teamId: string): void;
+  /** Ask back every member a team's Resume would take, saying who is not
+   * coming and why. */
+  resumeTeam(wsId: string, teamId: string): void;
+  /** Bring an archived workspace back, saying the machine's refusal. */
+  restoreWorkspace(wsId: string): void;
   dispose(): void;
 }
 
@@ -91,6 +110,8 @@ export interface ApplicationControllerDeps {
    * roster degrades to what it always was rather than becoming a required
    * wiring step for every caller. */
   activityOf?: (paneId: string) => PaneActivity | undefined;
+  /** The teams the lifecycle machine says work in a folder. */
+  teamsIn(path: string): Promise<string[]>;
 }
 
 export function createApplicationController({
@@ -103,6 +124,7 @@ export function createApplicationController({
   mcpLibrary,
   registry = commands,
   activityOf = () => undefined,
+  teamsIn,
 }: ApplicationControllerDeps): ApplicationController {
   const actions = createDeckActions(deck);
   let ui: ApplicationUi | null = null;
@@ -113,6 +135,13 @@ export function createApplicationController({
   const requireUi = (): ApplicationUi => {
     if (!ui) throw new Error(UI_UNAVAILABLE_MESSAGE);
     return ui;
+  };
+
+  /** Say what the machine answered a person's intent, under `title`, when
+   * it did not take it — a refusal is never dropped. */
+  const sayRefusal = (title: string) => (outcome: IntentOutcome) => {
+    const why = intentOutcomeText(outcome);
+    if (why !== null) ui?.pushAlert(title, why);
   };
 
   const selectWorkspace = (id: string) => {
@@ -150,8 +179,10 @@ export function createApplicationController({
           requireUi().requestCloseAgent(wsId, paneId, label),
         suspendAgent: orchestrator.suspend,
         resumeAgent: orchestrator.resume,
+        updateWorkspace: orchestrator.updateWorkspace,
         createPane: orchestrator.createPane,
         createTeam: orchestrator.createTeam,
+        teamsIn,
         activateTeam,
         requestDisbandTeam: (wsId, teamId) => requireUi().requestDisbandTeam(wsId, teamId),
         retryProvisioning: orchestrator.retryProvisioning,
@@ -266,9 +297,36 @@ export function createApplicationController({
       }
     },
 
+    // The form closes at once; the workspace lands, active, by the
+    // machine's command — or the machine's refusal is said.
     createWorkspace(config) {
-      orchestrator.createWorkspace(config);
       ui?.setCreating(false);
+      void orchestrator.createWorkspace(config).then(sayRefusal("Couldn't create the workspace"));
+    },
+
+    // The tile's and the crumb's Retry: the team turns to creating by the
+    // machine's command — or the machine's refusal is said.
+    retryProvisioning(wsId, teamId) {
+      void orchestrator.retryProvisioning(wsId, teamId).then(sayRefusal("Couldn't retry the worktree"));
+    },
+
+    // A team's Resume, from its card, its crumb and the empty grid: every
+    // member that is not coming back is said, by name.
+    resumeTeam(wsId, teamId) {
+      const agents = ui?.agents() ?? [];
+      void askForTeamBack(orchestrator.resumeTeam, deck.getSnapshot().workspaces, agents, wsId, teamId).then(
+        (refused) => {
+          if (refused !== null) ui?.pushAlert("Can't resume the team", refused);
+        },
+      );
+    },
+
+    // Restore from the Workspaces window: the workspace comes back by the
+    // machine's command — or the machine's refusal is said.
+    restoreWorkspace(wsId) {
+      const ws = findWorkspace(deck.getSnapshot().workspaces, wsId);
+      if (!ws) return;
+      void orchestrator.restore({ id: ws.id, instance: ws.instance }).then(sayRefusal("Couldn't restore the workspace"));
     },
 
     dispose() {

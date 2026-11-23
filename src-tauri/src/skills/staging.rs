@@ -27,6 +27,8 @@ use std::fs;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
+use crate::forgotten::Gate;
+
 use super::bundled::BundledSkill;
 use super::fingerprint::{self, FINGERPRINT_COST, FINGERPRINT_FILE};
 use super::library::{sorted_dirs, SKILL_FILE};
@@ -230,6 +232,7 @@ impl ExcludedSource {
 
 pub(super) fn stage(
     locks: &SkillsLocks,
+    gate: &Gate,
     root: &Path,
     ws_id: &str,
     tier: &[BundledSkill],
@@ -242,6 +245,9 @@ pub(super) fn stage(
     // Overlapping same-ws stagings share the tmp dir and the swap — serialize.
     let lock = locks.for_ws(ws_id);
     let _staging = locks.acquire(&lock);
+    // Under the workspace's lock, the one its forgetting removes the views
+    // under: a forgotten workspace gets no staging built back.
+    gate.admit(&crate::forgotten::Source::from(ws_id)).map_err(io::Error::other)?;
 
     // The registry result arrives as a plain bool from the tauri glue —
     // staging logic stays feature-free (the one-directional boundary).
@@ -523,22 +529,26 @@ fn swap_dir(tmp: &Path, final_dir: &Path, trash: &Path) -> io::Result<()> {
 /// ([`SkillsLocks::holding`]) finishes first. The library is user content and
 /// is never touched.
 pub(super) fn prune_views(locks: &SkillsLocks, root: &Path, live: &[String]) -> io::Result<()> {
-    for dir in sorted_dirs(&staging_dir(root))? {
-        let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        let id = name
-            .strip_prefix(".tmp-")
-            .or_else(|| name.strip_prefix(".old-"))
-            .unwrap_or(&name);
-        if live.iter().any(|l| l == id) {
-            continue;
-        }
-        // Best-effort per dir: one stubborn/racing directory must not abort
-        // the sweep.
-        if let Err(e) = locks.holding(id, || fs::remove_dir_all(&dir)) {
-            log::warn!("skills: pruning {} failed: {e}", dir.display());
-        }
-    }
-    Ok(())
+    drop_views(locks, root, |id| !live.iter().any(|l| l == id))
+}
+
+/// One closed workspace's staging goes, its build-asides too.
+pub(super) fn forget_views(locks: &SkillsLocks, root: &Path, ws_id: &str) -> io::Result<()> {
+    drop_views(locks, root, |id| id == ws_id)
+}
+
+/// The stagings of every workspace that is `gone`, each under its
+/// workspace's lock — the one a stage builds under. One that will not go
+/// keeps none of the rest, and is said.
+fn drop_views(locks: &SkillsLocks, root: &Path, gone: impl Fn(&str) -> bool) -> io::Result<()> {
+    let leaving = sorted_dirs(&staging_dir(root))?.into_iter().filter(|dir| gone(&view_owner(dir)));
+    crate::fs_names::remove_each(leaving, |dir| locks.holding(&view_owner(dir), || fs::remove_dir_all(dir)))
+}
+
+/// The workspace a staging directory is of — its build-asides included.
+fn view_owner(dir: &Path) -> String {
+    let name = dir.file_name().unwrap_or_default().to_string_lossy();
+    name.strip_prefix(".tmp-").or_else(|| name.strip_prefix(".old-")).unwrap_or(&name).to_owned()
 }
 
 #[cfg(test)]
@@ -562,7 +572,24 @@ mod tests {
         claimed: bool,
         excluded: &[ExcludedSource],
     ) -> Option<SkillStagingDto> {
-        stage(&SkillsLocks::default(), root, ws_id, tier, claimed, excluded).unwrap().view
+        stage(&SkillsLocks::default(), &open(), root, ws_id, tier, claimed, excluded).unwrap().view
+    }
+
+    /// A commit gate with nothing forgotten.
+    fn open() -> Gate {
+        crate::forgotten::testing::Forget::default().gate()
+    }
+
+    #[test]
+    fn a_forgotten_workspace_gets_no_staging_built_back() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", &fm("r")).unwrap();
+        let forget = crate::forgotten::testing::Forget::default();
+        forget.forget("ws-1");
+        let refused = stage(&SkillsLocks::default(), &forget.gate(), &root, "ws-1", &[], false, &[]).unwrap_err();
+        assert!(refused.to_string().contains("closed"), "{refused}");
+        assert!(!staging_dir(&root).exists(), "nothing staged");
+        assert!(staged(&root, "ws-2", &[], false, &[]).is_some(), "another workspace stages on");
     }
 
     #[test]
@@ -668,8 +695,8 @@ mod tests {
             let a = std::sync::Arc::clone(&root);
             let b = std::sync::Arc::clone(&root);
             let (la, lb) = (locks.clone(), locks.clone());
-            let ta = std::thread::spawn(move || stage(&la, &a, "ws-1", &[], false, &[]).unwrap().view.unwrap());
-            let tb = std::thread::spawn(move || stage(&lb, &b, "ws-1", &[], false, &[]).unwrap().view.unwrap());
+            let ta = std::thread::spawn(move || stage(&la, &open(), &a, "ws-1", &[], false, &[]).unwrap().view.unwrap());
+            let tb = std::thread::spawn(move || stage(&lb, &open(), &b, "ws-1", &[], false, &[]).unwrap().view.unwrap());
             ta.join().unwrap();
             tb.join().unwrap();
             // Whatever the interleaving, the published staging is complete.
@@ -704,7 +731,7 @@ mod tests {
         save(&global(&root), "review", &fm("new")).unwrap();
         let restaged = locks.holding("ws-1", || {
             let (root, locks) = (root.clone(), locks.clone());
-            let restaged = on_a_thread(move || drop(stage(&locks, &root, "ws-1", &[], false, &[]).unwrap()));
+            let restaged = on_a_thread(move || drop(stage(&locks, &open(), &root, "ws-1", &[], false, &[]).unwrap()));
             assert!(restaged.recv_timeout(UNHELD).is_err(), "the stage ran while the view was held");
             assert_eq!(fs::read_to_string(&skill).unwrap(), fm("old"), "the view moved under its reader");
             restaged
@@ -805,6 +832,23 @@ mod tests {
         assert!(!root.join("staging").join(".tmp-ws-dead").exists());
         // The library — user content, dead workspace or not — is untouched.
         assert!(ws(&root, "ws-dead").join("gone").join(SKILL_FILE).exists());
+    }
+
+    #[test]
+    fn forgetting_a_workspace_drops_its_staging_and_its_build_asides_and_no_other() {
+        let (_tmp, root) = root();
+        save(&global(&root), "review", &fm("x")).unwrap();
+        save(&ws(&root, "ws-closed"), "kept", &fm("x")).unwrap();
+        staged(&root, "ws-closed", &[], false, &[]).unwrap();
+        staged(&root, "ws-other", &[], false, &[]).unwrap();
+        fs::create_dir_all(root.join("staging").join(".old-ws-closed")).unwrap();
+
+        forget_views(&SkillsLocks::default(), &root, "ws-closed").unwrap();
+
+        assert!(!root.join("staging").join("ws-closed").exists());
+        assert!(!root.join("staging").join(".old-ws-closed").exists());
+        assert!(root.join("staging").join("ws-other").exists());
+        assert!(ws(&root, "ws-closed").join("kept").join(SKILL_FILE).exists(), "authored skills stay");
     }
 
     // ---- the bundled tier's integration gates ----
@@ -978,7 +1022,7 @@ mod tests {
     // ---- what fits, and what is said ----
 
     fn answer(root: &Path) -> StagingAnswer {
-        stage(&SkillsLocks::default(), root, "ws-1", &[], false, &[]).unwrap()
+        stage(&SkillsLocks::default(), &open(), root, "ws-1", &[], false, &[]).unwrap()
     }
 
     fn trim(scope: &'static str, skill: &str, kind: TrimKind) -> StagingTrim {

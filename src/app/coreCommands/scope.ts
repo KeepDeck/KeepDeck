@@ -1,6 +1,7 @@
 import type { ArgSpec, CommandArgs, CommandSource } from "../../domain/commands";
 import { requiredStr } from "./args";
-import { findWorkspace } from "../../domain/deck";
+import { findWorkspace, findWorkspaceOfPane, teamOfPane } from "../../domain/deck";
+import type { WriteSource } from "../../domain/lifecycle";
 import type { CommandDeck } from ".";
 
 /**
@@ -63,4 +64,16 @@ export function libraryScopeOf(
     throw new Error('no workspace is open, so there is no workspace library — use scope "global"');
   }
   return { kind: "workspace", wsId: active.id };
+}
+
+/** Who a library write is from, as the store's gate reads it: the agent's
+ * pane, its team and workspace as the deck holds them — or null for a host
+ * or plugin caller, which writes as the person. */
+export function libraryWriterOf(source: CommandSource, deck: () => CommandDeck): WriteSource | null {
+  if (source.kind !== "external" || !source.pane) return null;
+  const paneId = source.pane.id;
+  const ws = findWorkspaceOfPane(deck().workspaces, paneId);
+  const pane = ws?.panes.find((candidate) => candidate.id === paneId);
+  const team = ws && pane ? teamOfPane(ws, pane) : undefined;
+  return { workspace: ws?.id ?? source.pane.workspaceId, team: team?.id ?? null, pane: paneId };
 }

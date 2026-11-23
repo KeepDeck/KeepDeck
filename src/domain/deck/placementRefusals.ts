@@ -1,32 +1,10 @@
 /**
- * Why a directory would not take a team or a pane, and what that is called
- * in words — one table, so the SAME refusal does not reach one door as "that
- * directory is already a team's" and another as "try again in a moment".
- *
- * The reasons are the product's, not a layer's: an agent driving `team.create`
- * and a person pressing "+ Team" must be told the same thing, which is why
- * the words live beside the model rather than in either surface.
+ * The words every door uses for the deck's own refusals of a team or a
+ * pane — one place, so an agent driving `team.add` and a person pressing
+ * "+ Member" are told the same thing. Why a place or a folder is held is the
+ * lifecycle machine's to say (its refusals are worded in
+ * presentation/lifecycleWords).
  */
-
-/** Why a placement was refused. Every `held` outcome carries one. */
-export type PlacementRefusal =
-  /** A team in ANOTHER workspace works there. A team never spans workspaces,
-   * so there is no membership here to take. */
-  | "abroad"
-  /** THEIR create is still out: a worktree is being made in the directory,
-   * so nothing is there to work in yet. Waiting is the answer. */
-  | "creating"
-  /** OURS cannot be: a team already works in the directory, and git makes no
-   * second worktree on one path. Waiting is NOT the answer — the two halves
-   * of that rule were one reason once, and the sentence lied on this half. */
-  | "occupied"
-  /** A confirmed close is still removing the directory. */
-  | "removing"
-  /** The team there is being disbanded: a pane landing on it now would be
-   * reaped by that close a moment later. */
-  | "ending"
-  /** The deck refused the write — an invariant, not a directory. */
-  | "refused";
 
 /** Max agents ONE TEAM holds at once — the message, not the cap; the cap
  * itself lives with the grid it constrains. */
@@ -42,21 +20,3 @@ export const WORKSPACE_GONE_MESSAGE = "That workspace was closed.";
 /** The error when a member is asked for while no agent is there to run it —
  * none installed or enabled. No agent is ever assumed in its place. */
 export const NO_AGENT_MESSAGE = "No agent available — install or enable an agent plugin.";
-
-/** What a refusal is called, said the same way whichever door asked. */
-export function placementRefusalMessage(why: PlacementRefusal): string {
-  switch (why) {
-    case "abroad":
-      return "That directory is another workspace's team's.";
-    case "creating":
-      return "A worktree is still being created there — try again in a moment.";
-    case "occupied":
-      return "A team already works in that directory — a worktree cannot be created in it.";
-    case "removing":
-      return "That directory is still being removed — try again in a moment.";
-    case "ending":
-      return "That team is being disbanded.";
-    case "refused":
-      return "The deck refused that placement.";
-  }
-}

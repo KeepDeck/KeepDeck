@@ -6,6 +6,7 @@
  * migration pending until activated. Plus the faults those tests need: a
  * coded refusal, and an answer lost on the way after the change landed.
  */
+import type { WriteSource } from "../../domain/lifecycle";
 import type { Applied } from "../../ipc/generated/tasks/Applied";
 import type { ChangeSet } from "../../ipc/generated/tasks/ChangeSet";
 import type { LegacyBoard } from "../../ipc/generated/tasks/LegacyBoard";
@@ -37,6 +38,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
   /** Called between the import and the read-back — a file changing mid-move. */
   let duringImport: (() => void) | null = null;
   const requests: ChangeSet[] = [];
+  /** Who each request was written for, in order. */
+  const writers: WriteSource[] = [];
   /** Copies of the boards, by when they were taken. */
   const backups = new Map<number, StoredBoard[]>();
   /** What the import stores, in place of what it was given — a database that loses a row. */
@@ -162,7 +165,8 @@ export function testDatabase(files: LegacyBoard[] = []) {
       if (fault !== null) throw fault;
       return answer;
     },
-    apply: async (change) => {
+    apply: async (source, change) => {
+      writers.push(source);
       requests.push(clone(change));
       const before = applied.get(change.requestId);
       if (before) return { kind: "alreadyApplied", revs: before.revs } as Applied;
@@ -221,6 +225,7 @@ export function testDatabase(files: LegacyBoard[] = []) {
     sources: () => sources,
     legacy: () => legacy,
     requests,
+    writers,
     setLegacy(next: LegacyBoard[]) {
       legacy = next;
     },

@@ -4,11 +4,7 @@ import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
 import type { PaneLifecycle } from "./paneLifecycle";
-import {
-  createVerifiedPaneReports,
-  type PaneReportEvent,
-  type VerifiedPaneReports,
-} from "./verifiedPaneReports";
+import { createVerifiedPaneReports, type ProcessOf, type VerifiedPaneReports } from "./verifiedPaneReports";
 
 /**
  * The bridge lane for session unbindings: the pane's agent left its
@@ -29,14 +25,13 @@ export function listenPaneUnbinds(
   deck: DeckStore,
   attribution: PaneAttribution,
   lifecycle: PaneLifecycle,
-  subscribe: (handler: (report: PaneReportEvent) => void) => Promise<() => void> =
-    onSessionUnbound,
+  processOf: ProcessOf,
 ): VerifiedPaneReports {
   const actions = createDeckActions(deck);
-  return createVerifiedPaneReports(deck, attribution, {
+  return createVerifiedPaneReports(attribution, {
     label: "session unbinding",
-    subscribe,
-    requireLiveProcess: true,
+    subscribe: onSessionUnbound,
+    processOf,
     apply(paneId) {
       const ws = findWorkspaceOfPane(deck.getSnapshot().workspaces, paneId);
       const pane = ws?.panes.find((candidate) => candidate.id === paneId);

@@ -18,14 +18,14 @@ import type { Workspace } from "../../domain/deck";
 import { createEnablePolicy } from "../enablePolicy";
 import type { EnableStatus } from "../enableStatus";
 import { unsavedBoardsText } from "./refusalText";
-import { registerTaskCommands } from "./taskCommands";
+import { registerTaskCommands, type TaskCommandDeps } from "./taskCommands";
 import { createTasksService, type TaskEvent, type TasksService, type TasksStorePort } from "./tasksService";
 
 export interface TasksFeatureDeps {
   registry: CommandRegistry;
   workspaces(): readonly Workspace[];
-  /** Hears every deck change — a team disbanded takes its tasks with it. */
-  subscribeWorkspaces(listener: () => void): () => void;
+  /** The lifecycle's fence for the agents' task commands. */
+  forgotten: TaskCommandDeps["forgotten"];
   /** The toggle: null until the settings load settles. */
   settings: { tasks(): boolean | null; subscribe(listener: () => void): () => void };
   /** The deck's MCP socket — the agents' door to the commands. */
@@ -51,6 +51,10 @@ export interface TasksFeature {
   /** A closing workspace's board: forgotten by the owner that holds it,
    * which drops it on disk once its writes are done. */
   forgetWorkspace(workspaceId: string): Promise<void>;
+  /** Hold every loaded board to its workspace's teams as they are now —
+   * the lifecycle's command once it has reconciled the deck. Nothing to do
+   * with no owner up: a board loads against the teams it finds. */
+  retainTeams(): void;
   /** Stops reconciling and takes the owner and the commands down. Does
    * NOT close the store: its life follows the setting and the process,
    * never the page (`beforeunload` fires on every dev reload). */
@@ -122,7 +126,7 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
     }
     const commandsWanted = service !== null && deps.socket.up();
     if (commandsWanted && unregister === null && service !== null) {
-      unregister = registerTaskCommands(deps.registry, { tasks: service, workspaces: deps.workspaces });
+      unregister = registerTaskCommands(deps.registry, { tasks: service, workspaces: deps.workspaces, forgotten: deps.forgotten });
     } else if (!commandsWanted && unregister !== null) {
       unregister();
       unregister = null;
@@ -180,9 +184,6 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
   );
 
   const stop = [
-    // Swept on every deck change, not at the disband: one rule for every
-    // way a team leaves, held by the owner that holds the boards.
-    deps.subscribeWorkspaces(() => service?.retainTeams()),
     deps.settings.subscribe(() => {
       // Only a change of THIS setting is a new generation: whatever the
       // store answered, it answered for the old value, and nothing is
@@ -216,6 +217,9 @@ export function createTasksFeature(deps: TasksFeatureDeps): TasksFeature {
       const owner = service ?? retiring;
       if (owner) await owner.forget(workspaceId);
       else await deps.store.drop({ workspaceId });
+    },
+    retainTeams() {
+      (service ?? retiring)?.retainTeams();
     },
     dispose() {
       if (disposed) return;

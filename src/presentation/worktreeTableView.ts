@@ -3,21 +3,16 @@
  * repository, from `git worktree list`, and who holds each: decided apart
  * from the markup.
  *
- * Who holds a folder is the deck's one answer (`claimsOf`, through
- * `teamOccupyingPath`), read over EVERY workspace, archived ones included:
- * an archive keeps its directories. Only a checkout nobody holds offers
- * Remove — a held one names its holder, and is closed with its team.
+ * Who holds a folder is the lifecycle machine's answer (`lifecycle_claims`),
+ * over EVERY workspace, archived ones included: an archive keeps its
+ * directories. The deck only names the team a claim points at. Only a
+ * checkout nobody holds offers Remove — a held one names its holder, and is
+ * closed with its team.
  */
-import {
-  baseName,
-  normalizePath,
-  sameDirectory,
-  teamOccupyingPath,
-  type RepoCheckout,
-  type UnheldRemoval,
-  type Workspace,
-} from "../domain/deck";
+import { baseName, findTeamInDeck, normalizePath, sameDirectory, type RepoCheckout, type Workspace } from "../domain/deck";
+import { claimingTeams, type Claim, type IntentOutcome } from "../domain/lifecycle";
 import { byCount, counted } from "./countWords";
+import { intentOutcomeText } from "./lifecycleWords";
 
 export const WORKTREE_WORDS = {
   title: "Worktrees",
@@ -35,6 +30,12 @@ export const WORKTREE_WORDS = {
   locked: "locked",
   free: "no team",
   root: "workspace folder",
+  creating: "being created",
+  removing: "being removed",
+  /** A session runs there, or a team this deck does not show holds it. */
+  inUse: "in use",
+  /** What holds it could not be read: not offered for removal. */
+  unknown: "unknown",
 } as const;
 
 export interface WorktreeRowView {
@@ -48,7 +49,8 @@ export interface WorktreeRowView {
   detached: boolean;
   /** Who holds it, in words, and what kind of holder that is. */
   holder: string;
-  holderKind: "root" | "team" | "free";
+  /** `busy`: a worktree is being made or removed there. */
+  holderKind: "root" | "team" | "busy" | "free";
   /** A team the person can open from the row: one of a workspace in use. */
   team: { wsId: string; teamId: string } | null;
   /** What is in it, in words, and what kind of state that is. */
@@ -81,9 +83,12 @@ export function worktreeFolder(path: string, repo: string): string {
 
 type Holder = Pick<WorktreeRowView, "holder" | "holderKind" | "team">;
 
-/** Who holds `path`: a workspace's own folder, a team (here, or in another
- * workspace — an archived one said so), or nobody. */
-function holderOf(path: string, workspace: Workspace, workspaces: readonly Workspace[]): Holder {
+/** Who holds `path`: a workspace's own folder, the machine's word on it — a
+ * worktree being made or removed there, a team (here, or in another
+ * workspace — an archived one said so), a session running there or a team
+ * this deck does not show — or nobody. Claims that could not be read
+ * (`null`) hold it too: «free» is the machine's answer, never a guess. */
+function holderOf(path: string, claims: readonly Claim[] | null, workspace: Workspace, workspaces: readonly Workspace[]): Holder {
   const roots = workspaces.filter((ws) => sameDirectory(ws.cwd, path));
   if (roots.length > 0) {
     const elsewhere = roots.filter((ws) => ws.id !== workspace.id).map((ws) => ws.name);
@@ -93,15 +98,24 @@ function holderOf(path: string, workspace: Workspace, workspaces: readonly Works
       team: null,
     };
   }
-  const holding = teamOccupyingPath(workspaces, path);
-  if (!holding) return { holder: WORKTREE_WORDS.free, holderKind: "free", team: null };
-  const here = holding.ws.id === workspace.id;
+  if (claims === null) return { holder: WORKTREE_WORDS.unknown, holderKind: "busy", team: null };
+  if (claims.some((claim) => claim.kind === "creation")) return { holder: WORKTREE_WORDS.creating, holderKind: "busy", team: null };
+  if (claims.some((claim) => claim.kind === "removal")) return { holder: WORKTREE_WORDS.removing, holderKind: "busy", team: null };
+  const holding = claimingTeams(claims)
+    .map((teamId) => findTeamInDeck(workspaces, teamId))
+    .find((found) => found !== undefined);
+  if (!holding) {
+    return claims.length === 0
+      ? { holder: WORKTREE_WORDS.free, holderKind: "free", team: null }
+      : { holder: WORKTREE_WORDS.inUse, holderKind: "busy", team: null };
+  }
+  const here = holding.workspace.id === workspace.id;
   return {
     holder: here
       ? holding.team.name
-      : `${holding.team.name} · ${holding.ws.name}${holding.ws.archived ? " (archived)" : ""}`,
+      : `${holding.team.name} · ${holding.workspace.name}${holding.workspace.archived ? " (archived)" : ""}`,
     holderKind: "team",
-    team: holding.ws.archived ? null : { wsId: holding.ws.id, teamId: holding.team.id },
+    team: holding.workspace.archived ? null : { wsId: holding.workspace.id, teamId: holding.team.id },
   };
 }
 
@@ -118,13 +132,16 @@ function stateOf(row: RepoCheckout): Pick<WorktreeRowView, "state" | "stateKind"
   return { state: row.locked ? `${state} · ${WORKTREE_WORDS.locked}` : state, stateKind };
 }
 
+/** The table of the listed checkouts, `claimsOf` giving the machine's
+ * claims on each — `null` where they could not be read. */
 export function worktreeTableView(
   listed: readonly RepoCheckout[],
+  claimsOf: (path: string) => readonly Claim[] | null,
   workspace: Workspace,
   workspaces: readonly Workspace[],
 ): WorktreeTableView {
   const rows = listed.map((row): WorktreeRowView => {
-      const holder = holderOf(row.path, workspace, workspaces);
+      const holder = holderOf(row.path, claimsOf(row.path), workspace, workspaces);
       return {
         path: row.path,
         folder: worktreeFolder(row.path, workspace.cwd),
@@ -153,19 +170,16 @@ export function keptHeadName(workspace: Workspace, path: string, now: number): s
   return `archive/${refSafe(workspace.name)}/${refSafe(baseName(path))}-${day}`;
 }
 
-/** What a removal did, said after it. */
-export function unheldRemovalWords(outcome: UnheldRemoval): string {
-  const kept = "keptAs" in outcome && outcome.keptAs ? ` Its commit is kept as ${outcome.keptAs.replace(/^refs\/tags\//, "")}.` : "";
-  switch (outcome.kind) {
-    case "removed":
-      return `Removed.${kept}`;
-    case "held":
-      return "A team works there now, so it was left as it is.";
-    case "not-kept":
-      return `Its commit could not be kept (${outcome.reason}), so nothing was removed.`;
-    case "failed":
-      return `Git refused: ${outcome.reason}${kept}`;
+/** What asking for a removal did, said after it: under way — the commit
+ * kept first under the tag asked for, if one was — or the machine's
+ * refusal. How the removal itself ends is the lifecycle's notice. */
+export function unheldRemovalWords(outcome: IntentOutcome, keptAs: string | undefined): string {
+  if (outcome.kind !== "accepted") {
+    return outcome.kind === "refused" && outcome.refusal.kind === "busy"
+      ? "Something holds it now, so it was left as it is."
+      : (intentOutcomeText(outcome) ?? "");
   }
+  return keptAs ? `Removing it. Its commit is kept as ${keptAs}.` : "Removing it.";
 }
 
 export interface WorktreeRemovalConfirm {

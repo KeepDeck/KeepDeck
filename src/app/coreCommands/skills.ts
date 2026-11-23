@@ -3,7 +3,7 @@ import { skillDraftOf } from "../../domain/skills";
 import type { SkillsLibrary } from "../skillsLibrary";
 import type { CommandDeck } from ".";
 import { requiredStr, text } from "./args";
-import { SCOPE, libraryScopeOf } from "./scope";
+import { SCOPE, libraryScopeOf, libraryWriterOf } from "./scope";
 
 /**
  * The skills library as commands — the CRUD half of the deck's control surface
@@ -59,6 +59,8 @@ export function registerSkillsCommands(
   // exposes (see `./scope`).
   const scope = (args: CommandArgs, source: CommandSource) =>
     libraryScopeOf(args, source, deps.deck);
+  // Who writes — the rule shared with the MCP library (see `./scope`).
+  const writer = (source: CommandSource) => libraryWriterOf(source, deps.deck);
 
   return [
     registry.register({
@@ -99,14 +101,18 @@ export function registerSkillsCommands(
       args: [SCOPE, NAME, DESCRIPTION, BODY],
       run: async (args, source) => {
         const name = requiredStr(args, "name");
-        await library.create(scope(args, source), {
-          name,
-          description: requiredStr(args, "description"),
-          // Verbatim: the body is content, and trimming it would edit what the
-          // caller wrote.
-          body: text(args, "body"),
-          extraFrontmatter: [],
-        });
+        await library.create(
+          scope(args, source),
+          {
+            name,
+            description: requiredStr(args, "description"),
+            // Verbatim: the body is content, and trimming it would edit what
+            // the caller wrote.
+            body: text(args, "body"),
+            extraFrontmatter: [],
+          },
+          writer(source),
+        );
         return { name };
       },
     }),
@@ -119,14 +125,18 @@ export function registerSkillsCommands(
         const name = requiredStr(args, "name");
         // No read here: the library refuses an update of a skill that is not
         // there, and carries over the stored file's other frontmatter itself.
-        await library.update(scope(args, source), {
-          name,
-          description: requiredStr(args, "description"),
-          // Verbatim: the body is content, and trimming it would edit what the
-          // caller wrote.
-          body: text(args, "body"),
-          extraFrontmatter: [],
-        });
+        await library.update(
+          scope(args, source),
+          {
+            name,
+            description: requiredStr(args, "description"),
+            // Verbatim: the body is content, and trimming it would edit what
+            // the caller wrote.
+            body: text(args, "body"),
+            extraFrontmatter: [],
+          },
+          writer(source),
+        );
         return { name };
       },
     }),
@@ -146,7 +156,7 @@ export function registerSkillsCommands(
       ],
       run: async (args, source) => {
         const to = requiredStr(args, "to");
-        await library.rename(scope(args, source), requiredStr(args, "from"), to);
+        await library.rename(scope(args, source), requiredStr(args, "from"), to, writer(source));
         return { name: to };
       },
     }),
@@ -157,7 +167,7 @@ export function registerSkillsCommands(
       args: [SCOPE, NAME],
       run: async (args, source) => {
         const name = requiredStr(args, "name");
-        await library.remove(scope(args, source), name);
+        await library.remove(scope(args, source), name, writer(source));
         return { name };
       },
     }),

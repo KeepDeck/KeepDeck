@@ -14,6 +14,10 @@ import { installResizeObserver, pinListViewport } from "@keepdeck/ui-kit/virtual
 import { present } from "@keepdeck/plugin-api/testing";
 import { instanceOf } from "../../testing/values.test-support";
 
+// A folder's presence, as these rows give it to the view. That the app's
+// own probe answers it — a removed folder gone, a blank one never asked —
+// and that the journal says which session is in a pane and where each ran,
+// is SessionsBrowser.host.test.ts's.
 const worktreeIpc = vi.hoisted(() => ({
   probeWorktree: vi.fn((_path: string) =>
     Promise.resolve({ exists: true, isWorktree: false, branch: null }),

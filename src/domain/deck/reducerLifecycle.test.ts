@@ -341,11 +341,11 @@ describe("deckReducer restore actions ([F7])", () => {
       paneIds: ["pane-2"],
       at: "2026-07-25T10:00:00.000Z",
     });
-    const archived = deckReducer(suspended, { type: "archiveWorkspace", id: "ws-1", at: "2026-07-25T11:00:00.000Z" });
+    const archived = deckReducer(suspended, { type: "archiveWorkspace", id: "ws-1", at: "2026-07-25T11:00:00.000Z", panes: ["pane-2"] });
     expect(deckReducer(archived, { type: "requestPanesWake", wsId: "ws-1", paneIds: ["pane-2"] })).toBe(archived);
   });
 
-  it("returns failed manual wakes to their original idle state", () => {
+  it("returns failed manual wakes to their original idle state — a suspension by the machine's own Suspend", () => {
     const suspended = deckReducer(
       state({ workspaces: [idleWs], activeId: "ws-1" }),
       {
@@ -360,17 +360,21 @@ describe("deckReducer restore actions ([F7])", () => {
       wsId: "ws-1",
       paneIds: ["pane-2"],
     });
-    const failed = deckReducer(waking, {
-      type: "failPaneWake",
+    // A wake from a suspension is not the page's to put back…
+    expect(deckReducer(waking, { type: "failPaneWake", wsId: "ws-1", paneId: "pane-2" })).toBe(waking);
+    // …the machine's Suspend does, to the suspension's own date.
+    const putBack = deckReducer(waking, {
+      type: "suspendPanes",
       wsId: "ws-1",
-      paneId: "pane-2",
+      paneIds: ["pane-2"],
+      at: "2026-07-25T12:00:00.000Z",
     });
-    expect(failed.workspaces[0].panes[1].idle).toEqual({
+    expect(putBack.workspaces[0].panes[1].idle).toEqual({
       reason: "suspended",
       at: "2026-07-25T10:00:00.000Z",
     });
 
-    const asked = deckReducer(failed, {
+    const asked = deckReducer(putBack, {
       type: "requestPanesWake",
       wsId: "ws-1",
       paneIds: ["pane-1"],

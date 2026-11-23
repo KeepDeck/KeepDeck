@@ -33,6 +33,7 @@ import {
   type Team,
   type Workspace,
 } from "../../domain/deck";
+import type { WriteSource } from "../../domain/lifecycle";
 import { senderOf } from "../../domain/mail";
 import {
   TASK_FIELDS,
@@ -76,10 +77,17 @@ export interface TaskCommandDeps {
   tasks: TasksService;
   /** The deck as it stands, as workspaces and nothing else. */
   workspaces(): readonly Workspace[];
+  /** Whether the lifecycle has forgotten what a write is for — a close of
+   * its pane, team or workspace under way. */
+  forgotten(source: WriteSource): boolean;
 }
 
 const NOT_AN_AGENT =
   "only an agent pane can use the task board — this connection is not attached to one";
+
+/** A call from a pane the lifecycle is closing: the board takes nothing
+ * from it, so nothing it writes outlives the close. */
+const BEING_CLOSED = "this agent is being closed, so the board takes nothing from it";
 
 /** Who is calling, placed on the deck: its workspace, its team and the
  * actor the domain judges it as. */
@@ -97,6 +105,7 @@ function caller(source: CommandSource, deps: TaskCommandDeps): Caller {
   const pane = workspace?.panes.find((candidate) => candidate.id === sender.paneId);
   if (!workspace || !pane) throw new Error(NOT_AN_AGENT);
   const team = teamOfPane(workspace, pane);
+  if (deps.forgotten({ workspace: workspace.id, team: team?.id ?? null, pane: pane.id })) throw new Error(BEING_CLOSED);
   const role = pane.team?.role;
   return { workspace, team, role, actor: agentActor(role, team?.id) };
 }

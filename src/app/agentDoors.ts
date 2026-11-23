@@ -2,50 +2,28 @@
  * What confirming the agent dialog DOES — the "+ Team" and "Add member"
  * doors, as one owner.
  *
- * The dialog collects; this decides. A new team is made and entered. A
- * member is landed on its team, or its recorded session is resumed, or
- * forked into the team's directory. Every refusal comes back as WORDS the
- * door only has to show, and a directory another team already works in
- * comes back as a QUESTION carrying the create to re-issue once the person
- * answers — so the door holds no retry of its own.
- *
- * All of this used to live inside the dialog's hook: a use case, with its
- * re-issue and four refusal mappings, in the presentation layer, where a
- * view's test could not reach it and a second surface would have copied it.
- * The hook now holds what a hook should — whether the dialog is open and
- * whether a question is standing — and asks here.
+ * The dialog collects; this asks. A new team is made and entered. A member
+ * is seated on its team, or its recorded session is resumed, or forked into
+ * the team's directory. Each is one intent to the lifecycle machine, which
+ * makes the ids; every refusal comes back as WORDS the door only has to
+ * show, and a directory another team already works in comes back as a
+ * QUESTION carrying the create to issue once the person answers — so the
+ * door holds no retry of its own.
  */
 import type { AgentDialogResult, AgentDialogTarget } from "../domain/agents";
 import type { SessionHandle } from "../domain/journal";
-import {
-  findTeam,
-  findWorkspaceByRef,
-  NO_AGENT_MESSAGE,
-  paneFromAgentRequest,
-  placementFromAgentRequest,
-  placementRefusalMessage,
-  WORKSPACE_GONE_MESSAGE,
-  type PaneRequest,
-  type Workspace,
-} from "../domain/deck";
+import { findTeam, findWorkspaceByRef, NO_AGENT_MESSAGE, WORKSPACE_GONE_MESSAGE, type DirectoryHolder, type Workspace } from "../domain/deck";
+import { agentDraftFromRequest, siteFromAgentRequest, type IntentOutcome, type Site } from "../domain/lifecycle";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
-
-import {
-  createRefusalMessage,
-  type AgentOrchestrator,
-  type DirectoryHolder,
-} from "./agentOrchestrator";
-import { errorMessage } from "@keepdeck/plugin-api";
+import { intentOutcomeText } from "../presentation/lifecycleWords";
+import type { AgentOrchestrator } from "./agentOrchestrator";
+import { teamBirthBlock } from "./teamBirth";
 
 /** A confirmed dialog: what it was opened for, and what the person chose. */
 export interface DoorRequest {
   /** The exact workspace lifetime the dialog opened for — a replacement
    * under the same public id is not it. */
   workspace: WorkspaceRef;
-  /** The pane id minted when the dialog opened. */
-  agentId: string;
-  /** The agent's index in the workspace, for the location's naming. */
-  index: number;
   target: AgentDialogTarget;
   result: AgentDialogResult;
 }
@@ -59,8 +37,8 @@ export type DoorOutcome =
   | { kind: "refused"; door: DoorName; message: string }
   /** Not a refusal: the directory is another team's, and the person has
    * not been asked whether a second team may work there. `anyway` is the
-   * SAME create, re-issued with the answer. */
-  | { kind: "ask-shared"; holder: DirectoryHolder; path: string; anyway(): DoorOutcome };
+   * SAME create, issued once the person says yes. */
+  | { kind: "ask-shared"; holder: DirectoryHolder; path: string; anyway(): Promise<DoorOutcome> };
 
 /** A recorded session continued onto a team without the dialog — the
  * empty team's sessions list, where the role is the one thing asked. */
@@ -77,67 +55,40 @@ export interface AgentDoors {
 }
 
 export interface AgentDoorsDeps {
-  orchestrator: Pick<
-    AgentOrchestrator,
-    "createTeam" | "createPane" | "resumeSession" | "forkSession"
-  >;
+  orchestrator: Pick<AgentOrchestrator, "createTeam" | "createPane" | "resumeSession" | "forkSession">;
   deck: {
     workspaces(): Workspace[];
     /** Enter the team just made — where the person's attention is. */
     openTeam(workspaceId: string, teamId: string): void;
   };
+  /** The teams the lifecycle machine says work in a folder. */
+  teamsIn(path: string): Promise<string[]>;
 }
 
 const DONE: DoorOutcome = { kind: "done" };
-const refused = (door: DoorName, message: string): DoorOutcome => ({
-  kind: "refused",
-  door,
-  message,
-});
+const refused = (door: DoorName, message: string): DoorOutcome => ({ kind: "refused", door, message });
+
+/** A door's answer to what the machine said: done, or its refusal's words. */
+function answered(door: DoorName, outcome: IntentOutcome): DoorOutcome {
+  const words = intentOutcomeText(outcome);
+  return words === null ? DONE : refused(door, words);
+}
 
 export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
   const { orchestrator, deck } = deps;
 
   /** The "+ Team" door: a team and nothing else — no agent lands here. */
-  function makeTeam(
-    workspace: WorkspaceRef,
-    name: string,
-    placement: PaneRequest["placement"],
-  ): DoorOutcome {
-    // Issued twice at most: once as asked, and once more carrying the
-    // answer to "another team works here — create anyway?".
-    const make = (shared?: true): DoorOutcome => {
-      const made = orchestrator.createTeam({
-        workspace,
-        name,
-        placement,
-        ...(shared && { shared }),
-      });
-      switch (made.kind) {
-        case "created":
-          deck.openTeam(workspace.id, made.teamId);
-          return DONE;
-        case "gone":
-          return refused("team", WORKSPACE_GONE_MESSAGE);
-        case "shared":
-          // Only the create knows WHOSE the directory is, and the answer
-          // is a decision, not a correction to make in a field.
-          return {
-            kind: "ask-shared",
-            holder: made.holder,
-            path: made.directory,
-            anyway: () => make(true),
-          };
-        case "held":
-          return refused("team", placementRefusalMessage(made.why));
-        case "taken":
-          return refused("team", `A team called “${name.trim()}” already exists here.`);
-        default: {
-          const unhandled: never = made;
-          throw new Error(`unhandled team outcome: ${JSON.stringify(unhandled)}`);
-        }
-      }
+  async function makeTeam(ws: Workspace, workspace: WorkspaceRef, name: string, site: Site): Promise<DoorOutcome> {
+    const make = async (): Promise<DoorOutcome> => {
+      const made = await orchestrator.createTeam({ workspace, name, site });
+      if (made.kind === "accepted" && made.minted.team !== null) deck.openTeam(workspace.id, made.minted.team);
+      return answered("team", made);
     };
+    const block = await teamBirthBlock({ ws, workspaces: deck.workspaces(), name, site, teamsIn: deps.teamsIn });
+    if (block?.kind === "taken") return refused("team", `A team called “${block.name}” already exists here.`);
+    // Only the machine knows WHOSE the directory is, and the answer is a
+    // decision, not a correction to make in a field.
+    if (block?.kind === "shared") return { kind: "ask-shared", holder: block.holder, path: block.path, anyway: make };
     return make();
   }
 
@@ -149,24 +100,14 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
     workspace: WorkspaceRef,
     team: { teamId: string; cwd: string | null },
     session: ContinueRequest["session"],
-    opts: { name?: string; yolo?: boolean; role?: string },
+    opts: { name?: string; yolo?: boolean; role: string },
   ): Promise<DoorOutcome> {
     const landing = { ...opts, team: team.teamId };
     if (session.mode === "resume") {
-      try {
-        await orchestrator.resumeSession(workspace.id, session.handle, landing);
-        return DONE;
-      } catch (error: unknown) {
-        return refused("resume", errorMessage(error));
-      }
+      return answered("resume", await orchestrator.resumeSession(workspace.id, session.handle, landing));
     }
     if (team.cwd === null) return refused("fork", "the team's directory is not there yet");
-    try {
-      await orchestrator.forkSession(workspace.id, session.handle, { kind: "dir", cwd: team.cwd }, landing);
-      return DONE;
-    } catch (error: unknown) {
-      return refused("fork", errorMessage(error));
-    }
+    return answered("fork", await orchestrator.forkSession(workspace.id, session.handle, { kind: "dir", cwd: team.cwd }, landing));
   }
 
   return {
@@ -178,22 +119,20 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
       return continueOnto(workspace, { teamId, cwd }, session, { role });
     },
 
-    async confirm(request) {
-      const { workspace, target, result } = request;
+    async confirm({ workspace, target, result }) {
       const ws = findWorkspaceByRef(deck.workspaces(), workspace);
       if (!ws) {
         // Said rather than returned quietly: the dialog has already closed,
         // so silence is an agent the person asked for that never appears.
         return refused(target.kind === "new-team" ? "team" : "member", WORKSPACE_GONE_MESSAGE);
       }
-      // The request's directory, as the domain reads the dialog's location:
-      // the root, an existing directory, or a create heading for one.
       if (target.kind === "new-team") {
-        const placement = placementFromAgentRequest(result, ws, request.index);
-        return makeTeam(workspace, result.teamName ?? target.suggestedName, placement);
+        return makeTeam(ws, workspace, result.teamName ?? target.suggestedName, siteFromAgentRequest(result));
       }
       const { agentType } = result;
       if (agentType === null) return refused("member", NO_AGENT_MESSAGE);
+      // An absent role is the role rule's to refuse, in its own words.
+      const role = result.role ?? "";
 
       // A member runs where its team runs: a resume is offered only for a
       // session recorded in the team's directory, and a fork copies the
@@ -201,21 +140,20 @@ export function createAgentDoors(deps: AgentDoorsDeps): AgentDoors {
       const { session } = result;
       if (session) {
         return continueOnto(workspace, target, session, {
-          name: result.name.trim() || undefined,
+          name: result.name,
           yolo: result.yolo,
-          ...(result.role !== undefined && { role: result.role }),
+          role,
         });
       }
-      // A fresh member: the pane the request describes, joining its team by
-      // id — the directory is the team's, not the dialog's to choose.
-      const asked = paneFromAgentRequest(request.agentId, agentType, result, ws, request.index);
-      const landed = orchestrator.createPane({
+      // A fresh member, joining its team by id — the directory is the
+      // team's, not the dialog's to choose.
+      const seated = await orchestrator.createPane({
         workspace,
-        pane: asked.pane,
+        pane: agentDraftFromRequest(agentType, result),
         team: target.teamId,
-        ...(result.role !== undefined && { role: result.role }),
+        role,
       });
-      return landed.kind === "created" ? DONE : refused("member", createRefusalMessage(landed));
+      return answered("member", seated);
     },
   };
 }

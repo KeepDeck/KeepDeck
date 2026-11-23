@@ -140,14 +140,14 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
   });
 
   it("stays SILENT when a plan could not be prepared at all", async () => {
-    // No fork hook: nothing is cached, so there is nothing to announce and a
-    // listener must not be woken to find the cache unchanged.
-    expect(
-      await buildForkSpec(plugins, "claude", facts, ctx, {
+    // No fork hook: the build refuses, nothing is cached, so there is nothing
+    // to announce and a listener must not be woken to find the cache unchanged.
+    await expect(
+      buildForkSpec(plugins, "claude", facts, ctx, {
         sessionId: "s-1",
         sourceCwd: "/old",
       }),
-    ).toBe(false);
+    ).rejects.toThrow(/no fork\.plan hook/);
     expect(heard).toBe(0);
   });
 

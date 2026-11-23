@@ -7,6 +7,8 @@ description = "PTY-backed session process layer for KeepDeck."
 [dependencies]
 portable-pty = "0.9"
 keepdeck-env = { path = "../keepdeck-env" }
+# The sessions machine's rules (src/sessions.rs) are pure update/work on it.
+keepdeck-fsm = { path = "../keepdeck-fsm" }
 
 # SIGTERM→SIGKILL escalation on kill (Unix only).
 [target.'cfg(unix)'.dependencies]

@@ -5,6 +5,21 @@
  * (`SuspendOutcome`); the words are here.
  */
 import type { SuspendOutcome, TeamSuspendSkip } from "../domain/deck";
+import type { SuspendResult } from "../domain/lifecycle";
+import { intentOutcomeText } from "./lifecycleWords";
+
+/** What a Suspend that did not go ahead says — the deck's own reason, or
+ * the machine's — or null when the pane is being suspended. */
+export function suspendResultText(result: SuspendResult, label: string): string | null {
+  switch (result.kind) {
+    case "suspending":
+      return null;
+    case "blocked":
+      return suspendRefusalText(result.why, label);
+    default:
+      return intentOutcomeText(result);
+  }
+}
 
 /** One sentence per refusal, so the hotkey, the command and any later surface
  * say the same thing about the same state. */

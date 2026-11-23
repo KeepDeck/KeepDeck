@@ -2,7 +2,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { RepoCheckout, UnheldRemoval, UnheldRemovalRequest, Workspace } from "../../domain/deck";
+import type { RepoCheckout, UnheldRemovalRequest, Workspace } from "../../domain/deck";
+import type { Claim, IntentOutcome } from "../../domain/lifecycle";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { WorktreesSection, type WorktreesSectionProps } from "./WorktreesSection";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -25,7 +26,9 @@ const ROWS: RepoCheckout[] = [
 describe("WorktreesSection", () => {
   let root: Root;
   const listWorktrees = vi.fn<(repo: string) => Promise<RepoCheckout[]>>();
-  const onRemove = vi.fn<(request: UnheldRemovalRequest) => Promise<UnheldRemoval>>();
+  // The machine's word: team t1 works in /wt/api, nobody in the rest.
+  const claimsOn = vi.fn(async (path: string): Promise<Claim[]> => (path === "/wt/api" ? [{ kind: "team", team: "t1" }] : []));
+  const onRemove = vi.fn<(request: UnheldRemovalRequest) => Promise<IntentOutcome>>();
   const onNewTeam = vi.fn();
   const onOpenTeam = vi.fn();
   const render = async (over: Partial<WorktreesSectionProps> = {}) =>
@@ -35,6 +38,7 @@ describe("WorktreesSection", () => {
           workspace: WEB,
           workspaces: [WEB],
           listWorktrees,
+          claimsOn,
           onRemove,
           onNewTeam,
           onOpenTeam,
@@ -52,7 +56,7 @@ describe("WorktreesSection", () => {
 
   beforeEach(() => {
     listWorktrees.mockReset().mockResolvedValue(ROWS);
-    onRemove.mockReset().mockResolvedValue({ kind: "removed" });
+    onRemove.mockReset().mockResolvedValue({ kind: "accepted", op: 1, minted: { workspace: null, team: null, panes: [] } });
     onNewTeam.mockReset();
     document.body.innerHTML = "";
     root = createRoot(document.body.appendChild(document.createElement("div")));
@@ -101,8 +105,9 @@ describe("WorktreesSection", () => {
     expect(document.body.textContent).toContain("Its 2 changed entries are lost with the folder");
     listWorktrees.mockResolvedValue(ROWS.slice(0, 2));
     await act(async () => button("Remove and lose the changes").click());
-    expect(onRemove).toHaveBeenCalledWith({ repo: "/repo", path: "/wt/orphan", discardDirty: true });
-    expect(document.querySelector("[role='status']")?.textContent).toBe("Removed.");
+    // The confirm named the changes: confirming it is the leave to lose them.
+    expect(onRemove).toHaveBeenCalledWith({ path: "/wt/orphan", discardDirty: true });
+    expect(document.querySelector("[role='status']")?.textContent).toBe("Removing it.");
     expect(listWorktrees).toHaveBeenCalledTimes(2);
     expect(cells()).toHaveLength(2);
   });

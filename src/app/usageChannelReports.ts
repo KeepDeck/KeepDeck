@@ -10,15 +10,15 @@ export interface UsageReportRoutes {
 }
 
 /** Bridge and tail reports into the usage store through the shared
- * verification — membership and token only: usage describes the session and
+ * verification — no live process asked for: usage describes the session and
  * account, which outlive the process, so a tail's final record after a crash
  * still counts. The pane's live state lands in the store; the calls it made
  * go to the call book, and the stores it names to the tail. */
 export function createUsageReportsLane(
-  { deck, usage, attribution }: UsageLaneContext,
+  { usage, attribution }: UsageLaneContext,
   routes: UsageReportRoutes,
 ): UsageLane {
-  return createVerifiedPaneReports(deck, attribution, {
+  return createVerifiedPaneReports(attribution, {
     label: "usage report",
     subscribe: onUsageReport,
     apply: (paneId, payload) => {

@@ -1,11 +1,8 @@
-import {
-  findWorkspace,
-  paneDisplayTitle,
-  type Workspace,
-} from "../domain/deck";
+import type { Workspace } from "../domain/deck";
 import type { AgentInfo } from "../domain/agents";
-import type { ResumeRequest } from "../domain/deck";
-import { resumeRefusalText } from "../presentation/resumeWords";
+import type { MemberAnswer, ResumeOutcome } from "../domain/lifecycle";
+import { resumeOutcomeText } from "../presentation/resumeWords";
+import { membersNotTakenText, paneLabelsIn, UNKNOWN_PANE } from "../presentation/memberAnswersView";
 
 /**
  * The one sentence each refusal of "bring this pane back" gets.
@@ -27,21 +24,26 @@ import { resumeRefusalText } from "../presentation/resumeWords";
  * it inline is deriving a domain label mid-render, and it must read the deck
  * BEFORE the request mutates it, which is easy to get wrong in JSX.
  */
-export function askForPaneBack(
-  resume: (wsId: string, paneId: string) => ResumeRequest,
+export async function askForPaneBack(
+  resume: (wsId: string, paneId: string) => Promise<ResumeOutcome>,
   workspaces: Workspace[],
   agents: AgentInfo[],
   wsId: string,
   paneId: string,
-): string | null {
-  // The label comes from the deck as it stands NOW — the request below can
-  // change it, and the sentence is about the pane the user clicked.
-  const ws = findWorkspace(workspaces, wsId);
-  const index = ws?.panes.findIndex((pane) => pane.id === paneId) ?? -1;
-  const label =
-    ws && index >= 0
-      ? paneDisplayTitle(ws.panes[index], index, agents)
-      : "That agent";
-  const outcome = resume(wsId, paneId);
-  return outcome === "resuming" ? null : resumeRefusalText(outcome, label);
+): Promise<string | null> {
+  const label = paneLabelsIn(workspaces, agents, wsId).get(paneId) ?? UNKNOWN_PANE;
+  return resumeOutcomeText(await resume(wsId, paneId), label);
+}
+
+/** Ask a team's members back and answer with what to show: a sentence for
+ * each member that is not coming — or null when all of them are. */
+export async function askForTeamBack(
+  resumeTeam: (wsId: string, teamId: string) => Promise<MemberAnswer<ResumeOutcome>[]>,
+  workspaces: Workspace[],
+  agents: AgentInfo[],
+  wsId: string,
+  teamId: string,
+): Promise<string | null> {
+  const labels = paneLabelsIn(workspaces, agents, wsId);
+  return membersNotTakenText(await resumeTeam(wsId, teamId), labels, resumeOutcomeText);
 }

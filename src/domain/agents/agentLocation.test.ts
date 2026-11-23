@@ -121,11 +121,11 @@ describe("what the deck says outranks the probe", () => {
     expect(classifyLocation("/wt/a", null, "worked-in")).toBe("existing");
   });
 
-  it("a directory a create is heading for is occupied for everyone", () => {
-    expect(classifyLocation("/wt/a", null, "being-created")).toBe("occupied");
-    expect(classifyLocation("/wt/a", probe({ exists: false }), "being-created")).toBe("occupied");
+  it("a directory a create or a removal holds is occupied for everyone", () => {
+    expect(classifyLocation("/wt/a", null, "held")).toBe("occupied");
+    expect(classifyLocation("/wt/a", probe({ exists: false }), "held")).toBe("occupied");
     expect(
-      classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), "being-created"),
+      classifyLocation("/wt/a", probe({ exists: true, isWorktree: true }), "held"),
     ).toBe("occupied");
   });
 
@@ -142,7 +142,7 @@ describe("what the deck says outranks the probe", () => {
 
   it("an empty path stays main — the workspace root is a directory like any other", () => {
     expect(classifyLocation("", null, "worked-in")).toBe("main");
-    expect(classifyLocation("", null, "being-created")).toBe("main");
+    expect(classifyLocation("", null, "held")).toBe("main");
   });
 
   it("an occupied path can never be created", () => {

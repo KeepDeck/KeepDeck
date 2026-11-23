@@ -98,22 +98,29 @@ fn spawn_watcher(
 /// pool — a deck with N worktree panes registers N watches on boot, and those
 /// serial subprocesses must not stall the main IPC thread.
 #[tauri::command(async)]
-pub fn worktree_watch(
-    app: AppHandle,
+pub fn worktree_watch<R: tauri::Runtime>(
+    app: AppHandle<R>,
     watchers: State<HeadWatchers>,
     path: String,
 ) -> Result<(), String> {
-    let gitdir = head::git_dir(Path::new(&path)).map_err(|e| e.to_string())?;
+    watch(&watchers, path, move |payload| {
+        let _ = app.emit(WORKTREE_HEAD_EVENT, &payload);
+    })
+}
 
-    if let Some(event) = head_event(&path, &gitdir) {
-        let _ = app.emit(WORKTREE_HEAD_EVENT, &event);
+/// [`worktree_watch`]'s body. A folder that is gone — its worktree removed
+/// while a pane still showed it — has no HEAD to watch: whatever watched it
+/// stops, and that is no error.
+fn watch(watchers: &HeadWatchers, path: String, deliver: impl Fn(HeadEvent) + Send + 'static) -> Result<(), String> {
+    if !Path::new(&path).exists() {
+        watchers.0.remove(&path);
+        return Ok(());
     }
-
-    let emitter = app.clone();
-    let watcher = spawn_watcher(path.clone(), gitdir, move |payload| {
-        let _ = emitter.emit(WORKTREE_HEAD_EVENT, &payload);
-    })?;
-
+    let gitdir = head::git_dir(Path::new(&path)).map_err(|e| e.to_string())?;
+    if let Some(event) = head_event(&path, &gitdir) {
+        deliver(event);
+    }
+    let watcher = spawn_watcher(path.clone(), gitdir, deliver)?;
     watchers.0.insert(path, watcher);
     Ok(())
 }
@@ -229,5 +236,24 @@ mod tests {
         assert_eq!(last.branch.as_deref(), Some("kd/live/1"));
 
         fs::remove_dir_all(&repo).ok();
+    }
+
+    #[test]
+    fn a_folder_that_is_gone_is_watched_no_more_and_that_is_no_error() {
+        let repo = init_repo();
+        let path = repo.to_string_lossy().into_owned();
+        let watchers = HeadWatchers::default();
+        let (tx, rx) = mpsc::channel::<HeadEvent>();
+        watch(&watchers, path.clone(), move |e| {
+            let _ = tx.send(e);
+        })
+        .expect("watched");
+        assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap().branch.as_deref(), Some("main"), "its state at once");
+        assert!(watchers.0.with(&path, |_| ()).is_some());
+
+        fs::remove_dir_all(&repo).unwrap();
+        watch(&watchers, path.clone(), |_| panic!("nothing to say of a folder that is gone")).expect("no error");
+        assert!(watchers.0.with(&path, |_| ()).is_none(), "the old watcher stopped");
+        assert!(watch(&watchers, unique_dir("plain").to_string_lossy().into_owned(), |_| {}).is_err(), "a folder that is there and no repo still says so");
     }
 }

@@ -19,14 +19,14 @@ pub enum OpenError {
 }
 
 #[tauri::command]
-pub fn open_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+pub fn open_url<R: tauri::Runtime>(app: tauri::AppHandle<R>, url: String) -> Result<(), String> {
     app.opener()
         .open_url(url, None::<&str>)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn open_path(app: tauri::AppHandle, path: String) -> Result<(), OpenError> {
+pub fn open_path<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String) -> Result<(), OpenError> {
     let path = ensure_exists(expand_tilde(path))?;
     app.opener()
         .open_path(path, None::<&str>)
@@ -50,8 +50,8 @@ fn ensure_exists(path: String) -> Result<String, OpenError> {
 /// OS resolves it (macOS: the `open -a` argument), so a caller can target any
 /// app the user configured instead of one hardcoded here.
 #[tauri::command]
-pub fn open_path_with(
-    app: tauri::AppHandle,
+pub fn open_path_with<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     path: String,
     application: String,
 ) -> Result<(), OpenError> {

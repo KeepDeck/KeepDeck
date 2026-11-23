@@ -1,5 +1,8 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { bytesFromBase64 } from "../domain/terminal/base64";
+import type { LaunchOwner } from "./generated/lifecycle/LaunchOwner";
+import type { PermitId } from "./generated/lifecycle/PermitId";
+import type { SessionId } from "./generated/lifecycle/SessionId";
 
 /** An event of a live session, as the page uses it. */
 export type SessionEvent =
@@ -35,35 +38,39 @@ export interface SpawnOptions {
   cwd?: string | null;
   cols: number;
   rows: number;
-  /** The pane this terminal is. The bridge takes a pane's reports only from
-   * processes running in its terminal — a daemon that inherited the pane's
-   * environment and detached is not one. Omit for a terminal that is no
-   * pane's. */
-  pane?: string | null;
 }
 
-/** A live PTY session backed by the Rust core. */
+/** How an exact-session stop ended (mirrors the Rust `Stopped`): it exited,
+ * it had to be killed, its end could not be confirmed, or there was no such
+ * session. */
+export type Stopped = "exited" | "forced" | "unconfirmed" | "unknown";
+
+/** A live session of the sessions machine. */
 export interface Session {
-  readonly id: string;
+  readonly id: SessionId;
   write(data: string): Promise<void>;
   resize(cols: number, rows: number): Promise<void>;
-  close(): Promise<void>;
+  /** Stop this exact session; answers once it is over. */
+  stop(): Promise<Stopped>;
 }
 
 const encoder = new TextEncoder();
 
 /**
- * Spawn a session and stream its events to `onEvent`. Output and the final exit
- * arrive over a per-session channel, so panes never share an event bus.
+ * Start a session through the spawn door: `permit` is the launch lease the
+ * machine granted `owner`, spent by the door's admission — refused, nothing
+ * starts and this rejects. Output and the final exit arrive over a
+ * per-session channel, so panes never share an event bus.
  */
-export async function spawnSession(
+export async function openSession(
   opts: SpawnOptions,
+  permit: PermitId,
+  owner: LaunchOwner,
   onEvent: (event: SessionEvent) => void,
 ): Promise<Session> {
   const channel = new Channel<WireSessionEvent>();
   channel.onmessage = (event) => onEvent(fromWire(event));
-
-  const id = await invoke<string>("session_spawn", {
+  const id = await invoke<SessionId>("pty_open", {
     spec: {
       command: opts.command ?? null,
       args: opts.args ?? [],
@@ -72,17 +79,16 @@ export async function spawnSession(
       cwd: opts.cwd ?? null,
       cols: opts.cols,
       rows: opts.rows,
-      pane: opts.pane ?? null,
     },
+    permit,
+    owner,
     onEvent: channel,
   });
-
   return {
     id,
-    write: (data) =>
-      invoke("session_write", { id, data: Array.from(encoder.encode(data)) }),
-    resize: (cols, rows) => invoke("session_resize", { id, cols, rows }),
-    close: () => invoke("session_close", { id }),
+    write: (data) => invoke("pty_write", { id, data: Array.from(encoder.encode(data)) }),
+    resize: (cols, rows) => invoke("pty_resize", { id, cols, rows }),
+    stop: () => invoke<Stopped>("pty_stop", { id }),
   };
 }
 
@@ -94,5 +100,5 @@ export async function spawnSession(
  */
 export function vouchPaneProcess(pane: string, reporter: string | undefined): Promise<void> {
   const pid = reporter !== undefined && /^\d+$/.test(reporter) ? Number(reporter) : null;
-  return invoke("session_vouch", { pane, pid });
+  return invoke("pty_vouch", { pane, pid });
 }

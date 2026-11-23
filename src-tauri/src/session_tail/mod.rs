@@ -228,7 +228,7 @@ fn split_calls(events: Vec<TailedEvent>) -> (Vec<TailedEvent>, Vec<TailedEvent>)
 /// One door out of the tailer: every report — live poll or arm-time
 /// catch-up — routes identically, so a replayed interrupt can never reach
 /// the status lane through a second, unrouted path.
-fn deliver_routed(app: &AppHandle, report: Report) {
+fn deliver_routed<R: tauri::Runtime>(app: &AppHandle<R>, report: Report) {
     match route(report) {
         Routed::Status(status) => {
             log::debug!("usage tail: pane={} status record", status.pane_id);
@@ -358,8 +358,8 @@ pub struct TailArming {
 /// away. Idempotent per pane: a rebind (new session, new file) replaces the
 /// old tail. `(async)` — the catch-up drain reads a whole session file.
 #[tauri::command(async)]
-pub fn usage_watch_session_file(
-    app: AppHandle,
+pub fn usage_watch_session_file<R: tauri::Runtime>(
+    app: AppHandle<R>,
     tails: State<UsageTails>,
     pane_id: String,
     tail: TailArming,

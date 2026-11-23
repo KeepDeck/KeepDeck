@@ -65,7 +65,7 @@ function teamStatus(team: Team): "creating" | "failed" | "ready" {
  */
 export function registerWorkspaceCommands(
   registry: CommandRegistry,
-  deps: Pick<CoreCommandDeps, "deck" | "agents" | "activityOf" | "reachOf">,
+  deps: Pick<CoreCommandDeps, "deck" | "agents" | "activityOf" | "reachOf" | "updateWorkspace">,
 ): (() => void)[] {
   return [
     registry.register({
@@ -185,7 +185,7 @@ export function registerWorkspaceCommands(
         if (Object.keys(patch).length === 0) {
           throw new Error("nothing to change — pass name, mark or worktreeBaseDir");
         }
-        const result = deck.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
+        const result = deps.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
         if (!result.ok) throw new Error(updateRefusalText(result.refusal, ws.name));
         const updated = result.workspaces.find((candidate) => candidate.instance === ws.instance);
         if (!updated) throw new Error("the workspace is gone");

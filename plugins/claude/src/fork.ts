@@ -117,7 +117,12 @@ export async function forkClaudeSession(
     for (const path of made) await store.fsWrite.remove(path).catch(() => {});
     throw error;
   }
-  const discard: ForkDiscard = { onceStarted: [scratch], ifNeverStarted: made };
+  // Everything the fork leaves in the store is declared, so a rollback —
+  // before the fork started or after — leaves nothing of it: what was laid
+  // out here, and the fork's own transcript, which claude writes once it
+  // starts under the fork's id.
+  const forkTranscript = `${targetDir}/${forkId}.jsonl`;
+  const discard: ForkDiscard = { onceStarted: [scratch], ifNeverStarted: [...made, forkTranscript] };
   return {
     args: ["--session-id", forkId, "--fork-session", "--resume", scratchId],
     discard,

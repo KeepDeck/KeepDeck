@@ -169,6 +169,7 @@ describe("mcp.create and mcp.update", () => {
     expect(mcpLibrary.create).toHaveBeenCalledWith(
       { kind: "global" },
       { name: "github", body: github },
+      null,
     );
   });
 
@@ -202,7 +203,27 @@ describe("mcp.create and mcp.update", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain('No server "github"');
-    expect(mcpLibrary.update).toHaveBeenCalledWith({ kind: "global" }, { name: "github", body: github });
+    expect(mcpLibrary.update).toHaveBeenCalledWith({ kind: "global" }, { name: "github", body: github }, null);
+  });
+});
+
+/**
+ * The library's door refuses a writer the lifecycle has forgotten, under its
+ * own lock (integration row B26) — so an agent's write names its pane, and a
+ * person's names nobody.
+ */
+describe("an agent's MCP library write names its writer", () => {
+  it("create and delete from a pane carry that pane; the host's carry no writer", async () => {
+    const { registry, mcpLibrary } = setup([workspace({})]);
+
+    await registry.execute("mcp.create", { scope: "global", name: "github", spec: JSON.stringify(github) }, paneIn("ws-1"));
+    await registry.execute("mcp.delete", { scope: "global", name: "github" }, paneIn("ws-1"));
+    await registry.execute("mcp.delete", { scope: "global", name: "github" }, HOST);
+
+    const writer = expect.objectContaining({ workspace: "ws-1", pane: "p1" });
+    expect(mcpLibrary.create).toHaveBeenCalledWith({ kind: "global" }, { name: "github", body: github }, writer);
+    expect(mcpLibrary.remove).toHaveBeenNthCalledWith(1, { kind: "global" }, "github", writer);
+    expect(mcpLibrary.remove).toHaveBeenNthCalledWith(2, { kind: "global" }, "github", null);
   });
 });
 
@@ -218,7 +239,7 @@ describe("mcp.rename and mcp.delete", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toEqual({ name: "gh" });
-    expect(mcpLibrary.rename).toHaveBeenCalledWith({ kind: "global" }, "github", "gh");
+    expect(mcpLibrary.rename).toHaveBeenCalledWith({ kind: "global" }, "github", "gh", null);
   });
 
   it("delete removes within the scope and echoes the name", async () => {
@@ -233,6 +254,6 @@ describe("mcp.rename and mcp.delete", () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toEqual({ name: "github" });
     // A host caller's "this workspace" is the one on screen.
-    expect(mcpLibrary.remove).toHaveBeenCalledWith({ kind: "workspace", wsId: "ws-1" }, "github");
+    expect(mcpLibrary.remove).toHaveBeenCalledWith({ kind: "workspace", wsId: "ws-1" }, "github", null);
   });
 });

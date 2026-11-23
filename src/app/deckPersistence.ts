@@ -1,5 +1,6 @@
 import { deckImmediateKey, hydrateDeck, serializeDeck } from "../domain/deck";
 import { emptyJournal } from "../domain/journal";
+import type { DeckLoad } from "../domain/lifecycle";
 import { log } from "../ipc/log";
 import {
   loadDeckState,
@@ -8,7 +9,6 @@ import {
 } from "../ipc/state";
 import { createDeckActions } from "./deckActions";
 import type { DeckStore } from "./deckStore";
-import { seedAgentSeq } from "./ids";
 import { initSettings } from "./settingsManager";
 import { errorMessage } from "@keepdeck/plugin-api";
 
@@ -18,6 +18,9 @@ const SAVE_MAX_WAIT_MS = 2_000;
 export interface DeckPersistenceSnapshot {
   restoring: boolean;
   frozen: DeckPark | null;
+  /** How the deck loaded; null while it is still loading. With the deck as
+   * hydrated, this is the boot snapshot the lifecycle's handshake reads. */
+  load: DeckLoad | null;
 }
 
 export type DeckPark =
@@ -27,6 +30,11 @@ export type DeckPark =
 export interface DeckPersistence {
   getSnapshot(): DeckPersistenceSnapshot;
   subscribe(listener: () => void): () => void;
+  /** Whether this copy may write deck.json now. A second KeepDeck on the
+   * settings folder only shows, and Rust refuses its writes: while it may
+   * not, nothing is attempted; once it may, what changed meanwhile is
+   * saved. */
+  mayWrite(may: boolean): void;
   dispose(): void;
 }
 
@@ -34,16 +42,21 @@ export interface DeckPersistence {
  *
  * `onNotices` hears what the migration ladder did to the file that the
  * person should know about — once, on the launch that did it: hydration
- * hands the notices over and never writes them back. */
+ * hands the notices over and never writes them back. `onSaved` hears the
+ * deck revision of every snapshot once it is on disk. */
 export function createDeckPersistence(
   deck: DeckStore,
   onNotices: (notices: readonly string[]) => void = () => {},
+  onSaved: (revision: number) => void = () => {},
 ): DeckPersistence {
   const actions = createDeckActions(deck);
   const listeners = new Set<() => void>();
-  let snapshot: DeckPersistenceSnapshot = { restoring: true, frozen: null };
+  let snapshot: DeckPersistenceSnapshot = { restoring: true, frozen: null, load: null };
+  let load: DeckLoad = "loaded";
   let loaded = false;
   let frozen = false;
+  /** False while this copy only shows: another holds the settings folder. */
+  let writable = true;
   let disposed = false;
   let lastSaved: string | null = null;
   let lastImmediate: string | null = null;
@@ -57,7 +70,8 @@ export function createDeckPersistence(
   function emit(next: DeckPersistenceSnapshot): void {
     if (
       next.restoring === snapshot.restoring &&
-      next.frozen === snapshot.frozen
+      next.frozen === snapshot.frozen &&
+      next.load === snapshot.load
     ) {
       return;
     }
@@ -93,12 +107,13 @@ export function createDeckPersistence(
   }
 
   function flushNow(): void {
-    if (disposed || frozen) return;
+    if (disposed || frozen || !writable) return;
     clearTimer();
     dirtySince = null;
     if (saving) return;
     const serializedAtStart = serialized;
     const immediateAtStart = immediate;
+    const revisionAtStart = deck.revision();
     saving = true;
     void saveDeckState(serializedAtStart).then(
       () => {
@@ -106,6 +121,10 @@ export function createDeckPersistence(
         lastSaved = serializedAtStart;
         lastImmediate = immediateAtStart;
         saving = false;
+        // A revision that came while it was out, writing nothing past it, is
+        // on disk with it — the save that follows a change of its own may
+        // never come.
+        onSaved(serialized === serializedAtStart ? deck.revision() : revisionAtStart);
         if (serialized !== serializedAtStart) flushNow();
       },
       (error) => {
@@ -121,7 +140,7 @@ export function createDeckPersistence(
   }
 
   function reconcileSave(): void {
-    if (!loaded || serialized === lastSaved || frozen || disposed) return;
+    if (!loaded || serialized === lastSaved || frozen || disposed || !writable) return;
     if (immediate !== lastImmediate) {
       flushNow();
       return;
@@ -140,6 +159,10 @@ export function createDeckPersistence(
   function deckChanged(): void {
     serialized = serializeSnapshot();
     immediate = deckImmediateKey(deck.getSnapshot());
+    // A revision that writes nothing new — the file already says this deck —
+    // is on disk as it stands: nothing will ever be saved to say so, and a
+    // deck command answered at it would wait for that save for good.
+    if (loaded && !saving && serialized === lastSaved && !frozen && writable && !disposed) onSaved(deck.revision());
     reconcileSave();
   }
 
@@ -160,6 +183,7 @@ export function createDeckPersistence(
           `deck revision ${result.version} needs a reader ≥ ${result.minVersion} — session parked, saving disabled`,
         );
         frozen = true;
+        load = "newer";
         emit({
           restoring: true,
           frozen: {
@@ -167,6 +191,7 @@ export function createDeckPersistence(
             version: result.version,
             minVersion: result.minVersion,
           },
+          load: null,
         });
         return;
       }
@@ -175,15 +200,21 @@ export function createDeckPersistence(
           "web:persist",
           "deck state unusable → quarantined, starting empty",
         );
-        void quarantineDeckState().catch((error) =>
-          log.error(
-            "web:persist",
-            `quarantine itself failed: ${errorMessage(error)}`,
-          ),
+        // Waited on: whether the unreadable file was set aside is part of
+        // how the deck loaded.
+        return quarantineDeckState().then(
+          () => {
+            load = "quarantined";
+          },
+          (error) => {
+            load = "quarantineFailed";
+            log.error(
+              "web:persist",
+              `quarantine itself failed: ${errorMessage(error)}`,
+            );
+          },
         );
-        return;
       }
-      seedAgentSeq(result.deck.nextAgentSeq);
       docExtras = result.deck.docExtras;
       actions.hydrate(result.deck.state);
       if (result.deck.notices.length > 0) {
@@ -201,13 +232,14 @@ export function createDeckPersistence(
         `deck state load failed → session parked, saving disabled: ${errorMessage(error)}`,
       );
       frozen = true;
-      emit({ restoring: true, frozen: { kind: "unreadable" } });
+      load = "readFailed";
+      emit({ restoring: true, frozen: { kind: "unreadable" }, load: null });
     })
     .finally(() => {
       if (disposed) return;
       loaded = true;
       deckChanged();
-      emit({ restoring: false, frozen: snapshot.frozen });
+      emit({ restoring: false, frozen: snapshot.frozen, load });
     });
 
   return {
@@ -215,6 +247,12 @@ export function createDeckPersistence(
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    mayWrite(may) {
+      if (may === writable) return;
+      writable = may;
+      if (may) reconcileSave();
+      else clearTimer();
     },
     dispose() {
       if (disposed) return;

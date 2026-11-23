@@ -5,7 +5,15 @@
  * (`ResumeRequest`); the words are here.
  */
 import type { ResumeRequest, TeamActs } from "../domain/deck";
+import type { ResumeOutcome } from "../domain/lifecycle";
 import { byCount, counted } from "./countWords";
+import { intentOutcomeText } from "./lifecycleWords";
+
+/** Why a new pane may not resume the conversation it asked for: another
+ * pane holds it — one conversation, one pane. */
+export function sessionHeldText(): string {
+  return "That conversation is already open in another agent.";
+}
 
 /** One sentence per refusal, so every surface that can ask for a pane back
  * explains a "no" the same way. */
@@ -24,6 +32,19 @@ export function resumeRefusalText(
       return `${label} is in an archived workspace — restore the workspace first.`;
     case "gone":
       return `${label} is no longer open.`;
+  }
+}
+
+/** What a Resume that did not go ahead says — the deck's own reason, or the
+ * machine's — or null when the pane is rising. */
+export function resumeOutcomeText(outcome: ResumeOutcome, label: string): string | null {
+  switch (outcome.kind) {
+    case "resuming":
+      return null;
+    case "blocked":
+      return resumeRefusalText(outcome.why, label);
+    default:
+      return intentOutcomeText(outcome);
   }
 }
 

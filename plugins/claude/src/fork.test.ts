@@ -80,7 +80,9 @@ describe("claude fork", () => {
       args: ["--session-id", "F", "--fork-session", "--resume", "T"],
       discard: {
         onceStarted: [`${T}/T.jsonl`],
-        ifNeverStarted: [`${T}/T.jsonl`, `${T}/F`, `${C}/tasks/F`],
+        // The fork's own transcript too: claude writes it once the fork
+        // starts, and a rollback after the start takes it.
+        ifNeverStarted: [`${T}/T.jsonl`, `${T}/F`, `${C}/tasks/F`, `${T}/F.jsonl`],
       },
     });
     expect(copies).toEqual([

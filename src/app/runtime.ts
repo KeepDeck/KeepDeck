@@ -1,4 +1,4 @@
-import { panesRunningIn } from "../domain/deck";
+import { paneFolders, panesRunningIn } from "../domain/deck";
 import { deliversMcpByCwd } from "../domain/agents";
 import { listApplications, openPath, openUrl } from "../ipc/app";
 import { readImageTempPath, readText, writeText } from "../ipc/clipboard";
@@ -48,7 +48,29 @@ import { registerArtifactCommands } from "./artifacts/artifactCommands";
 import { artifactChanges } from "./artifacts/changes";
 import { artifactsEnableStatus } from "./artifacts/enableStatus";
 import { announceArtifact } from "./artifacts/producers";
-import { artifactsDisable, artifactsEnable, artifactDropWorkspace } from "../ipc/artifacts";
+import { artifactsDisable, artifactsEnable } from "../ipc/artifacts";
+import {
+  askLease,
+  bootHandshake,
+  claimsOn,
+  onLifecycleRestarted,
+  releaseLease,
+  reportApplied,
+  reportDeckSaved,
+  reportHookEnded,
+  sendIntent,
+  subscribeLifecycle,
+} from "../ipc/lifecycle";
+import { claimingTeams } from "../domain/lifecycle";
+import { createLifecycleSnapshot } from "./lifecycleSnapshot";
+import { connectLifecycle } from "./lifecycle/connection";
+import { createSavedDeckReporter } from "./lifecycle/savedDeck";
+import { createDeckCommands } from "./lifecycle/deckCommands";
+import { createBoardsOwner } from "./lifecycle/boards";
+import { createMailOwner } from "./lifecycle/mail";
+import { createNoticesOwner } from "./lifecycle/notices";
+import { createStandingAnnouncer } from "./lifecycle/standing";
+import { standingNotice } from "../presentation/lifecycleWords";
 import { createTasksFeature } from "./tasks/tasksFeature";
 import { tasksEnableStatus } from "./tasks/enableStatus";
 import { announceTask } from "./tasks/producers";
@@ -75,7 +97,7 @@ import { createDbBoardStore } from "./tasks/dbBoardStore";
 import { logMigration } from "./tasks/migrationLog";
 import { createPaneAttribution } from "./paneAttribution";
 import { createPluginDeckBridge } from "./pluginDeckBridge";
-import { createPluginManager } from "./pluginManager";
+import { createPluginManager, type BuiltinPlugins } from "./pluginManager";
 import {
   acquirePane,
   closePane,
@@ -112,9 +134,8 @@ import { stagingTrims } from "./stagingTrims";
 import { createCwdArming } from "./cwdArming";
 import { createSkillsLibrary } from "./skillsLibrary";
 import { ipcSkillsStorage } from "../ipc/skillsStorage";
-import { createWorktreeManager, deckViewOf } from "./worktrees";
+import { deckViewOf } from "./worktrees";
 import { createSkillsStaging, createWorktreePlantings } from "./worktreePlantings";
-import { createWorktreeSweeper } from "./worktreeSweeper";
 import { createPaneInputFocusController } from "../presentation/paneInputFocusController";
 import { createPaneViewActions } from "../presentation/paneViewActions";
 import type {
@@ -156,13 +177,28 @@ function agentCatalogPort(
  * `registry` is the command registry every owner below contributes to —
  * the process-wide one by default, and a fresh one where two runtimes must
  * coexist (a test): the mail commands are registered for a runtime's whole
- * life, and one registry cannot hold two of them. */
+ * life, and one registry cannot hold two of them. `builtins` are the
+ * built-in plugins: the app's own by default, the test plugin where the page
+ * runs on the host harness. */
 export function createAppRuntime(
   downloadBackend: DownloadBackend = tauriDownloadBackend,
   registry: CommandRegistry = commands,
+  builtins?: BuiltinPlugins,
 ) {
   const downloads = new DownloadManager(downloadBackend);
-  const plugins = createPluginManager(downloads);
+  // A plugin's own process belongs to the workspace on screen when it is
+  // started; the deck store is built below, and read only at a launch.
+  const plugins = createPluginManager(
+    downloads,
+    {
+      lease: askLease,
+      workspace: () => {
+        const { activeId, workspaces } = deckStore.getSnapshot();
+        return workspaces.some((ws) => ws.id === activeId) ? activeId : null;
+      },
+    },
+    builtins,
+  );
   /** How a pane reads, for anything that has to name one. Read per call — a
    * plugin can be installed or removed while the deck is up. */
   const agentLabels = () => plugins.pluginRegistries.agents.list().map(({ entry }) => titleAgentOf(entry));
@@ -170,14 +206,25 @@ export function createAppRuntime(
   const deckActions = createDeckActions(deckStore);
   const paneInputFocus = createPaneInputFocusController();
   const paneViewActions = createPaneViewActions(deckStore, deckActions, paneInputFocus);
+  // A deck command is durable only once a saved deck at or past its
+  // revision is on disk: the machine hears every save — again after a
+  // report that failed, and again whenever it starts over.
+  const savedDeck = createSavedDeckReporter({
+    report: reportDeckSaved,
+    warn: (message) => log.warn("web:lifecycle", message),
+  });
   // What the migration ladder did to the deck file is said once, here, on
   // the launch that did it — a team dissolved is not something to find out
   // from an empty badge.
-  const deckPersistence = createDeckPersistence(deckStore, (notices) => {
-    for (const body of notices) {
-      notify({ title: "Deck migrated", body, source: { type: "app" } });
-    }
-  });
+  const deckPersistence = createDeckPersistence(
+    deckStore,
+    (notices) => {
+      for (const body of notices) {
+        notify({ title: "Deck migrated", body, source: { type: "app" } });
+      }
+    },
+    (revision) => savedDeck.saved(revision),
+  );
   // The MCP feature: the transport service and the user's library, wired to
   // each other once behind one door.
   const mcp = createMcp({
@@ -264,7 +311,8 @@ export function createAppRuntime(
   const tasks = createTasksFeature({
     registry,
     workspaces: () => deckStore.getSnapshot().workspaces,
-    subscribeWorkspaces: deckStore.subscribe,
+    // The lifecycle's fence, read at each call: the snapshot is built below.
+    forgotten: (source) => lifecycleSnapshot.forgotten(source),
     settings: { tasks: () => getSettings()?.tasks ?? null, subscribe: subscribeSettings },
     socket: { up: () => mcp.service.status().socket !== null, subscribe: mcp.service.subscribe },
     store: createDbBoardStore({
@@ -414,21 +462,39 @@ export function createAppRuntime(
         nudge: nudgeBridgePane,
         hasCompanion: (paneId) => attribution.hasCompanion(paneId),
       },
+      lifecycle: { forgotten: (source) => lifecycleSnapshot.forgotten(source) },
     },
   );
   // Where an arming pass's refusals land for the skills surface to read.
   // A standing condition, not an event: republished on every pass, so the
   // list ends the moment the user's own file moves out of the way.
   const windowReportJournal = createAppWindowReportJournal(usageManager);
-  const worktrees = createWorktreeManager(
-    deckViewOf(() => deckStore.getSnapshot().workspaces),
-    (deck, inOrder) =>
-      createWorktreePlantings(deck, inOrder, {
-        skills: (queue, view) => createSkillsStaging(queue, view, stagingTrims),
-        prunePluginDirs: plugins.workspaceDirs.prune,
-        onDisarmed: armRefusals.forget,
-      }),
+  const worktrees = createWorktreePlantings(
+    createSkillsStaging(deckViewOf(() => deckStore.getSnapshot().workspaces), stagingTrims),
   );
+  /** The bindings the binding lane accepts, for the run-state owner — the
+   * lane is built at start, after the owner. */
+  const bindingListeners = new Set<(bound: { paneId: string }) => void>();
+  // The machine's snapshot, and the owners its commands are carried by. The
+  // launch-state and fork-step owners are the orchestrator's, built below;
+  // a command is carried only after this runtime is whole.
+  const lifecycleSnapshot = createLifecycleSnapshot({
+    owners: {
+      deck: createDeckCommands(deckStore, deckActions, {
+        suspendedToTray: (paneId) => getSettings()?.suspendedAgentPlacement === "tray" && !orchestrator.puttingBack(paneId),
+      }),
+      boards: createBoardsOwner({ forgetWorkspace: tasks.forgetWorkspace, retainTeams: tasks.retainTeams }),
+      mail: createMailOwner({
+        forget: (paneIds) => mail.current()?.forget(paneIds),
+        retain: (liveIds) => mail.current()?.retain(liveIds),
+      }),
+      notices: createNoticesOwner({ notify }),
+      runState: { carry: (due) => orchestrator.runState.runState.carry(due) },
+      forkStep: { carry: (due) => orchestrator.runState.forkStep.carry(due) },
+    },
+    answer: reportApplied,
+    warn: (message) => log.warn("web:lifecycle", message),
+  });
   // The library takes only the staleness half of the worktree manager: a write
   // has to drop the staged views the next pane spawn would inject.
   const skills = createSkillsLibrary({
@@ -446,10 +512,6 @@ export function createAppRuntime(
       parkOnLaunch: () => getSettings()?.parkAgentsOnLaunch ?? false,
       subscribe: subscribeSettings,
     },
-    suspendPolicy: {
-      moveToTray: () =>
-        getSettings()?.suspendedAgentPlacement === "tray",
-    },
     sessions: {
       subscribe: subscribeSessions,
       state: paneSessionState,
@@ -459,20 +521,64 @@ export function createAppRuntime(
     },
     plugins: spawnPlugins,
     probe: probeWorktree,
-    worktrees,
+    skills: worktrees,
     mcpAccess: (target) => mcp.service.access(target),
-    armCwd: createCwdArming({ worktrees, refusals: armRefusals }),
+    armCwd: createCwdArming({ worktrees, refusals: armRefusals, lease: askLease, release: releaseLease }),
     lifecycle,
     transcripts: sessionIndex,
-    // Workspace deletion forgets what the backend keeps per workspace — its
-    // artifact store, its MCP library scope — the deck model being the only
-    // knower of the live workspace set.
-    workspaceForgetters: [
-      artifactDropWorkspace,
-      tasks.forgetWorkspace,
-      mcp.forgetWorkspace,
-    ],
+    bindings: {
+      subscribe(listener) {
+        bindingListeners.add(listener);
+        return () => bindingListeners.delete(listener);
+      },
+    },
+    machine: {
+      send: sendIntent,
+      lease: askLease,
+      release: releaseLease,
+      snapshot: lifecycleSnapshot.current,
+      subscribe: lifecycleSnapshot.subscribe,
+      hookEnded: (op) => {
+        void reportHookEnded(op).catch((e: unknown) => log.warn("web:lifecycle", `reporting a fork hook's end failed: ${String(e)}`));
+      },
+    },
   });
+  // What the lifecycle says about KeepDeck's work as a whole — this copy only
+  // shows, it lost its sessions, it stopped — told once each.
+  const standing = createStandingAnnouncer((fact) => notify({ ...standingNotice(fact), severity: "warning", source: { type: "app" } }));
+  // The page's connection to the machine: subscribe, then — once the deck
+  // has loaded — the handshake that lowers the barrier.
+  const lifecycleConnection = connectLifecycle({
+    ports: { subscribe: subscribeLifecycle, onRestarted: onLifecycleRestarted, handshake: bootHandshake },
+    snapshot: lifecycleSnapshot,
+    loaded: () => {
+      const load = deckPersistence.getSnapshot().load;
+      return load === null ? null : { workspaces: deckStore.getSnapshot().workspaces, load };
+    },
+    subscribeLoaded: deckPersistence.subscribe,
+    booted: () => savedDeck.again(),
+    stopped: () => standing.stopped(),
+    warn: (message) => log.warn("web:lifecycle", message),
+  });
+  // A second KeepDeck on this settings folder only shows: it writes no
+  // deck.json until it holds the folder.
+  const stopStanding = lifecycleSnapshot.subscribe(() => {
+    const snapshot = lifecycleSnapshot.current();
+    deckPersistence.mayWrite(snapshot?.viewOnly !== true);
+    if (snapshot) standing.heard(snapshot);
+  });
+  // What was said about the deck's folders and workspaces stands only while
+  // they do: an arming pass's refusals while a pane runs in the folder (the
+  // lifecycle takes the plantings back with the last of them), a skills
+  // stage's trims while the workspace lifetime it staged lives.
+  const stopStandingWords = deckStore.subscribe(() => {
+    const workspaces = deckStore.getSnapshot().workspaces;
+    armRefusals.retain(paneFolders(workspaces));
+    stagingTrims.keep(workspaces.map((ws) => ws.instance));
+  });
+  /** The teams the lifecycle machine says work in a folder — what the
+   * "+ Team" question and `team.create`'s refusal name. */
+  const teamsIn = async (path: string) => claimingTeams(await claimsOn(path));
   const application = createApplicationController({
     registry,
     deck: deckStore,
@@ -483,12 +589,8 @@ export function createAppRuntime(
     skills,
     mcpLibrary: mcp.library,
     activityOf: (paneId) => statusTracker.getSnapshot().panes.get(paneId),
+    teamsIn,
   });
-  const worktreeSweeper = createWorktreeSweeper(
-    deckStore,
-    deckPersistence,
-    worktrees,
-  );
   const pluginDeckBridge = createPluginDeckBridge(deckStore, plugins);
   const logger: HostLoggerPort = log;
   const clipboard: ClipboardPort = { writeText, readText, readImageTempPath };
@@ -553,6 +655,10 @@ export function createAppRuntime(
         // not per agent: the accepted binding does not carry one, and a
         // needless extra sweep is the cheap side of this trade.
         sessionBinding.subscribe(() => sessionIndex.invalidate());
+        // The run-state owner waits on a continued pane's binding.
+        sessionBinding.subscribe((bound) => {
+          for (const listener of [...bindingListeners]) listener(bound);
+        });
       }
       const bindings = sessionBinding;
       usageChannel ??= createUsageChannel(
@@ -562,15 +668,17 @@ export function createAppRuntime(
         attribution,
         bindings,
       );
+      // The lanes that speak of a live process ask the session table.
+      const processOf = (paneId: string) => paneSessionState(paneId).kind;
       // Before the lanes that read it act on a hello: which source states a
       // pane's facts is decided per process, and the ledger is attribution's.
-      companionHellos ??= listenPaneCompanions(deckStore, attribution);
+      companionHellos ??= listenPaneCompanions(attribution, processOf);
       // A companion that took the doorbell and could not start the turn:
       // mail nudges that pane again, the way its agent still takes.
-      companionDeclines ??= listenCompanionDeclines(deckStore, attribution, (paneId, wake) =>
+      companionDeclines ??= listenCompanionDeclines(attribution, processOf, (paneId, wake) =>
         mail.wakeDeclined(paneId, wake),
       );
-      paneUnbinds ??= listenPaneUnbinds(deckStore, attribution, lifecycle);
+      paneUnbinds ??= listenPaneUnbinds(deckStore, attribution, lifecycle, processOf);
       statusChannel ??= createAgentStatusChannel(
         deckStore,
         plugins.pluginRegistries.agents,
@@ -647,7 +755,10 @@ export function createAppRuntime(
       companionDeclines?.dispose();
       paneUnbinds?.dispose();
       pluginDeckBridge.dispose();
-      worktreeSweeper.dispose();
+      stopStanding();
+      stopStandingWords();
+      lifecycleConnection.dispose();
+      savedDeck.dispose();
       mail.dispose();
       disposeArtifactCommands?.();
       for (const stop of stopArtifactWiring) stop();
@@ -674,6 +785,7 @@ export function createAppRuntime(
         workspaces: () => deckStore.getSnapshot().workspaces,
         openTeam: deckActions.openTeam,
       },
+      teamsIn,
     }),
     fileOpen: createFileOpenManager(
       () => plugins.pluginRegistries.fileOpeners.list(),

@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { createCommandRegistry, type CommandArgs, type CommandSource, type RawArgs } from "../../domain/commands";
+import type { WriteSource } from "../../domain/lifecycle";
 import { WORKER_STEPS } from "../../domain/tasks";
 import { STATUS_ARG, registerTaskCommands } from "./taskCommands";
 import { createTasksService } from "./tasksService";
 import { ANONYMOUS, fakeStore, from, teamedWorkspaces } from "./testSupport";
 import { booleanOf, listOf, numberOf, recordsOf, recordOf, stringOf } from "../../testing/values.test-support";
 
-function setup() {
+function setup(forgotten: (source: WriteSource) => boolean = () => false) {
   const workspaces = teamedWorkspaces();
   const store = fakeStore();
   const tasks = createTasksService({ workspaces: () => workspaces, store: store.port, now: () => 42 });
   const registry = createCommandRegistry();
-  const dispose = registerTaskCommands(registry, { tasks, workspaces: () => workspaces });
+  const dispose = registerTaskCommands(registry, { tasks, workspaces: () => workspaces, forgotten });
   const run = async (id: string, args: CommandArgs, source: CommandSource) => {
     const result = await registry.execute(id, args, source);
     if (!result.ok) throw new Error(result.error.message);
@@ -36,6 +37,15 @@ describe("task.update's status words", () => {
   it("name every step the domain gives an assignee, read off the same table", () => {
     for (const [from, to] of WORKER_STEPS) expect(STATUS_ARG).toContain(`${from} → ${to}`);
     expect(STATUS_ARG).toContain("review → done");
+  });
+});
+
+describe("task commands — the lifecycle's fence", () => {
+  it("takes nothing from a pane the lifecycle is closing, and is open to the rest", async () => {
+    const { refused, run } = setup((source) => source.pane === "pane-2");
+    expect(await refused("task.create", { title: "late" }, IMPL1)).toContain("being closed");
+    expect(await refused("task.list", { status: "todo" }, IMPL1)).toContain("being closed");
+    expect(await run("task.create", { title: "fine" }, LEAD)).toMatchObject({ id: expect.any(String) });
   });
 });
 

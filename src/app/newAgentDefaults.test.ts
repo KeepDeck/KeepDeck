@@ -5,21 +5,10 @@ const settings = vi.hoisted(() => ({
 }));
 vi.mock("./settingsManager", () => ({ getSettings: () => settings.current }));
 
-const ipc = vi.hoisted(() => ({
-  suggestWorktree: vi.fn(),
-  probeWorktree: vi.fn(),
-}));
-vi.mock("../ipc/worktree", () => ipc);
-
 import type { AgentInfo } from "../domain/agents";
 import type { Workspace } from "../domain/deck";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
-import {
-  firstFreeTeamWorktreeFor,
-  nextAgentIndex,
-  nextAgentType,
-  nextYolo,
-} from "./newAgentDefaults";
+import { nextAgentType, nextYolo } from "./newAgentDefaults";
 
 const agent = (id: string): AgentInfo => ({
   id,
@@ -43,18 +32,6 @@ const ws = (over: Partial<Workspace> = {}): Workspace => ({
 
 beforeEach(() => {
   settings.current = null;
-  ipc.suggestWorktree
-    .mockReset()
-    .mockImplementation(async (name: string, index: number) => ({
-      branch: `kd/${name}/${index}`,
-      folder: `kd-${name}-${index}`,
-    }));
-  ipc.probeWorktree.mockReset().mockResolvedValue({
-    exists: false,
-    isWorktree: false,
-    empty: false,
-    branch: null,
-  });
 });
 
 describe("nextAgentType", () => {
@@ -105,70 +82,5 @@ describe("nextYolo", () => {
     expect(nextYolo()).toBe(false);
     settings.current = { defaultYolo: true };
     expect(nextYolo()).toBe(true);
-  });
-});
-
-describe("nextAgentIndex", () => {
-  it("is the pane's position, the input to its auto branch name", () => {
-    expect(nextAgentIndex(ws())).toBe(1);
-    expect(
-      nextAgentIndex(
-        ws({ panes: [{ id: "a", agentType: "claude" }, { id: "b", agentType: "claude" }] }),
-      ),
-    ).toBe(3);
-  });
-});
-
-describe("firstFreeTeamWorktreeFor", () => {
-  it("suggests nothing when the workspace has no base folder", async () => {
-    expect(await firstFreeTeamWorktreeFor([ws()], ws(), 1)).toBeNull();
-    expect(ipc.suggestWorktree).not.toHaveBeenCalled();
-  });
-
-  it("skips a location a team already runs in", async () => {
-    const workspace = ws({
-      worktreeBaseDir: "/wt",
-      teams: [{ id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/kd-deck-1" } }],
-      panes: [{ id: "p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
-    });
-    expect(await firstFreeTeamWorktreeFor([workspace], workspace, 1)).toEqual({
-      path: "/wt/kd-deck-2",
-      branch: "kd/deck/2",
-    });
-  });
-
-  it("skips a folder that exists on disk with no pane behind it", async () => {
-    // A worktree removed outside the app leaves the directory; opening onto
-    // it would land the dialog on a blocked-path error.
-    ipc.probeWorktree.mockImplementation(async (path: string) => ({
-      exists: path === "/wt/kd-deck-1",
-      isWorktree: false,
-      empty: false,
-      branch: null,
-    }));
-    const workspace = ws({ worktreeBaseDir: "/wt" });
-    expect(await firstFreeTeamWorktreeFor([workspace], workspace, 1)).toEqual({
-      path: "/wt/kd-deck-2",
-      branch: "kd/deck/2",
-    });
-  });
-
-  it("treats a failing suggestion as no prefill, not an error", async () => {
-    ipc.suggestWorktree.mockRejectedValue(new Error("ipc down"));
-    const workspace = ws({ worktreeBaseDir: "/wt" });
-    await expect(
-      firstFreeTeamWorktreeFor([workspace], workspace, 1),
-    ).resolves.toBeNull();
-  });
-
-  it("does not let a failing PROBE filter out a usable suggestion", async () => {
-    // A probe that rejects is IPC trouble, not a missing path — degrading to
-    // "offer it anyway" keeps the dialog usable.
-    ipc.probeWorktree.mockRejectedValue(new Error("ipc down"));
-    const workspace = ws({ worktreeBaseDir: "/wt" });
-    expect(await firstFreeTeamWorktreeFor([workspace], workspace, 1)).toEqual({
-      path: "/wt/kd-deck-1",
-      branch: "kd/deck/1",
-    });
   });
 });

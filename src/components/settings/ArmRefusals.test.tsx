@@ -22,7 +22,8 @@ describe("ArmRefusals", () => {
   });
   afterEach(() => {
     act(() => root.unmount());
-    act(() => armRefusals.forget(["/repo"]));
+    // No pane runs anywhere: nothing stands refused for the next case.
+    act(() => armRefusals.retain(new Set()));
   });
 
   it("says nothing while nothing stands refused", () => {

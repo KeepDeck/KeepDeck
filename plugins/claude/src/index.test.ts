@@ -486,6 +486,7 @@ describe("claude fork.plan", () => {
         `${target}/${scratchId}.jsonl`,
         `${target}/${forkId}`,
         `/Users/u/.claude/tasks/${forkId}`,
+        `${target}/${forkId}.jsonl`,
       ],
     });
   });

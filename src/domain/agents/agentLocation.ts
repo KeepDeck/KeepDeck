@@ -25,31 +25,31 @@ export type LocationKind =
   | "checking" // path entered, probe still in flight
   | "new" // path is free → create a new worktree there
   | "existing" // path is a git worktree → attach the agent to it ([F12])
-  | "occupied" // a worktree create is heading here → nothing to use yet
+  | "occupied" // a worktree create or removal holds it → nothing to use yet
   | "blocked"; // path exists but isn't a worktree → can't use it
 
 /**
- * What the DECK knows about a candidate directory — the fact a location
- * field needs before the disk can say anything, and the one vocabulary every
- * such field speaks.
+ * What the LIFECYCLE knows about a candidate directory — the fact a location
+ * field needs beside the disk's, and the one vocabulary every such field
+ * speaks.
  *
  * `"worked-in"` — a team works there. That is not a refusal: a directory is
  * joined (a fork, a member) or shared with consent (a new team), so the
  * field treats it as the plain attach it is and the door asks the question.
- * `"being-created"` — a worktree create is heading for it: nothing is there
- * to attach to yet and git makes no second worktree on one path, so nothing
- * can use it until the create lands.
+ * `"held"` — a worktree is being made there, or removed: nothing is there to
+ * attach to that will stay, and git makes no second worktree on one path,
+ * so nothing can use it until that ends.
  */
-export type DirectoryState = "free" | "worked-in" | "being-created";
+export type DirectoryState = "free" | "worked-in" | "held";
 
 /**
- * Classify a candidate worktree path. Pure. What the DECK says is known
- * synchronously and outranks the probe, even mid-probe — it is also the
- * truer answer: a directory a team works in reads as an ATTACH whatever the
- * disk reports, because the team is the thing being joined and the disk may
- * be lying (a worktree removed behind the app's back, a plain folder a
- * `team.create` was pointed at). Asking the probe there is how a path a team
- * holds came to be offered as a NEW worktree and then refused on submit.
+ * Classify a candidate worktree path. Pure. What the lifecycle says
+ * outranks the probe — it is also the truer answer: a directory a team
+ * works in reads as an ATTACH whatever the disk reports, because the team is
+ * the thing being joined and the disk may be lying (a worktree removed
+ * behind the app's back, a plain folder a `team.create` was pointed at).
+ * Asking the probe there is how a path a team holds came to be offered as a
+ * NEW worktree and then refused on submit.
  *
  * With the deck silent, the probe decides: an existing EMPTY dir counts as
  * "new" — git can create a worktree into it; only a non-empty non-worktree
@@ -61,7 +61,7 @@ export function classifyLocation(
   state: DirectoryState = "free",
 ): LocationKind {
   if (!path.trim()) return "main";
-  if (state === "being-created") return "occupied";
+  if (state === "held") return "occupied";
   if (state === "worked-in") return "existing";
   if (!probe) return "checking";
   if (!probe.exists) return "new";

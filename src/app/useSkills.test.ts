@@ -98,13 +98,14 @@ describe("the skills library hook", () => {
     await act(async () => {
       await view.save({ kind: "global" }, DRAFT, "create");
     });
-    expect(library.create).toHaveBeenCalledWith({ kind: "global" }, DRAFT);
+    // The person at the UI writes as nobody: no agent is the writer.
+    expect(library.create).toHaveBeenCalledWith({ kind: "global" }, DRAFT, null);
     expect(library.update).not.toHaveBeenCalled();
 
     await act(async () => {
       await view.save({ kind: "global" }, DRAFT, "update");
     });
-    expect(library.update).toHaveBeenCalledWith({ kind: "global" }, DRAFT);
+    expect(library.update).toHaveBeenCalledWith({ kind: "global" }, DRAFT, null);
   });
 
   it("reloads after a successful save", async () => {
@@ -176,7 +177,7 @@ describe("the skills library hook", () => {
     });
 
     expect(ok).toBe(true);
-    expect(library.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review");
+    expect(library.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review", null);
     // One user action, one reload: only the dialog's initial load has happened.
     expect(library.list).toHaveBeenCalledTimes(1);
   });
@@ -198,7 +199,7 @@ describe("the skills library hook", () => {
     await act(async () => {
       await view.remove({ kind: "workspace", wsId: "ws-2" }, "review");
     });
-    expect(library.remove).toHaveBeenCalledWith({ kind: "workspace", wsId: "ws-2" }, "review");
+    expect(library.remove).toHaveBeenCalledWith({ kind: "workspace", wsId: "ws-2" }, "review", null);
     expect(library.list).toHaveBeenCalledTimes(2);
 
     library.remove.mockRejectedValueOnce(new Error("busy"));

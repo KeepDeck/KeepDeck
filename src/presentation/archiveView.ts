@@ -4,11 +4,14 @@
  * many are already suspended (and stay so), what happens to a remote one,
  * that nothing of the workspace is deleted, and where to find it again.
  *
- * The counts are the archive's own rule ([`paneArchiveFate`]), not a
- * reading of what is running: an archive stops every local agent, a parked
- * or never-started one too, so "stops" counts them all.
+ * How many agents stop is the lifecycle machine's to say — its preview of
+ * the archive names them, every local agent a parked or never-started one
+ * too — not a reading of what is running. The ones already suspended and the
+ * remote ones are the panes' own facts.
  */
-import { paneArchiveFate, type ArchiveOutcome, type Workspace } from "../domain/deck";
+import { remoteEndpointOf, type Workspace } from "../domain/deck";
+import type { IntentOutcome } from "../domain/lifecycle";
+import { intentOutcomeText } from "./lifecycleWords";
 import { byCount } from "./countWords";
 
 export interface ArchiveConfirmView {
@@ -39,16 +42,10 @@ function agentsSentence(stopping: number, suspended: number, detached: number): 
   return parts.join(" ");
 }
 
-export function archiveConfirmView(ws: Workspace): ArchiveConfirmView {
-  let stopping = 0;
-  let suspended = 0;
-  let detached = 0;
-  for (const pane of ws.panes) {
-    const fate = paneArchiveFate(ws, pane);
-    if (fate === "stopped") stopping++;
-    else if (fate === "already-suspended") suspended++;
-    else if (fate === "detached") detached++;
-  }
+/** The confirm for archiving `ws`, which stops `stopping` agents. */
+export function archiveConfirmView(ws: Workspace, stopping: number): ArchiveConfirmView {
+  const suspended = ws.panes.filter((pane) => pane.idle?.reason === "suspended").length;
+  const detached = ws.panes.filter((pane) => remoteEndpointOf(pane) !== null).length;
   return {
     title: `Archive “${ws.name}”?`,
     message: [
@@ -62,15 +59,20 @@ export function archiveConfirmView(ws: Workspace): ArchiveConfirmView {
 }
 
 /** What a refused archive says, or null when there is nothing to say: an
- * archive done, or one already done elsewhere, needs no word. */
-export function archiveRefusalText(outcome: ArchiveOutcome, name: string): string | null {
-  switch (outcome) {
-    case "closing":
-      return `“${name}” is being closed, so it cannot be archived.`;
-    case "gone":
-      return `“${name}” is no longer open.`;
+ * archive the machine took on, or one already done elsewhere, needs no
+ * word. A refusal of its own the archive says of the workspace by name;
+ * any other, in the machine's words. */
+export function archiveRefusalText(outcome: IntentOutcome, name: string): string | null {
+  if (outcome.kind !== "refused") return intentOutcomeText(outcome);
+  switch (outcome.refusal.kind) {
     case "archived":
-    case "already":
       return null;
+    case "alreadyClosing":
+    case "targetLeaving":
+      return `“${name}” is being closed, so it cannot be archived.`;
+    case "notFound":
+      return `“${name}” is no longer open.`;
+    default:
+      return intentOutcomeText(outcome);
   }
 }

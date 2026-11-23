@@ -34,6 +34,10 @@ export interface FakeOpencodeOptions {
   answer?: (run: FakeRun, before: readonly FakeRun[]) => CommandRun | undefined;
   /** A command that never exits. */
   hang?: (run: FakeRun) => boolean;
+  /** A command whose stop cannot be confirmed: its close rejects. */
+  unconfirmed?: (run: FakeRun) => boolean;
+  /** A command whose spawn answers only once this settles. */
+  spawnAfter?: (run: FakeRun) => Promise<void> | undefined;
   /** Whether a directory exists; all do by default. */
   exists?: (path: string) => boolean;
   /** The store's SQL; by default there is none to read. */
@@ -53,6 +57,8 @@ export function fakeOpencode(options: FakeOpencodeOptions) {
   const runs: FakeRun[] = [];
   const warns: string[] = [];
   const kills = { count: 0 };
+  /** What happened, in order: each stop that ended, and each removal. */
+  const order: string[] = [];
   const v1 = options.generation === 1;
 
   const exportOf = (id: string): CommandRun => {
@@ -114,11 +120,16 @@ export function fakeOpencode(options: FakeOpencodeOptions) {
               onEvent({ type: "exit", code });
             });
           }
+          await options.spawnAfter?.(run);
           return {
             id: "h",
             write: async () => {},
             resize: async () => {},
-            close: async () => void (kills.count += 1),
+            close: async () => {
+              kills.count += 1;
+              if (options.unconfirmed?.(run)) throw new Error("the stop could not be confirmed");
+              order.push(`stopped ${run.args.join(" ")}`);
+            },
           };
         },
       },
@@ -132,6 +143,7 @@ export function fakeOpencode(options: FakeOpencodeOptions) {
         writeFile: async (path, text) => void files.set(path, text),
         remove: async (path) => {
           removed.push(path);
+          order.push(`removed ${path}`);
           files.delete(path);
         },
       },
@@ -143,7 +155,7 @@ export function fakeOpencode(options: FakeOpencodeOptions) {
     },
   };
 
-  return { ports, sessions, files, removed, runs, warns, kills };
+  return { ports, sessions, files, removed, runs, warns, kills, order };
 }
 
 /**

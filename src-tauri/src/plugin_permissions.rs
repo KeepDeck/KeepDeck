@@ -245,11 +245,17 @@ impl PluginGrants {
 
     /// Where `plugin_id` may write: its declared prefixes and the directories
     /// it was handed. None at all is refused here, by name.
-    pub(crate) fn write_roots(&self, plugin_id: &str) -> Result<Vec<String>, String> {
+    /// `admitted`: whether a workspace's directory is still the plugin's to
+    /// write in — not once the lifecycle has forgotten that workspace, even
+    /// before its cleanup took the directory back.
+    pub(crate) fn write_roots(&self, plugin_id: &str, admitted: impl Fn(&str) -> bool) -> Result<Vec<String>, String> {
         let roots: Vec<String> = self
             .lock()
             .get(plugin_id)
-            .map(|grant| grant.write.iter().chain(grant.workspaces.values()).cloned().collect())
+            .map(|grant| {
+                let handed = grant.workspaces.iter().filter(|(ws_id, _)| admitted(ws_id)).map(|(_, dir)| dir);
+                grant.write.iter().chain(handed).cloned().collect()
+            })
             .unwrap_or_default();
         if roots.is_empty() {
             return Err(
@@ -278,10 +284,10 @@ impl PluginGrants {
             .insert(ws_id.to_string(), dir);
     }
 
-    /// Every plugin lets go of its directory of a workspace not in `live`.
-    pub(crate) fn release_workspaces(&self, live: &[String]) {
+    /// Every plugin lets go of its directory of each workspace that is `gone`.
+    pub(crate) fn release_workspaces(&self, gone: impl Fn(&str) -> bool) {
         for grant in self.lock().values_mut() {
-            grant.workspaces.retain(|ws_id, _| live.contains(ws_id));
+            grant.workspaces.retain(|ws_id, _| !gone(ws_id));
         }
     }
 }
@@ -914,18 +920,18 @@ mod tests {
             json!({ "kind": "fsWrite", "paths": ["/tmp/tool-scratch"] }),
         ]);
         resolve_for(&grants, "p.tool", &capabilities, &host(&[], &home, &cwd)).unwrap();
-        assert_eq!(grants.write_roots("p.tool").unwrap(), ["~/.tool/sessions", "/tmp/tool-scratch"]);
+        assert_eq!(grants.write_roots("p.tool", |_| true).unwrap(), ["~/.tool/sessions", "/tmp/tool-scratch"]);
         assert_eq!(grants.sqlite_roots("p.tool").unwrap(), ["~/.tool/db"]);
 
         let malformed = host(&[("TOOL_BASE_URL", "not a url")], &home, &cwd);
         assert!(resolve_for(&grants, "p.tool", &capabilities, &malformed).is_err());
         assert!(grants.of("p.tool").is_err(), "no reach");
-        assert_eq!(grants.write_roots("p.tool").unwrap(), ["~/.tool/sessions", "/tmp/tool-scratch"]);
+        assert_eq!(grants.write_roots("p.tool", |_| true).unwrap(), ["~/.tool/sessions", "/tmp/tool-scratch"]);
         assert_eq!(grants.sqlite_roots("p.tool").unwrap(), ["~/.tool/db"]);
 
         let unparsable = [json!({ "kind": "fsWrite", "paths": "~/.tool" })];
         assert!(resolve_for(&grants, "p.tool", &unparsable, &host(&[], &home, &cwd)).is_err());
-        assert!(grants.write_roots("p.tool").unwrap_err().starts_with("WRITE_UNDECLARED"));
+        assert!(grants.write_roots("p.tool", |_| true).unwrap_err().starts_with("WRITE_UNDECLARED"));
         assert!(grants.sqlite_roots("p.tool").unwrap_err().starts_with("SQLITE_UNDECLARED"));
     }
 
@@ -933,22 +939,24 @@ mod tests {
     fn a_handed_directory_is_its_plugins_write_root_until_its_workspace_goes() {
         let (_dir, home, cwd) = stand();
         let grants = PluginGrants::default();
-        assert!(grants.write_roots("p.agent").unwrap_err().starts_with("WRITE_UNDECLARED"));
+        assert!(grants.write_roots("p.agent", |_| true).unwrap_err().starts_with("WRITE_UNDECLARED"));
 
         grants.hand_workspace("p.agent", "ws-1", "/kd/plugin-workspaces/p.agent/ws-1".into());
         grants.hand_workspace("p.agent", "ws-2", "/kd/plugin-workspaces/p.agent/ws-2".into());
         resolve_for(&grants, "p.agent", &[], &host(&[], &home, &cwd)).unwrap();
         assert_eq!(
-            grants.write_roots("p.agent").unwrap(),
+            grants.write_roots("p.agent", |_| true).unwrap(),
             ["/kd/plugin-workspaces/p.agent/ws-1", "/kd/plugin-workspaces/p.agent/ws-2"],
             "a re-resolution keeps what was handed"
         );
-        assert!(grants.write_roots("p.other").is_err(), "one plugin's directory is no other's");
+        assert!(grants.write_roots("p.other", |_| true).is_err(), "one plugin's directory is no other's");
+        // A workspace the lifecycle forgot is no root, before its cleanup too.
+        assert_eq!(grants.write_roots("p.agent", |ws_id| ws_id != "ws-1").unwrap(), ["/kd/plugin-workspaces/p.agent/ws-2"]);
 
-        grants.release_workspaces(&["ws-2".to_string()]);
-        assert_eq!(grants.write_roots("p.agent").unwrap(), ["/kd/plugin-workspaces/p.agent/ws-2"]);
+        grants.release_workspaces(|ws_id| ws_id == "ws-1");
+        assert_eq!(grants.write_roots("p.agent", |_| true).unwrap(), ["/kd/plugin-workspaces/p.agent/ws-2"]);
         grants.forget("p.agent");
-        assert!(grants.write_roots("p.agent").is_err());
+        assert!(grants.write_roots("p.agent", |_| true).is_err());
     }
 
     #[test]

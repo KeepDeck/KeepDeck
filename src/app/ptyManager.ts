@@ -1,4 +1,6 @@
-import { spawnSession, type Session } from "../ipc/session";
+import { openSession, type Session } from "../ipc/session";
+import type { LaunchOwner } from "../ipc/generated/lifecycle/LaunchOwner";
+import type { PermitId } from "../ipc/generated/lifecycle/PermitId";
 import { log } from "../ipc/log";
 import { errorMessage } from "@keepdeck/plugin-api";
 
@@ -15,10 +17,17 @@ import { errorMessage } from "@keepdeck/plugin-api";
  * (pane, command, cwd) — correct under any effect ordering, with no timing
  * assumptions about React internals.
  *
- * One global manager, not one per workspace: pane ids are unique across the
- * deck (a single mint sequence), and the Rust `SessionRegistry` behind the IPC
- * is already app-global. If remote hosts ever arrive, the key grows a host
- * part here.
+ * One manager for the app, not one per workspace: pane ids are unique across
+ * the deck (the lifecycle machine mints them), and the sessions machine behind
+ * the IPC is already app-global. If remote hosts ever arrive, the key grows a
+ * host part here. It is built by [`createPtyManager`] over the one door it
+ * needs to the outside — opening a process — so a test runs the real registry
+ * on its own door, instead of a copy of its rules that can drift from them.
+ *
+ * A process starts only through the spawn door, by the launch permit the
+ * machine leased its owner ([`PaneLaunch`]): whether a pane may run is the
+ * funnel's question, asked before this is reached, and the door's admission
+ * answers it again at the system spawn.
  *
  * Output is mirrored into a bounded per-pane ring buffer at all times, so a
  * re-attaching view (remount) replays recent history into its fresh xterm
@@ -39,6 +48,13 @@ export interface PaneSpawnSpec {
   cwd?: string | null;
   cols: number;
   rows: number;
+}
+
+/** The launch lease a spawn spends: the permit the machine granted, and the
+ * owner it granted it to. */
+export interface PaneLaunch {
+  permit: PermitId;
+  owner: LaunchOwner;
 }
 
 /** A view's ears: everything a session reports back to its pane. */
@@ -100,7 +116,7 @@ interface Entry {
    * animation. */
   launched: boolean;
   /**
-   * The tail of this session's writes — see [`writePane`].
+   * The tail of this session's writes — see [`PtyManager.write`].
    *
    * On the ENTRY rather than beside the map, so it dies with the session it
    * orders. A restart mints a new entry, and bytes queued for the process
@@ -131,297 +147,90 @@ export type PaneSessionState =
   /** The spawn itself failed — there was never a process. */
   | { kind: "failed"; message: string };
 
-const entries = new Map<string, Entry>();
+/** The door to the sessions machine a registry opens processes through. */
+export type OpenSession = typeof openSession;
 
-/**
- * The views listening to each pane, kept OUTSIDE the session entry.
- *
- * A view used to be reachable only through the entry, which made the order of
- * `acquirePane` and `attachPane` load-bearing: a terminal that attached first
- * found no entry, got a no-op detach, and sat empty forever. That was safe
- * only while the same effect did both. With the spawn owned by the
- * orchestrator the two happen independently, so the listener has to be able to
- * arrive first — and, having arrived, to survive the session being replaced
- * under it (a restart hands the same view a new process).
- */
-const sinks = new Map<string, PaneSink>();
+/** The session registry: every pane's process, and what the app knows of it. */
+export interface PtyManager {
+  /** This pane's process state. Stable between changes. */
+  state(paneId: string): PaneSessionState;
+  /** Notify on every process-state change, for any pane. */
+  subscribe(listener: () => void): () => void;
+  /**
+   * Ensure `paneId` has a session running `spec`. Idempotent: a live (or
+   * in-flight, or exited-but-not-closed) session with the same identity is
+   * reused — an exited one is NOT silently respawned; restart is an explicit
+   * user action ([U4]). A different identity (the pane moved cwd, e.g.
+   * start-fresh after a lost worktree) closes the old session and spawns anew.
+   */
+  acquire(paneId: string, spec: PaneSpawnSpec, launch: PaneLaunch): void;
+  /**
+   * Point the pane's view at its session: recent output replays first, then
+   * the session's current state (ready / exited / failed) is announced.
+   * Returns the detach fn for the view's cleanup — detaching leaves the
+   * session running.
+   *
+   * Attaching BEFORE there is a session is fine and expected: the view mounts
+   * when the deck renders it, the process starts when the orchestrator decides
+   * it should, and neither waits for the other. The listener is simply
+   * recorded and hears the session from its first event.
+   */
+  attach(paneId: string, sink: PaneSink): () => void;
+  /**
+   * Whether the pane's session has already emitted output (the CLI has
+   * launched). A view reads this at mount to decide whether to open with the
+   * launch overlay: a fresh (or unknown) pane hasn't launched → show it; a
+   * re-attach to a running session has → skip it, no flash.
+   */
+  isLaunched(paneId: string): boolean;
+  /**
+   * Write keystrokes/text into the pane's PTY, IN ORDER. No-op without a live
+   * session (writes racing a close are normal noise, deliberately unlogged).
+   *
+   * Order is not free, and nothing below this function provides it. Each
+   * write is its own `session_write`, the Rust command is
+   * `#[tauri::command(async)]`, so every invocation is an independent task on
+   * Tauri's runtime, and they meet at a `std::sync::Mutex` around the PTY
+   * writer — which is not FIFO. Whichever task reaches the lock first writes
+   * first, whatever order they were issued in. Two writes issued in one
+   * synchronous breath are the case that matters, because that is the shape
+   * of the submit gesture: a paste and then a bare CR. Inverted, the CR spends
+   * itself on an empty composer and the text arrives after it and stays —
+   * which is what "the nudge is sitting in the input line" looks like from
+   * the outside.
+   *
+   * So each write waits for the one before it. The session is captured, not
+   * re-read: a write queued behind a slow one must reach the process it was
+   * meant for or none at all, never the process that replaced it. A closed or
+   * replaced session drops the rest of its tail instead of delivering it late
+   * — `close` does not wait for this queue, and must not: one shared lock
+   * across write and close is what once turned a hung agent into a pane that
+   * could not be closed.
+   *
+   * This is ordering only. Whether the bytes were ACCEPTED is a different
+   * question with a different answer, and this function still does not answer
+   * it — a write into a session that is gone is silently dropped exactly as
+   * it was before.
+   */
+  write(paneId: string, data: string): void;
+  /** Sync the PTY grid to the view. Same no-op semantics as `write`. */
+  resize(paneId: string, cols: number, rows: number): void;
+  /**
+   * Let a pane's session go: its entry, its buffer, and — when the process is
+   * still there — a stop of that exact session. A close the lifecycle runs has
+   * already stopped it through the sessions machine; this only drops what the
+   * page held. Safe on unknown/already-closed panes.
+   */
+  close(paneId: string): Promise<void>;
+}
 
 /** Shared so an absent pane always answers with the SAME object: consumers
  * subscribe through `useSyncExternalStore`, which re-renders forever on a
  * snapshot rebuilt at every read. */
 const NO_SESSION: PaneSessionState = { kind: "none" };
-const states = new Map<string, PaneSessionState>();
-const stateListeners = new Set<() => void>();
-
-function setSessionState(paneId: string, next: PaneSessionState): void {
-  states.set(paneId, next);
-  for (const listener of [...stateListeners]) listener();
-}
-
-/** This pane's process state. Stable between changes. */
-export function paneSessionState(paneId: string): PaneSessionState {
-  return states.get(paneId) ?? NO_SESSION;
-}
-
-/** Notify on every process-state change, for any pane. */
-export function subscribeSessions(listener: () => void): () => void {
-  stateListeners.add(listener);
-  return () => {
-    stateListeners.delete(listener);
-  };
-}
 
 function identity(spec: PaneSpawnSpec): string {
   return `${spec.command ?? ""}\u0000${spec.cwd ?? ""}`;
-}
-
-/**
- * Ensure `paneId` has a session running `spec`. Idempotent: a live (or
- * in-flight, or exited-but-not-closed) session with the same identity is
- * reused — an exited one is NOT silently respawned; restart is an explicit
- * user action ([U4]). A different identity (the pane moved cwd, e.g.
- * start-fresh after a lost worktree) closes the old session and spawns anew.
- */
-export function acquirePane(paneId: string, spec: PaneSpawnSpec): void {
-  const existing = entries.get(paneId);
-  if (existing && existing.key === identity(spec) && existing.failed === null) {
-    return;
-  }
-  if (existing) void closePane(paneId);
-
-  const entry: Entry = {
-    paneId,
-    key: identity(spec),
-    session: null,
-    chunks: [],
-    buffered: 0,
-    exited: null,
-    exitAnnounced: false,
-    failed: null,
-    failedAnnounced: false,
-    closed: false,
-    launched: false,
-    writes: Promise.resolve(),
-  };
-  entries.set(paneId, entry);
-  setSessionState(paneId, { kind: "starting" });
-  // These three lines — `spawn`, `spawn resolved`, `first output` — form a
-  // diagnostic chain for a starting pane, and whichever one a pane's log ends
-  // at names what happened. Nothing at all: the acquire never ran. `spawn`
-  // alone, with no `spawn failed` after it: the spawn call never settled.
-  // Through `spawn resolved`: the process exists but has printed nothing —
-  // alive and stuck. All three: a healthy launch. Each fires at most once per
-  // session, and none of them carries output bytes.
-  log.info("web:pty", `${paneId}: spawn ${spec.command ?? "(shell)"} in ${spec.cwd ?? "(app cwd)"}`);
-
-  spawnSession(
-    {
-      command: spec.command,
-      args: spec.args,
-      env: spec.env,
-      envDefaults: spec.envDefaults,
-      cwd: spec.cwd,
-      cols: spec.cols,
-      rows: spec.rows,
-      pane: paneId,
-    },
-    (event) => {
-      if (entry.closed) return;
-      if (event.type === "output") {
-        const { bytes } = event;
-        // First byte from the process: the CLI has painted. The flag is set
-        // BEFORE the view is touched — a sink that throws must not be able to
-        // leave the pane "not launched" forever while its process is alive and
-        // printing, nor to swallow the chunk the replay buffer owes a remount.
-        const firstOutput = !entry.launched;
-        if (firstOutput) {
-          entry.launched = true;
-          log.info("web:pty", `${paneId}: first output`);
-        }
-        try {
-          sinks.get(paneId)?.onOutput(bytes);
-        } catch (err) {
-          log.error("web:pty", `${paneId}: onOutput threw: ${errorMessage(err)}`);
-        }
-        if (firstOutput) {
-          // Announced after the output, matching [`attachPane`]'s replay order:
-          // the view paints its first frame, then drops the launch overlay.
-          try {
-            sinks.get(paneId)?.onLaunched();
-          } catch (err) {
-            log.error("web:pty", `${paneId}: onLaunched threw: ${errorMessage(err)}`);
-          }
-        }
-        remember(entry, bytes);
-      } else {
-        entry.exited = { code: event.code };
-        entry.session = null;
-        setSessionState(paneId, { kind: "exited", code: event.code });
-        log.info("web:pty", `${paneId}: exited (code ${event.code ?? "?"})`);
-        const sink = sinks.get(paneId);
-        if (sink) {
-          entry.exitAnnounced = true;
-          sink.onExit(event.code, false);
-        }
-      }
-    },
-  )
-    .then((session) => {
-      if (entry.closed) {
-        // The pane was closed while the spawn was in flight — reap the
-        // process the moment it exists.
-        void session.close().catch(() => {});
-        return;
-      }
-      entry.session = session;
-      log.info("web:pty", `${paneId}: spawn resolved`);
-      // An exit can land before the spawn promise settles (a process that dies
-      // immediately) — the death is the later truth, so it must not be undone.
-      if (!entry.exited) setSessionState(paneId, { kind: "live" });
-      sinks.get(paneId)?.onReady();
-    })
-    .catch((err: unknown) => {
-      if (entry.closed) return;
-      entry.failed = errorMessage(err);
-      setSessionState(paneId, { kind: "failed", message: entry.failed });
-      log.error("web:pty", `${paneId}: spawn failed: ${entry.failed}`);
-      const sink = sinks.get(paneId);
-      if (sink) {
-        entry.failedAnnounced = true;
-        sink.onSpawnError(entry.failed, false);
-      }
-    });
-}
-
-/**
- * Point the pane's view at its session: recent output replays first, then the
- * session's current state (ready / exited / failed) is announced. Returns the
- * detach fn for the view's cleanup — detaching leaves the session running.
- *
- * Attaching BEFORE there is a session is fine and expected: the view mounts
- * when the deck renders it, the process starts when the orchestrator decides
- * it should, and neither waits for the other. The listener is simply recorded
- * and hears the session from its first event.
- */
-export function attachPane(paneId: string, sink: PaneSink): () => void {
-  sinks.set(paneId, sink);
-  const detach = () => {
-    // Only detach if this sink is still the current one — a re-mount may have
-    // already attached its own before the old cleanup ran.
-    if (sinks.get(paneId) === sink) sinks.delete(paneId);
-  };
-  const entry = entries.get(paneId);
-  if (!entry) return detach;
-  for (const chunk of entry.chunks) sink.onOutput(chunk);
-  if (entry.failed !== null) {
-    // Same once-per-failure contract as exits below: a failure nobody heard
-    // is live for its first listener, history for every later one.
-    const replayed = entry.failedAnnounced;
-    entry.failedAnnounced = true;
-    sink.onSpawnError(entry.failed, replayed);
-  } else if (entry.exited) {
-    // A death nobody heard (it landed between detach and re-attach) is
-    // announced to its first listener as LIVE; every later attach replays.
-    const replayed = entry.exitAnnounced;
-    entry.exitAnnounced = true;
-    sink.onExit(entry.exited.code, replayed);
-  }
-  else if (entry.session) sink.onReady();
-  // Already-launched session (re-attach): tell the view now, after the replay,
-  // so it opens without the launch overlay instead of flashing it again.
-  if (entry.launched) sink.onLaunched();
-  return detach;
-}
-
-/**
- * Whether the pane's session has already emitted output (the CLI has launched).
- * A view reads this at mount to decide whether to open with the launch overlay:
- * a fresh (or unknown) pane hasn't launched → show it; a re-attach to a running
- * session has → skip it, no flash.
- */
-export function isPaneLaunched(paneId: string): boolean {
-  return entries.get(paneId)?.launched ?? false;
-}
-
-/**
- * Write keystrokes/text into the pane's PTY, IN ORDER. No-op without a live
- * session (writes racing a close are normal noise, deliberately unlogged).
- *
- * Order is not free, and nothing below this function provides it. Each write
- * is its own `session_write`, the Rust command is `#[tauri::command(async)]`,
- * so every invocation is an independent task on Tauri's runtime, and they meet
- * at a `std::sync::Mutex` around the PTY writer — which is not FIFO. Whichever
- * task reaches the lock first writes first, whatever order they were issued
- * in. Two writes issued in one synchronous breath are the case that matters,
- * because that is the shape of the submit gesture: a paste and then a bare CR.
- * Inverted, the CR spends itself on an empty composer and the text arrives
- * after it and stays — which is what "the nudge is sitting in the input line"
- * looks like from the outside.
- *
- * So each write waits for the one before it. The session is captured, not
- * re-read: a write queued behind a slow one must reach the process it was
- * meant for or none at all, never the process that replaced it. A closed or
- * replaced session drops the rest of its tail instead of delivering it late —
- * `closePane` does not wait for this queue, and must not: one shared lock
- * across write and close is what once turned a hung agent into a pane that
- * could not be closed.
- *
- * This is ordering only. Whether the bytes were ACCEPTED is a different
- * question with a different answer, and this function still does not answer
- * it — a write into a session that is gone is silently dropped exactly as it
- * was before.
- */
-export function writePane(paneId: string, data: string): void {
-  const entry = entries.get(paneId);
-  const session = entry?.session;
-  if (!entry || !session) return;
-  entry.writes = entry.writes
-    .then(() => {
-      if (entry.closed || entry.session !== session) return;
-      return session.write(data);
-    })
-    .catch(() => {});
-}
-
-/** Sync the PTY grid to the view. Same no-op semantics as [`writePane`]. */
-export function resizePane(paneId: string, cols: number, rows: number): void {
-  void entries.get(paneId)?.session?.resize(cols, rows).catch(() => {});
-}
-
-/**
- * End the pane's session for real — THE only path that kills the process.
- * Resolves once the close IPC settles (a worktree delete may need the cwd
- * freed). Safe on unknown/already-closed panes.
- */
-export function closePane(paneId: string): Promise<void> {
-  const entry = entries.get(paneId);
-  if (!entry) return Promise.resolve();
-  entries.delete(paneId);
-  // The state goes with the entry: a close is what makes an exit stop being
-  // the pane's current truth, and anything still showing it must stop.
-  states.delete(paneId);
-  for (const listener of [...stateListeners]) listener();
-  entry.closed = true;
-  // The listener is NOT dropped: the view outlives the session it was showing,
-  // and a restart hands the same terminal the next process.
-  entry.chunks = [];
-  entry.buffered = 0;
-  const session = entry.session;
-  entry.session = null;
-  if (!session) return Promise.resolve();
-  log.info("web:pty", `${paneId}: close`);
-  return session.close().catch((e) => {
-    // Usually "already gone" (the process exited and reaped itself).
-    log.debug("web:pty", `${paneId}: close failed: ${errorMessage(e)}`);
-  });
-}
-
-/** Test hook: drop every entry, closing what's live. */
-export function resetPtyManager(): void {
-  for (const id of [...entries.keys()]) void closePane(id);
-  // Listeners outlive the sessions they watch — deliberately, so a restart
-  // keeps the same terminal attached — so nothing else drops them.
-  sinks.clear();
 }
 
 function remember(entry: Entry, bytes: Uint8Array): void {
@@ -432,3 +241,247 @@ function remember(entry: Entry, bytes: Uint8Array): void {
     entry.chunks.shift();
   }
 }
+
+/** A session registry opening its processes through `open`. */
+export function createPtyManager(open: OpenSession): PtyManager {
+  const entries = new Map<string, Entry>();
+
+  /**
+   * The views listening to each pane, kept OUTSIDE the session entry.
+   *
+   * A view used to be reachable only through the entry, which made the order
+   * of `acquire` and `attach` load-bearing: a terminal that attached first
+   * found no entry, got a no-op detach, and sat empty forever. That was safe
+   * only while the same effect did both. With the spawn owned by the
+   * orchestrator the two happen independently, so the listener has to be
+   * able to arrive first — and, having arrived, to survive the session being
+   * replaced under it (a restart hands the same view a new process).
+   */
+  const sinks = new Map<string, PaneSink>();
+  const states = new Map<string, PaneSessionState>();
+  const stateListeners = new Set<() => void>();
+
+  function setSessionState(paneId: string, next: PaneSessionState): void {
+    states.set(paneId, next);
+    for (const listener of [...stateListeners]) listener();
+  }
+
+  function state(paneId: string): PaneSessionState {
+    return states.get(paneId) ?? NO_SESSION;
+  }
+
+  function subscribe(listener: () => void): () => void {
+    stateListeners.add(listener);
+    return () => {
+      stateListeners.delete(listener);
+    };
+  }
+
+  function acquire(paneId: string, spec: PaneSpawnSpec, launch: PaneLaunch): void {
+    const existing = entries.get(paneId);
+    if (existing && existing.key === identity(spec) && existing.failed === null) {
+      return;
+    }
+    if (existing) void close(paneId);
+
+    const entry: Entry = {
+      paneId,
+      key: identity(spec),
+      session: null,
+      chunks: [],
+      buffered: 0,
+      exited: null,
+      exitAnnounced: false,
+      failed: null,
+      failedAnnounced: false,
+      closed: false,
+      launched: false,
+      writes: Promise.resolve(),
+    };
+    entries.set(paneId, entry);
+    setSessionState(paneId, { kind: "starting" });
+    // These three lines — `spawn`, `spawn resolved`, `first output` — form a
+    // diagnostic chain for a starting pane, and whichever one a pane's log
+    // ends at names what happened. Nothing at all: the acquire never ran.
+    // `spawn` alone, with no `spawn failed` after it: the spawn call never
+    // settled. Through `spawn resolved`: the process exists but has printed
+    // nothing — alive and stuck. All three: a healthy launch. Each fires at
+    // most once per session, and none of them carries output bytes.
+    log.info("web:pty", `${paneId}: spawn ${spec.command ?? "(shell)"} in ${spec.cwd ?? "(app cwd)"}`);
+
+    open(
+      {
+        command: spec.command,
+        args: spec.args,
+        env: spec.env,
+        envDefaults: spec.envDefaults,
+        cwd: spec.cwd,
+        cols: spec.cols,
+        rows: spec.rows,
+      },
+      launch.permit,
+      launch.owner,
+      (event) => {
+        if (entry.closed) return;
+        if (event.type === "output") {
+          const { bytes } = event;
+          // First byte from the terminal: the CLI has painted. It counts the
+          // terminal's bytes, not who wrote them — into a process silent so
+          // far, the echo of what was typed is that first byte, and the pane
+          // shows something all the same. The flag is set
+          // BEFORE the view is touched — a sink that throws must not be able
+          // to leave the pane "not launched" forever while its process is
+          // alive and printing, nor to swallow the chunk the replay buffer
+          // owes a remount.
+          const firstOutput = !entry.launched;
+          if (firstOutput) {
+            entry.launched = true;
+            log.info("web:pty", `${paneId}: first output`);
+          }
+          try {
+            sinks.get(paneId)?.onOutput(bytes);
+          } catch (err) {
+            log.error("web:pty", `${paneId}: onOutput threw: ${errorMessage(err)}`);
+          }
+          if (firstOutput) {
+            // Announced after the output, matching `attach`'s replay order:
+            // the view paints its first frame, then drops the launch overlay.
+            try {
+              sinks.get(paneId)?.onLaunched();
+            } catch (err) {
+              log.error("web:pty", `${paneId}: onLaunched threw: ${errorMessage(err)}`);
+            }
+          }
+          remember(entry, bytes);
+        } else {
+          entry.exited = { code: event.code };
+          entry.session = null;
+          setSessionState(paneId, { kind: "exited", code: event.code });
+          log.info("web:pty", `${paneId}: exited (code ${event.code ?? "?"})`);
+          const sink = sinks.get(paneId);
+          if (sink) {
+            entry.exitAnnounced = true;
+            sink.onExit(event.code, false);
+          }
+        }
+      },
+    )
+      .then((session) => {
+        if (entry.closed) {
+          // The pane was closed while the spawn was in flight — stop the
+          // process the moment it exists.
+          void session.stop().catch(() => {});
+          return;
+        }
+        entry.session = session;
+        log.info("web:pty", `${paneId}: spawn resolved`);
+        // An exit can land before the spawn promise settles (a process that
+        // dies immediately) — the death is the later truth, so it must not be
+        // undone.
+        if (!entry.exited) setSessionState(paneId, { kind: "live" });
+        sinks.get(paneId)?.onReady();
+      })
+      .catch((err: unknown) => {
+        if (entry.closed) return;
+        entry.failed = errorMessage(err);
+        setSessionState(paneId, { kind: "failed", message: entry.failed });
+        log.error("web:pty", `${paneId}: spawn failed: ${entry.failed}`);
+        const sink = sinks.get(paneId);
+        if (sink) {
+          entry.failedAnnounced = true;
+          sink.onSpawnError(entry.failed, false);
+        }
+      });
+  }
+
+  function attach(paneId: string, sink: PaneSink): () => void {
+    sinks.set(paneId, sink);
+    const detach = () => {
+      // Only detach if this sink is still the current one — a re-mount may
+      // have already attached its own before the old cleanup ran.
+      if (sinks.get(paneId) === sink) sinks.delete(paneId);
+    };
+    const entry = entries.get(paneId);
+    if (!entry) return detach;
+    for (const chunk of entry.chunks) sink.onOutput(chunk);
+    if (entry.failed !== null) {
+      // Same once-per-failure contract as exits below: a failure nobody heard
+      // is live for its first listener, history for every later one.
+      const replayed = entry.failedAnnounced;
+      entry.failedAnnounced = true;
+      sink.onSpawnError(entry.failed, replayed);
+    } else if (entry.exited) {
+      // A death nobody heard (it landed between detach and re-attach) is
+      // announced to its first listener as LIVE; every later attach replays.
+      const replayed = entry.exitAnnounced;
+      entry.exitAnnounced = true;
+      sink.onExit(entry.exited.code, replayed);
+    }
+    else if (entry.session) sink.onReady();
+    // Already-launched session (re-attach): tell the view now, after the
+    // replay, so it opens without the launch overlay instead of flashing it
+    // again.
+    if (entry.launched) sink.onLaunched();
+    return detach;
+  }
+
+  function isLaunched(paneId: string): boolean {
+    return entries.get(paneId)?.launched ?? false;
+  }
+
+  function write(paneId: string, data: string): void {
+    const entry = entries.get(paneId);
+    const session = entry?.session;
+    if (!entry || !session) return;
+    entry.writes = entry.writes
+      .then(() => {
+        if (entry.closed || entry.session !== session) return;
+        return session.write(data);
+      })
+      .catch(() => {});
+  }
+
+  function resize(paneId: string, cols: number, rows: number): void {
+    void entries.get(paneId)?.session?.resize(cols, rows).catch(() => {});
+  }
+
+  function close(paneId: string): Promise<void> {
+    const entry = entries.get(paneId);
+    if (!entry) return Promise.resolve();
+    entries.delete(paneId);
+    // The state goes with the entry: a close is what makes an exit stop being
+    // the pane's current truth, and anything still showing it must stop.
+    states.delete(paneId);
+    for (const listener of [...stateListeners]) listener();
+    entry.closed = true;
+    // The listener is NOT dropped: the view outlives the session it was
+    // showing, and a restart hands the same terminal the next process.
+    entry.chunks = [];
+    entry.buffered = 0;
+    const session = entry.session;
+    entry.session = null;
+    if (!session) return Promise.resolve();
+    log.info("web:pty", `${paneId}: close`);
+    return session.stop().then(
+      () => {},
+      (e: unknown) => {
+        // Usually "already gone" (the process exited and reaped itself).
+        log.debug("web:pty", `${paneId}: close failed: ${errorMessage(e)}`);
+      },
+    );
+  }
+
+  return { state, subscribe, acquire, attach, isLaunched, write, resize, close };
+}
+
+/** The app's registry: its processes open through the sessions machine. */
+const app = createPtyManager(openSession);
+
+export const paneSessionState = app.state;
+export const subscribeSessions = app.subscribe;
+export const acquirePane = app.acquire;
+export const attachPane = app.attach;
+export const isPaneLaunched = app.isLaunched;
+export const writePane = app.write;
+export const resizePane = app.resize;
+export const closePane = app.close;

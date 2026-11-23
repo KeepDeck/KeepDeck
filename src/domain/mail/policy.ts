@@ -462,6 +462,23 @@ export function forgottenNotice(mail: Mail, id: string, at: number): Mail | null
   );
 }
 
+/**
+ * The report owed when a message handed over to an agent comes back unread
+ * after that agent was closed.
+ *
+ * Neither dropped nor forgotten: it was on its way, the hand-over failed,
+ * and there is nobody left to hand it to. The honest instruction is that
+ * nothing more reaches that agent — write to somebody else.
+ */
+export function closedNotice(mail: Mail, id: string, at: number): Mail | null {
+  return reportToSender(
+    mail,
+    id,
+    at,
+    `Not delivered: the agent your ${mail.kind} was for was closed before it read it, and nothing more reaches it. Write to somebody else if it still matters.`,
+  );
+}
+
 /** The shape all three reports share. See [`overdueNotice`] for why two of
  * the three possible senders get nothing. */
 function reportToSender(mail: Mail, id: string, at: number, body: string): Mail | null {

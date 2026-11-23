@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { MAX_PANES, TEAM_FULL_MESSAGE, type Team, type TeamActs, type Workspace } from "../domain/deck";
+import type { TeamGates } from "../domain/lifecycle";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { refusalText } from "./lifecycleWords";
 import { teamMenuView, type TeamMenuItem } from "./teamMenuView";
 
 const attached: Team = { id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo/.wt/api" } };
@@ -24,13 +26,15 @@ const ws = (members = 2): Workspace => ({
   })),
 });
 
-type Skip<K extends keyof TeamActs> = TeamActs[K]["skip"][number];
+type Skip<K extends "suspend" | "resume"> = TeamActs[K]["skip"][number];
 const acts = (
   suspend: { take?: string[]; skip?: Skip<"suspend">[] } = {},
   resume: { take?: string[]; skip?: Skip<"resume">[] } = {},
+  gates: TeamGates | null = null,
 ): TeamActs => ({
   suspend: { take: suspend.take ?? [], skip: suspend.skip ?? [] },
   resume: { take: resume.take ?? [], skip: resume.skip ?? [] },
+  gates,
 });
 
 const line = (items: TeamMenuItem[], action: TeamMenuItem["action"]) => items.find((item) => item.action === action);
@@ -131,5 +135,31 @@ describe("teamMenuView — one line-set for the card's ⋯ and the crumb's", () 
     const items = teamMenuView(ws(MAX_PANES), attached, acts(), "card");
     expect(line(items, "add-member")?.refusal).toBe(TEAM_FULL_MESSAGE);
     expect(line(teamMenuView(ws(1), attached, acts(), "card"), "add-member")?.refusal).toBeNull();
+  });
+
+  describe("the lines the machine gates", () => {
+    const open: TeamGates = { addMember: null, close: null, retry: null };
+
+    it("keeps each line, refused in the words of what its intent would meet", () => {
+      const leaving: TeamGates = { addMember: { kind: "targetLeaving" }, close: { kind: "alreadyClosing" }, retry: { kind: "busy" } };
+      for (const surface of ["card", "crumb"] as const) {
+        const items = teamMenuView(ws(), failed, acts({}, {}, leaving), surface);
+        expect(line(items, "add-member")?.refusal).toBe(refusalText({ kind: "targetLeaving" }));
+        expect(line(items, "disband")?.refusal).toBe(refusalText({ kind: "alreadyClosing" }));
+        expect(line(items, "retry")?.refusal).toBe(refusalText({ kind: "busy" }));
+        expect(line(items, "rename")?.refusal).toBeNull();
+      }
+    });
+
+    it("says the machine's reason before the cap's, and leaves open gates to the deck's own rules", () => {
+      const archived: TeamGates = { ...open, addMember: { kind: "archived" } };
+      expect(line(teamMenuView(ws(MAX_PANES), attached, acts({}, {}, archived), "card"), "add-member")?.refusal).toBe(
+        refusalText({ kind: "archived" }),
+      );
+      const items = teamMenuView(ws(MAX_PANES), failed, acts({}, {}, open), "card");
+      expect(line(items, "add-member")?.refusal).toBe(TEAM_FULL_MESSAGE);
+      expect(line(items, "disband")?.refusal).toBeNull();
+      expect(line(items, "retry")?.refusal).toBeNull();
+    });
   });
 });

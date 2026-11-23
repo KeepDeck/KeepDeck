@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::mcp::server::LineHandler;
 
@@ -46,7 +46,7 @@ struct McpRequest {
     /// must read as an anonymous client rather than as nobody at all.
     client: Option<String>,
     /// The pane whose terminal the connecting process belongs to
-    /// ([`crate::session::SessionRegistry::pane_of`]), asked once at
+    /// ([`crate::session_machine::Table::pane_of`]), asked once at
     /// connect. A fact, not a verdict: the webview counts a secret only from
     /// its own pane's terminal, and only it knows which pane a secret is.
     host: Option<String>,
@@ -181,11 +181,11 @@ fn client_token(line: &str) -> Option<String> {
 ///
 /// One handler per connection, because the client's own name arrives ON that
 /// connection and must not be read into anyone else's requests.
-pub(crate) fn webview_handler(app: AppHandle) -> LineHandler {
+pub(crate) fn webview_handler<R: Runtime>(app: AppHandle<R>) -> LineHandler {
     Arc::new(move |peer| {
         let app = app.clone();
         let mut client: Option<String> = None;
-        let host = peer.and_then(|pid| app.state::<crate::session::SessionRegistry>().pane_of(pid));
+        let host = peer.and_then(|pid| app.state::<crate::session_machine::SessionMachine>().table.pane_of(pid)).map(|pane| pane.to_string());
         Box::new(move |line: &str| {
         if let Some(token) = client_token(line) {
             client = Some(token);

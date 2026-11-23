@@ -70,9 +70,12 @@ pub(super) fn wrap(origin: &Origin, event: TailedEvent, catch_up: bool) -> Repor
     if let Some(source_ref) = event.source_ref {
         payload["sourceRef"] = json!(source_ref);
     }
+    // The tailer is the deck's own reader of the store: no process of the
+    // pane speaks here.
     Report {
         pane_id: origin.pane_id.to_string(),
         token: origin.token.to_string(),
+        reporter: None,
         payload,
     }
 }
@@ -145,6 +148,7 @@ pub(super) fn route(report: Report) -> Routed {
     Routed::Status(Report {
         pane_id: report.pane_id,
         token: report.token,
+        reporter: report.reporter,
         payload: body,
     })
 }

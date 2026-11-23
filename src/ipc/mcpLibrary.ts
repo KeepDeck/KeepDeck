@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { WriteSource } from "../domain/lifecycle";
 import type { McpScope } from "../domain/mcp";
-import { log } from "./log";
-import { errorMessage } from "@keepdeck/plugin-api";
+import { writerWire } from "./writeSource";
 
 /** One stored library server (mirrors the Rust `McpServerDto`). */
 export interface StoredMcpServer {
@@ -34,36 +34,18 @@ export async function saveMcpServer(
   name: string,
   content: string,
   expectNew: boolean,
+  writer: WriteSource | null,
 ): Promise<void> {
-  await invoke("mcp_library_save", { ...wire(scope), name, content, expectNew });
+  await invoke("mcp_library_save", { ...wire(scope), name, content, expectNew, writer: writerWire(writer) });
 }
 
 /** Remove one server's file. Throws on failure. */
-export async function deleteMcpServer(scope: McpScope, name: string): Promise<void> {
-  await invoke("mcp_library_delete", { ...wire(scope), name });
+export async function deleteMcpServer(scope: McpScope, name: string, writer: WriteSource | null): Promise<void> {
+  await invoke("mcp_library_delete", { ...wire(scope), name, writer: writerWire(writer) });
 }
 
 /** Rename one server by moving its file. Throws on failure (a name collision
  * included). */
-export async function renameMcpServer(scope: McpScope, from: string, to: string): Promise<void> {
-  await invoke("mcp_library_rename", { ...wire(scope), from, to });
-}
-
-/** Drop a closing workspace's whole library scope. Idempotent; the deck
- * model is the only knower of the live workspace set. */
-export async function forgetMcpWorkspace(wsId: string): Promise<void> {
-  await invoke("mcp_library_forget_workspace", { wsId });
-}
-
-/** Sweep the scopes of workspaces that are gone — the crash path, where the
- * deck never got to forget them. Answers whether the pass worked, like the
- * other sweeps: a failure is logged and retried on the next sweep. */
-export async function pruneMcpLibrary(liveWsIds: string[]): Promise<boolean> {
-  try {
-    await invoke("mcp_library_prune", { liveWsIds });
-    return true;
-  } catch (e) {
-    log.warn("web:mcp", `library prune failed: ${errorMessage(e)}`);
-    return false;
-  }
+export async function renameMcpServer(scope: McpScope, from: string, to: string, writer: WriteSource | null): Promise<void> {
+  await invoke("mcp_library_rename", { ...wire(scope), from, to, writer: writerWire(writer) });
 }

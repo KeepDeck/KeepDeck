@@ -14,7 +14,7 @@
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 use crate::bridge::origin;
 use crate::bridge::waiters::{Waiters, HOOK_WAIT};
@@ -47,7 +47,7 @@ pub(super) struct Surface {
 /// started earlier would inherit an environment with no address in it, and
 /// since the file lane was cut there is nothing else for it to use: its
 /// reporters would report nothing for that pane's whole life.
-pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, String> {
+pub(super) fn serve<R: Runtime>(app: AppHandle<R>, waiters: Arc<Waiters>) -> Result<Surface, String> {
     let bound = bind("bridge")?;
     let port = bound.port;
     let listener = Listener::serve(
@@ -67,8 +67,10 @@ pub(super) fn serve(app: AppHandle, waiters: Arc<Waiters>) -> Result<Surface, St
                 &waiters,
                 &move |pid| {
                     sessions
-                        .state::<crate::session::SessionRegistry>()
+                        .state::<crate::session_machine::SessionMachine>()
+                        .table
                         .pane_of(pid)
+                        .map(|pane| pane.to_string())
                 },
                 &move |inbound| super::emit_inbound(&app, inbound),
             );

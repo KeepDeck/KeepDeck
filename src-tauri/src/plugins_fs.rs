@@ -517,7 +517,7 @@ fn plain_segments(value: &str) -> bool {
 /// contents cross this boundary, and the webview is the same trust domain
 /// that could read these files through its own asset scope anyway.
 #[tauri::command]
-pub fn plugin_resource_path(app: tauri::AppHandle, path: String) -> Option<String> {
+pub fn plugin_resource_path<R: tauri::Runtime>(app: tauri::AppHandle<R>, path: String) -> Option<String> {
     use tauri::Manager as _;
     let resolved = app
         .path()

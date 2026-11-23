@@ -8,10 +8,13 @@ mod containment;
 mod dnd;
 mod downloads;
 mod fd_limit;
+mod forgotten;
 mod fswatch;
 mod fs_beneath;
 mod fs_claim;
 mod fs_names;
+#[cfg(feature = "host-harness")]
+pub mod harness;
 mod head_watch;
 mod http;
 mod links;
@@ -48,7 +51,10 @@ mod recent_projects;
 mod journal;
 mod exec_once;
 mod keyed_locks;
+mod lifecycle;
+mod session_machine;
 mod state;
+mod supervised;
 mod jsonl_log;
 mod price_catalogue;
 mod usage_ledger;
@@ -85,7 +91,7 @@ impl AppInfo {
 }
 
 #[tauri::command]
-fn app_info(app: tauri::AppHandle) -> AppInfo {
+fn app_info<R: tauri::Runtime>(app: tauri::AppHandle<R>) -> AppInfo {
     AppInfo::current(app.config().plugins.0.contains_key("updater"))
 }
 
@@ -103,7 +109,7 @@ pub fn run() {
     plugin_permissions::host_environment();
     // Trim past runs' log files before the plugin opens this run's own.
     let collected = logging::collect_garbage();
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(logging::plugin())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -119,19 +125,106 @@ pub fn run() {
             plugins_fs::handle_request(plugins_fs::plugins_root().as_deref(), &origin, &request)
         })
         .menu(menu::build)
-        .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()))
+        .on_menu_event(|app, event| menu::handle_event(app, event.id().as_ref()));
+    compose(builder, move |app| {
+        logging::install_panic_hook();
+        logging::banner();
+        // The notification stack gets exactly one chance to resolve who we
+        // are and takes it lazily, on the first banner (see
+        // `notify_identity`). Tauri has ALREADY built the config-declared
+        // window and its webview by the time this closure runs, so being
+        // early in `setup` is not what keeps us ahead of that first
+        // banner — the main thread simply has not yielded to the run loop
+        // yet, so no frontend code has executed. Anything added above this
+        // line that pumps the run loop (a modal, a main-thread drain)
+        // would let the webview reach `sendNotification` first and burn
+        // the attempt.
+        #[cfg(target_os = "macos")]
+        notify_identity::prepare(&app.config().identifier);
+        // The updater's config (pubkey + endpoints) lives only in the
+        // release overlay (tauri.release.conf.json); a dev build carries
+        // no `plugins.updater` section and the plugin refuses to init
+        // without one, so it is registered only when configured. The
+        // frontend treats the plugin's absence as "updates disabled".
+        if app.config().plugins.0.contains_key("updater") {
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+        }
+        if collected > 0 {
+            log::info!("log gc: removed {collected} old file(s)");
+        }
+        open_files.log();
+        // Image pastes leave temp PNGs a pane's CLI reads asynchronously —
+        // they can only be reaped at the NEXT startup, here.
+        clipboard::sweep_stale_clipboard_files();
+        // Adopt state a legacy install left in the identifier-keyed
+        // dirs — before the webview boots and asks for the deck, and
+        // before it can enable the artifacts store: that adoption
+        // moves a tree only into an EMPTY seat, so an enable that
+        // claimed the home's store first would make the legacy one
+        // unadoptable forever. Setup runs to completion before the
+        // webview gets the loop, which is what keeps the order.
+        migration::run(app.handle());
+        // What builds before plugin API 73 planted in pane directories
+        // goes before the webview restores a pane: each one's plugin
+        // declares what it still needs the moment it starts.
+        plantings_migration::run();
+        // Model prices: the journal the usage ledger is priced from asks
+        // the catalogue once a day, off the main thread.
+        price_catalogue::start(app.handle());
+        Ok(())
+    })
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    // The app is going — take the agents with it.
+    //
+    // Nothing ever did this. Dropping the window closes each PTY, which
+    // hangs up the terminal and nothing more: a CLI that owns its own
+    // children lives on, orphaned, holding whatever it held. It is
+    // invisible until the next launch, when codex finds "an active
+    // writer" on the rollout it wants to resume — the writer being the
+    // codex the last run left behind.
+    //
+    // Both events, because either can be the last one this process sees:
+    // `ExitRequested` on the ordinary quit path, `Exit` when the run loop
+    // is torn down under us. `shutdown` empties the table, so whichever
+    // comes second finds nothing to do.
+    .run(|app, event| {
+        if matches!(
+            event,
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
+        ) {
+            app.state::<session_machine::SessionMachine>()
+                .table
+                .shutdown(keepdeck_pty::STOP_GRACE);
+        }
+    });
+}
+
+/// The app's own composition: the state it manages, what its setup starts
+/// for the commands to reach — the bridge, the gates, the sessions and
+/// lifecycle machines — and its one list of commands. Built on the window's
+/// builder by [`run`], whose `shell` runs first in setup: what only the
+/// windowed app does — its banner and notifications, the updater, the legacy
+/// migrations, the price catalogue.
+fn compose<R: tauri::Runtime>(
+    builder: tauri::Builder<R>,
+    shell: impl FnOnce(&mut tauri::App<R>) -> Result<(), Box<dyn std::error::Error>> + Send + 'static,
+) -> tauri::Builder<R> {
+    builder
         .manage(history::HistoryIndex::default())
         .manage(usage_ledger::UsageLedgerState::default())
-        .manage(session::SessionRegistry::default())
         .manage(artifacts::ArtifactsState::new())
         .manage(tasks::TasksState::new())
         .manage(exec_once::OnceRunner::new())
         .manage(worktree::RepoLocks::default())
         .manage(skills::SkillsLocks::default())
+        .manage(skills::SkillsLibraryLock::default())
         .manage(head_watch::HeadWatchers::default())
         .manage(session_tail::UsageTails::default())
         .manage(rpc_child::RpcChildPool::default())
         .manage(plugin_permissions::PluginGrants::default())
+        .manage(plugin_workspaces::PluginDirsLock::default())
         .manage(project_fs::ProjectFsWatchers::default())
         .manage(project_git::ProjectGitWatchers::default())
         .manage(downloads::DownloadRegistry::default())
@@ -141,62 +234,46 @@ pub fn run() {
         .manage(mcp::bridge::McpBridge::default())
         .manage(mcp::library::McpLibraryLock::default())
         .setup(move |app| {
-            logging::install_panic_hook();
-            logging::banner();
-            // The notification stack gets exactly one chance to resolve who we
-            // are and takes it lazily, on the first banner (see
-            // `notify_identity`). Tauri has ALREADY built the config-declared
-            // window and its webview by the time this closure runs, so being
-            // early in `setup` is not what keeps us ahead of that first
-            // banner — the main thread simply has not yielded to the run loop
-            // yet, so no frontend code has executed. Anything added above this
-            // line that pumps the run loop (a modal, a main-thread drain)
-            // would let the webview reach `sendNotification` first and burn
-            // the attempt.
-            #[cfg(target_os = "macos")]
-            notify_identity::prepare(&app.config().identifier);
-            // The updater's config (pubkey + endpoints) lives only in the
-            // release overlay (tauri.release.conf.json); a dev build carries
-            // no `plugins.updater` section and the plugin refuses to init
-            // without one, so it is registered only when configured. The
-            // frontend treats the plugin's absence as "updates disabled".
-            if app.config().plugins.0.contains_key("updater") {
-                app.handle()
-                    .plugin(tauri_plugin_updater::Builder::new().build())?;
-            }
-            if collected > 0 {
-                log::info!("log gc: removed {collected} old file(s)");
-            }
-            open_files.log();
-            // Image pastes leave temp PNGs a pane's CLI reads asynchronously —
-            // they can only be reaped at the NEXT startup, here.
-            clipboard::sweep_stale_clipboard_files();
-            // Adopt state a legacy install left in the identifier-keyed
-            // dirs — before the webview boots and asks for the deck, and
-            // before it can enable the artifacts store: that adoption
-            // moves a tree only into an EMPTY seat, so an enable that
-            // claimed the home's store first would make the legacy one
-            // unadoptable forever. Setup runs to completion before the
-            // webview gets the loop, which is what keeps the order.
-            migration::run(app.handle());
-            // What builds before plugin API 73 planted in pane directories
-            // goes before the webview restores a pane: each one's plugin
-            // declares what it still needs the moment it starts.
-            plantings_migration::run();
+            shell(app)?;
             // The CLI bridge: agents report their session ids through this
             // run's inbox; the lock and watcher live as managed state for
             // the app's lifetime.
             let bridge = bridge::start(app.handle())?;
             app.manage(bridge);
-            // Model prices: the journal the usage ledger is priced from asks
-            // the catalogue once a day, off the main thread.
-            price_catalogue::start(app.handle());
             let gate_app = app.handle().clone();
             app.manage(skills::GateRegistry::new(move || {
                 gate_app
                     .state::<artifacts::ArtifactsState>()
                     .is_claimed()
             }));
+            // The lifecycle machine: started once, on the journal root's
+            // claim, and held for the app's whole life. A copy without the
+            // claim only shows, and keeps trying for it.
+            // The sessions machine first: the lifecycle's doors stop its
+            // sessions and cancel at its start boundary. Its git doors take
+            // the same repository locks as the rest of the app.
+            let root = lifecycle::journal_root().ok_or("no KeepDeck home to hold the lifecycle journal")?;
+            let sessions = tauri::async_runtime::block_on(async { session_machine::SessionMachine::start() });
+            let locks = app.state::<worktree::RepoLocks>().inner().clone();
+            let stores = std::sync::Arc::new(lifecycle::AppStores::new(app.handle().clone()));
+            let doors = std::sync::Arc::new(lifecycle::AppDoors::new(sessions.clone(), locks, stores));
+            let lifecycle = tauri::async_runtime::block_on(async move { lifecycle::Lifecycle::start_at(root, doors) });
+            let claimed = lifecycle.claimed();
+            // Managed before anything that looks it up is started: the
+            // sessions' watcher asks for the door on its first pass, and a
+            // lookup before `manage` panics its task — every session of the
+            // launch then goes unreported to the machine.
+            app.manage(lifecycle);
+            let link_app = app.handle().clone();
+            sessions.link(move || link_app.state::<lifecycle::Lifecycle>().door());
+            // The stores' commit gate answers from the machine's forgotten set.
+            let gate_app = app.handle().clone();
+            let forgetting = lifecycle::MachineForgetting::new(move || gate_app.state::<lifecycle::Lifecycle>().door());
+            app.manage(forgotten::Gate::new(forgetting));
+            app.manage(sessions);
+            if !claimed {
+                lifecycle::Lifecycle::retry_claim(app.handle().clone());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -216,7 +293,6 @@ pub fn run() {
             artifacts::artifact_read,
             artifacts::artifact_delete,
             artifacts::artifact_resolve_urls,
-            artifacts::artifact_drop_workspace,
             tasks::tasks_enable,
             tasks::tasks_disable,
             tasks::tasks_drop_workspace,
@@ -236,6 +312,22 @@ pub fn run() {
             bridge::bridge_nudge,
             bridge::bridge_pane_dir,
             bridge::bridge_reply,
+            lifecycle::lifecycle_subscribe,
+            lifecycle::lifecycle_boot_handshake,
+            lifecycle::lifecycle_intent,
+            lifecycle::lifecycle_lease,
+            lifecycle::lifecycle_release,
+            lifecycle::lifecycle_applied,
+            lifecycle::lifecycle_hook_ended,
+            lifecycle::lifecycle_deck_saved,
+            lifecycle::lifecycle_preview,
+            lifecycle::lifecycle_claims,
+            lifecycle::lifecycle_location,
+            session_machine::pty_open,
+            session_machine::pty_write,
+            session_machine::pty_resize,
+            session_machine::pty_stop,
+            session_machine::pty_vouch,
             apps::list_applications,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,
@@ -255,13 +347,6 @@ pub fn run() {
             mcp::library::mcp_library_save,
             mcp::library::mcp_library_delete,
             mcp::library::mcp_library_rename,
-            mcp::library::mcp_library_forget_workspace,
-            mcp::library::mcp_library_prune,
-            session::session_spawn,
-            session::session_write,
-            session::session_resize,
-            session::session_close,
-            session::session_vouch,
             state::deck_state_load,
             state::deck_state_save,
             state::deck_state_quarantine,
@@ -300,17 +385,13 @@ pub fn run() {
             plugins_fs_write::plugins_fs_write_move,
             plugins_fs_write::plugins_fs_write_copy_dir,
             plugin_workspaces::plugin_workspace_dir,
-            plugin_workspaces::plugin_workspaces_prune,
             cwd_arm::cwd_arm,
-            cwd_arm::cwd_disarm,
-            cwd_arm::cwd_arm_prune,
             skills::skills_list,
             skills::skills_save,
             skills::skills_delete,
             skills::skills_rename,
             exec_once::exec_run_once,
             skills::skills_stage,
-            skills::skills_prune,
             roles::roles_list,
             roles::roles_save,
             roles::roles_delete,
@@ -338,13 +419,9 @@ pub fn run() {
             voice::voice_capture_stop,
             voice::voice_capture_cancel,
             worktree::worktree_inspect,
-            worktree::worktree_suggest,
             worktree::worktree_probe,
             worktree::worktree_branches,
             worktree::worktree_list,
-            worktree::worktree_save_head,
-            worktree::worktree_create,
-            worktree::worktree_remove,
             head_watch::worktree_watch,
             head_watch::worktree_unwatch,
             session_tail::usage_watch_session_file,
@@ -358,30 +435,6 @@ pub fn run() {
             plugin_permissions::plugin_permissions_forget,
             plugin_http::plugin_http_get,
         ])
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        // The app is going — take the agents with it.
-        //
-        // Nothing ever did this. Dropping the window closes each PTY, which
-        // hangs up the terminal and nothing more: a CLI that owns its own
-        // children lives on, orphaned, holding whatever it held. It is
-        // invisible until the next launch, when codex finds "an active
-        // writer" on the rollout it wants to resume — the writer being the
-        // codex the last run left behind.
-        //
-        // Both events, because either can be the last one this process sees:
-        // `ExitRequested` on the ordinary quit path, `Exit` when the run loop
-        // is torn down under us. `shutdown` empties the registry, so whichever
-        // comes second finds nothing to do.
-        .run(|app, event| {
-            if matches!(
-                event,
-                tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
-            ) {
-                app.state::<session::SessionRegistry>()
-                    .shutdown(keepdeck_pty::STOP_GRACE);
-            }
-        });
 }
 
 #[cfg(test)]
@@ -396,6 +449,108 @@ mod tests {
         assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert!(!info.version.is_empty(), "version must not be empty");
         assert!(!info.updater, "dev builds must report the updater as absent");
+    }
+
+    /// The app composes on any runtime — on Tauri's test runtime as on the
+    /// window's — which is what lets the host harness serve the page's tests
+    /// from the app itself rather than from a copy of it.
+    #[test]
+    fn the_app_composes_on_the_test_runtime() {
+        compose(tauri::test::mock_builder(), |_| Ok(()))
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("the app builds on the test runtime");
+    }
+
+    /// The names a command is invoked by in `src`: the string literal a call
+    /// to `invoke` (or a wrapper named `invoke…`) opens with, type arguments
+    /// skipped however nested.
+    fn invoked_names(src: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        let bytes = src.as_bytes();
+        let mut i = 0;
+        while let Some(rel) = src[i..].find("invoke") {
+            let start = i + rel;
+            i = start + "invoke".len();
+            let before = start.checked_sub(1).map(|k| bytes[k]);
+            if before.is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                continue;
+            }
+            let mut j = i;
+            while j < bytes.len() && bytes[j].is_ascii_alphanumeric() {
+                j += 1;
+            }
+            if bytes.get(j) == Some(&b'<') {
+                let mut depth = 0usize;
+                while j < bytes.len() {
+                    match bytes[j] {
+                        b'<' => depth += 1,
+                        b'>' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                j += 1;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                    j += 1;
+                }
+            }
+            if bytes.get(j) != Some(&b'(') {
+                continue;
+            }
+            let rest = src[j + 1..].trim_start();
+            let Some(literal) = rest.strip_prefix('"') else { continue };
+            if let Some(end) = literal.find('"') {
+                let name = &literal[..end];
+                if !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+                    names.push(name.to_string());
+                }
+            }
+        }
+        names
+    }
+
+    /// The commands the app registers: the paths in `generate_handler!`,
+    /// by their final segment.
+    fn registered_names(lib_src: &str) -> Vec<String> {
+        let start = lib_src.find("tauri::generate_handler![").expect("the handler list");
+        let list = &lib_src[start + "tauri::generate_handler![".len()..];
+        let list = &list[..list.find(']').expect("the handler list's end")];
+        list.split(',').map(|path| final_segment(path.trim()).to_string()).filter(|name| !name.is_empty()).collect()
+    }
+
+    /// Every command the page invokes is one the app registers. The page's
+    /// calls and the app's list are each read from their own source, so no
+    /// third list can drift from either; a name that drifts — a rename on
+    /// one side — fails here instead of as "command not found" at run time.
+    #[test]
+    fn every_command_the_page_invokes_is_registered() {
+        let registered = registered_names(include_str!("lib.rs"));
+        assert!(registered.len() > 100, "handler scan: too few names, the scan broke: {}", registered.len());
+        let page = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src");
+        let mut missing: Vec<String> = Vec::new();
+        let mut invoked = 0usize;
+        let mut stack = vec![page];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap_or_else(|e| panic!("reading {dir:?}: {e}")).flatten() {
+                let path = entry.path();
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if (name.ends_with(".ts") || name.ends_with(".tsx")) && !name.contains(".test") && !name.contains("testSupport") && !name.contains("test-support") {
+                    let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {path:?}: {e}"));
+                    for command in invoked_names(&src) {
+                        invoked += 1;
+                        if !registered.contains(&command) {
+                            missing.push(format!("{command} (in {name})"));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(invoked > 100, "page scan: too few invocations, the scan broke: {invoked}");
+        assert!(missing.is_empty(), "the page invokes commands the app does not register:\n  {}", missing.join("\n  "));
     }
 
     // ── The wiring pin ──────────────────────────────────────────────
@@ -426,6 +581,12 @@ mod tests {
         "Bridge",
         // `app.manage(skills::GateRegistry::new(...));`
         "GateRegistry",
+        // `let lifecycle = … Lifecycle::start_at(root, doors) …; app.manage(lifecycle);`
+        "Lifecycle",
+        // `let sessions = … SessionMachine::start() …; app.manage(sessions);`
+        "SessionMachine",
+        // `app.manage(forgotten::Gate::new(forgetting));`
+        "Gate",
     ];
 
     /// The final path segment of a type expression: `crate::artifacts::

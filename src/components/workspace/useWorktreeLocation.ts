@@ -26,7 +26,8 @@ export interface WorktreeLocationDeps {
   probePath(path: string): Promise<PathProbe>;
   listBranches(repo: string): Promise<string[]>;
   branchForPath(path: string): Promise<string | null>;
-  directoryAt(path: string): DirectoryState;
+  /** What the lifecycle says holds the folder — asked with the probe. */
+  directoryAt(path: string): Promise<DirectoryState>;
   nextFreeLocation(
     currentPath: string,
   ): Promise<{ path: string; branch: string } | null>;
@@ -83,29 +84,34 @@ export function useWorktreeLocation(deps: WorktreeLocationDeps): WorktreeLocatio
   const [derivedBranch, setDerivedBranch] = useState(suggestedBranch);
   const derivedRef = useRef(suggestedBranch);
   const [probe, setProbe] = useState<PathProbe | null>(null);
+  const [lifecycleSays, setLifecycleSays] = useState<DirectoryState>("free");
   // The injected reads are current through a ref: each effect is triggered
   // by the path/repo it asks about, not by a fresh function identity.
-  const reads = useRef({ probePath, listBranches, branchForPath });
-  reads.current = { probePath, listBranches, branchForPath };
+  const reads = useRef({ probePath, listBranches, branchForPath, directoryAt });
+  reads.current = { probePath, listBranches, branchForPath, directoryAt };
 
-  // Live-probe the entered path (debounced) to drive the hint. A null probe
-  // while a non-empty path is pending reads as "checking".
+  // Live-probe the entered path (debounced) to drive the hint — the disk and
+  // the lifecycle asked together, so neither answers alone. A null probe
+  // while a non-empty path is pending reads as "checking". A lifecycle that
+  // cannot be asked says nothing holds it: the disk still guards the create.
   useEffect(() => {
     if (!repo || !path.trim()) {
       setProbe(null);
+      setLifecycleSays("free");
       return;
     }
     setProbe(null);
     let cancelled = false;
     const timer = setTimeout(() => {
-      reads.current.probePath(path)
-        .then((p) => {
-          if (!cancelled) setProbe(p);
-        })
-        .catch(() => {
-          if (!cancelled)
-            setProbe({ exists: false, isWorktree: false, empty: false, branch: null });
-        });
+      const held = reads.current.directoryAt(path).catch((): DirectoryState => "free");
+      const probed = reads.current.probePath(path).catch(
+        (): PathProbe => ({ exists: false, isWorktree: false, empty: false, branch: null }),
+      );
+      void Promise.all([probed, held]).then(([p, state]) => {
+        if (cancelled) return;
+        setLifecycleSays(state);
+        setProbe(p);
+      });
     }, 250);
     return () => {
       cancelled = true;
@@ -151,8 +157,8 @@ export function useWorktreeLocation(deps: WorktreeLocationDeps): WorktreeLocatio
     };
   }, [path, repo]);
 
-  const deckSays = repo && path.trim() ? directoryAt(path) : "free";
-  const kind = repo ? classifyLocation(path, probe, deckSays) : "main";
+  // Read only with the probe it came with: mid-probe the path is "checking".
+  const kind = repo ? classifyLocation(path, probe, probe ? lifecycleSays : "free") : "main";
   // "checking" is the only transient kind, and every keystroke passes through
   // it — unmounting the Branch/Base fields on each one made the whole dialog
   // jump. The last settled kind holds the layout still; `kind` itself keeps

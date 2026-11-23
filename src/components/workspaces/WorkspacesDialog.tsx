@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from "react";
 import type {
   RepoCheckout,
-  UnheldRemoval,
   UnheldRemovalRequest,
   Workspace,
   WorkspacePatch,
   WorkspaceUpdateResult,
 } from "../../domain/deck";
+import type { Claim, IntentOutcome } from "../../domain/lifecycle";
+import type { WorkspaceRef } from "../../domain/workspaceInstance";
 import {
   updateRefusalWords,
   WORKSPACES_WORDS,
@@ -33,7 +34,9 @@ export interface WorkspacesDialogProps {
   onUpdate(wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult;
   pickFolder(title: string): Promise<string | null>;
   listWorktrees(repo: string): Promise<RepoCheckout[]>;
-  onRemoveWorktree(request: UnheldRemovalRequest): Promise<UnheldRemoval>;
+  /** What the lifecycle says holds a folder. */
+  claimsOn(path: string): Promise<Claim[]>;
+  onRemoveWorktree(workspace: WorkspaceRef, request: UnheldRemovalRequest): Promise<IntentOutcome>;
   /** The "+ Team" door, for the workspace whose page is open. */
   onNewTeam(wsId: string): void;
   /** Open a team a worktree belongs to — its workspace brought on screen. */
@@ -60,6 +63,7 @@ export function WorkspacesDialog({
   onUpdate,
   pickFolder,
   listWorktrees,
+  claimsOn,
   onRemoveWorktree,
   onNewTeam,
   onOpenTeam,
@@ -110,7 +114,8 @@ export function WorkspacesDialog({
                       workspace={ws}
                       workspaces={workspaces}
                       listWorktrees={listWorktrees}
-                      onRemove={onRemoveWorktree}
+                      claimsOn={claimsOn}
+                      onRemove={(request) => onRemoveWorktree({ id: ws.id, instance: ws.instance }, request)}
                       onNewTeam={ws.archived ? null : () => onNewTeam(ws.id)}
                       onOpenTeam={onOpenTeam}
                     />

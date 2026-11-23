@@ -12,7 +12,7 @@ import {
   pluginsFsWriteMkdir,
   pluginsFsWriteMove,
 } from "../ipc/pluginsFsWrite";
-import { pluginWorkspaceDir, pluginWorkspacesPrune } from "../ipc/pluginWorkspaces";
+import { pluginWorkspaceDir } from "../ipc/pluginWorkspaces";
 import { createPluginWorkspaceDirs } from "./pluginWorkspaceDirs";
 import { agentSummary } from "./agentSummary";
 import type { AgentFeature } from "../domain/agents";
@@ -87,7 +87,8 @@ import {
 } from "./plugins/agentVersionGate";
 import { allocatePorts } from "../ipc/ports";
 import { scanPlugins } from "../ipc/plugins";
-import { spawnSession } from "../ipc/session";
+import { openSession } from "../ipc/session";
+import { createPluginSessions, type PluginSessionsDeps } from "./plugins/pluginSessions";
 import { DEFAULT_SETTINGS } from "../domain/settings";
 import {
   getSettings,
@@ -241,7 +242,17 @@ export function makeWatchFanout(
   };
 }
 
-export function createPluginManager(appDownloads: DownloadManager) {
+/** Where the built-in plugins come from: the app's own — from source in dev,
+ * the prebuilt bundles in a build — or the ones a host test runs the page
+ * with, which must not be whatever CLIs this machine happens to have. */
+export type BuiltinPlugins = () => Promise<PluginInstall[]>;
+
+export function createPluginManager(
+  appDownloads: DownloadManager,
+  /** How a plugin's own process is launched — see `createPluginSessions`. */
+  launches: Omit<PluginSessionsDeps, "open">,
+  builtinPlugins?: BuiltinPlugins,
+) {
   const pluginRegistries = createContributionRegistries();
 
   // ------------------------------------------------------------- deck access
@@ -266,13 +277,10 @@ export function createPluginManager(appDownloads: DownloadManager) {
   };
 
   /** Plugins' private per-workspace directories, handed out against the
-   * live deck and pruned by the worktrees sweep with every other leftover
-   * of a departed workspace. */
+   * live deck; they go with their workspace when the lifecycle forgets it. */
   const workspaceDirs = createPluginWorkspaceDirs({
     workspaces: () => liveDeckAccess.workspaces(),
     create: pluginWorkspaceDir,
-    prune: pluginWorkspacesPrune,
-    warn: (message) => log.warn("web:plugins", message),
   });
 
   /** The deck's UI actions, late-bound like `DeckAccess` but a SEPARATE port:
@@ -411,27 +419,7 @@ export function createPluginManager(appDownloads: DownloadManager) {
         pluginRpcRequest(pluginId, server, method, params),
       stop: (pluginId) => pluginRpcStop(pluginId),
     },
-    sessions: {
-      async spawn(opts, onEvent) {
-        return spawnSession(
-          {
-            command: opts.command ?? null,
-            args: opts.args ?? [],
-            env: opts.env ?? [],
-            cwd: opts.cwd ?? null,
-            cols: opts.cols,
-            rows: opts.rows,
-          },
-          (event) => {
-            if (event.type === "output") {
-              onEvent({ type: "output", bytes: event.bytes });
-            } else {
-              onEvent({ type: "exit", code: event.code });
-            }
-          },
-        );
-      },
-    },
+    sessions: createPluginSessions({ ...launches, open: openSession }),
     ports: { allocate: (key) => allocatePorts(key) },
     http: {
       get: (pluginId, request) => pluginHttpGet(pluginId, request),
@@ -870,9 +858,11 @@ export function createPluginManager(appDownloads: DownloadManager) {
       // Discovery is pure IO and needs nothing from settings, so it runs
       // ALONGSIDE the settings load rather than behind it — gating the whole
       // bootstrap on that read would add its latency to every launch.
-      const discovery = import.meta.env.DEV
-        ? Promise.resolve(discoverDevPlugins())
-        : discoverBuiltPlugins();
+      const discovery = builtinPlugins
+        ? builtinPlugins()
+        : import.meta.env.DEV
+          ? Promise.resolve(discoverDevPlugins())
+          : discoverBuiltPlugins();
       // But nothing may be INSTALLED or activated until settings are in hand:
       // which plugins are enabled lives there, and so do the values a plugin
       // reads the moment it activates. Gating this at the CALL sites left it to
@@ -1120,7 +1110,6 @@ export function createPluginManager(appDownloads: DownloadManager) {
 
   return {
     pluginRegistries,
-    workspaceDirs,
     wireDeckAccess,
     wireDeckUi,
     revealPluginDockTab,

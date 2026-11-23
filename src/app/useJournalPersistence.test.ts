@@ -57,6 +57,7 @@ function mutablePersistence(initial: DeckPersistenceSnapshot): {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
+      mayWrite() {},
       dispose() {},
     },
     set(next) {
@@ -72,6 +73,7 @@ function Probe({ restoring, frozen }: { restoring: boolean; frozen: boolean }) {
     const persistence = mutablePersistence({
       restoring,
       frozen: frozen ? { kind: "unreadable" } : null,
+      load: frozen ? "readFailed" : null,
     });
     return {
       store,
@@ -83,6 +85,7 @@ function Probe({ restoring, frozen }: { restoring: boolean; frozen: boolean }) {
     owners.persistence.set({
       restoring,
       frozen: frozen ? { kind: "unreadable" } : null,
+      load: frozen ? "readFailed" : null,
     });
   }, [frozen, owners, restoring]);
   journalPersistence = owners.journal;

@@ -1,109 +1,47 @@
 import { vi } from "vitest";
 
 /**
- * What the three worktree suites share: the IPC doubles the owner is driven
- * against, the deck double it reads, and a fresh manager per test.
+ * What the worktree suites share: the IPC doubles the owner is driven
+ * against, the deck double it reads, and a fresh owner per test.
  *
- * The mocks live HERE rather than three times over, so a double added for one
- * suite's new case cannot be missing from the other two — which is exactly how
- * a wrapper the owner treats as infallible came to answer `undefined` in two
- * of the three suites. Everything a suite needs is re-exported from here, and
- * suites import nothing else from the module graph: a direct import of a
- * mocked module would load the real one before these registrations run.
+ * Everything a suite needs is re-exported from here, and suites import
+ * nothing else from the module graph: a direct import of a mocked module
+ * would load the real one before these registrations run.
  */
 
-/** The native disarm's guard, as the doubles answer it: a root a live
- * workspace still runs a pane in is not released. */
-function releasedOf(roots: readonly string[], liveRoots: readonly string[]): string[] {
-  return [...new Set(roots)].filter((root) => !liveRoots.includes(root));
-}
-
-const worktreeIpc = vi.hoisted(() => ({
-  inspectRepo: vi.fn(),
-  createWorktree: vi.fn(),
-  removeWorktree: vi.fn(),
-  saveWorktreeHead: vi.fn(async (_repo: string, _path: string, name: string) => `refs/tags/${name}`),
-}));
-vi.mock("../../ipc/worktree", () => worktreeIpc);
-
-// The IPC wrappers report whether they got through — the owner only records a
-// sweep as done when they did — so the doubles answer `true` like the real ones.
 const skillsIpc = vi.hoisted(() => ({
   fetchSkills: vi.fn(async () => [] as { scope: "global"; wsId: null; name: string; content: string }[]),
   stageSkills: vi.fn(),
-  pruneSkills: vi.fn(async (_liveWsIds: string[]) => true),
 }));
 vi.mock("../../ipc/skills", () => skillsIpc);
 
-// What agents' plugins plant in a pane's cwd is taken back by the same pass.
 const cwdArmIpc = vi.hoisted(() => ({
   cwdArm: vi.fn(async () => ({ armed: [] as string[], refused: [] as { path: string; reason: string }[] })),
-  cwdDisarm: vi.fn(
-    async (roots: readonly string[], liveRoots: readonly string[]): Promise<string[] | null> =>
-      releasedOf(roots, liveRoots),
-  ),
-  cwdArmPrune: vi.fn(async (_liveWsIds: readonly string[]) => true),
 }));
 vi.mock("../../ipc/cwdArm", () => cwdArmIpc);
 
-// The library's own sweep rides the same pass.
-const mcpLibraryIpc = vi.hoisted(() => ({
-  pruneMcpLibrary: vi.fn(async (_liveWsIds: string[]) => true),
-}));
-vi.mock("../../ipc/mcpLibrary", () => mcpLibraryIpc);
-
 // Re-exported through a binding of their own: a hoisted declaration cannot be
 // an export itself, and the suites need the doubles they assert on.
-export const worktree = worktreeIpc;
 export const skills = skillsIpc;
-export const mcpLibrary = mcpLibraryIpc;
 export const cwdArming = cwdArmIpc;
-/** Plugins' private directories, pruned by the same pass. */
-export const pluginDirs = { prune: vi.fn(async (_liveWsIds: readonly string[]) => true) };
 
 import type { WorkspaceRef } from "@keepdeck/plugin-api";
 import type { WorkspaceInstance } from "../../domain/workspaceInstance";
-import type { ProvisionRequest } from "./index";
 import { createSkillsStaging, createWorktreePlantings } from "../worktreePlantings";
 import { createStagingTrimStore, type StagingTrimStore } from "../stagingTrims";
-import {
-  createWorktreeManager,
-  deckViewOf,
-  type LiveWorkspace,
-  type WorktreeDeckView,
-  type WorktreePlantingFactories,
-  type WorktreeManager,
-} from ".";
+import { deckViewOf, type WorktreePlantings } from ".";
 
-export type { WorktreeManager };
+export type { WorktreePlantings };
 
-/** `count` teams waiting on their worktrees — the shape `provision` is
- * handed, as production builds it: one request per owner (a TEAM,
- * `team-N`), each intent carrying the exact path its create will land at.
- *
- * More than one because the runner still fans out over whatever it is given,
- * and only a set makes that fan-out — and the base commit pinned across it —
- * observable. */
-export const provisionRequests = (count: number): ProvisionRequest[] =>
-  Array.from({ length: count }, (_, i) => ({
-    ownerId: `team-${i + 1}`,
-    intent: { repo: "/repo", path: `/wt/team-${i + 1}`, index: i + 1 },
-  }));
-
-/** The deck the manager reads, as a test double: what `live()` returns IS the
- * app's answer to which roots are claimed, and `rootsOf` answers from it.
- *
- * Its INSTANCE is optional, where `LiveWorkspace`'s is not: the production
- * adapter matches a workspace's LIFETIME and documents that as load-bearing,
- * and the suites name one only where a lifetime matters. Left off an entry, it
- * follows [`ref`]'s default. The deck view names each workspace by its id. */
-export type DeckEntry = Omit<LiveWorkspace, "instance" | "archived"> & {
+/** One workspace of the deck double. Its INSTANCE is optional: the
+ * production adapter matches a workspace's LIFETIME and documents that as
+ * load-bearing, and the suites name one only where a lifetime matters. Left
+ * off, it follows [`ref`]'s default. The deck view names each workspace by
+ * its id. */
+export interface DeckEntry {
+  id: string;
   instance?: string;
-  /** Absent: a workspace in use, as every suite but the archive's speaks. */
-  archived?: boolean;
-};
-
-const lifetimeOf = (ws: DeckEntry): string => ws.instance ?? `${ws.id}-life-1`;
+}
 
 /** The suites speak plain strings for lifetimes; this names that boundary
  * without an assertion in the deck view below. */
@@ -127,69 +65,32 @@ export const stagedFor = (wsId: string) => ({
 /** The native stage's whole answer: `stagedFor`'s views, and nothing trimmed. */
 export const stageAnswerFor = (wsId: string) => ({ view: stagedFor(wsId), trims: [] });
 
-/** The deck view over a suite's mutable array, through the PRODUCTION
- * projection — the lifetime match is load-bearing (the instance names one
- * lifetime) and a hand-copied one here meant a regression in the
- * real closure would have broken nothing that runs.
- *
- * Read through a thunk, never captured: every suite reassigns that array
- * mid-test to say "a pane left while this was queued", which is the case the
- * owner exists for. */
-function deckView(read: () => DeckEntry[]): WorktreeDeckView {
-  return deckViewOf(() =>
+/** A fresh owner per test, over the deck as the suite's thunk reads it NOW,
+ * through the PRODUCTION projection — a hand-copied one here meant a
+ * regression in the real lifetime match would have broken nothing that runs.
+ * What staging could not hand out whole lands in `trims`, a fresh store
+ * unless a suite reads it. */
+export function plantingsFor(read: () => DeckEntry[], trims: StagingTrimStore = createStagingTrimStore()): WorktreePlantings {
+  const deck = deckViewOf(() =>
     read().map((ws) => ({
       id: ws.id,
-      // Branded at the boundary: the suites speak in plain strings so a test
-      // can write "life-1" and mean it.
-      instance: workspaceInstance(lifetimeOf(ws)),
+      instance: workspaceInstance(ws.instance ?? `${ws.id}-life-1`),
       name: ws.id,
       cwd: "/repo",
       worktreeBaseDir: null,
-      // The entries carry ROOTS, which is what `skillRootsOf` derives from
-      // panes through their teams — so one team per root, with one member
-      // each, reproduces them exactly.
-      panes: ws.roots.map((_root, i) => ({
-        id: `${ws.id}-p${i}`,
-        agentType: "claude",
-        team: { teamId: `${ws.id}-t${i}`, role: "lead" },
-      })),
-      teams: ws.roots.map((root, i) => ({
-        id: `${ws.id}-t${i}`,
-        name: `t${i}`,
-        location: { kind: "attached" as const, cwd: root },
-      })),
-      ...(ws.archived && { archived: { at: "2026-11-16T00:00:00.000Z", phase: "archived" as const } }),
+      panes: [],
+      teams: [],
     })),
   );
-}
-
-/** A fresh manager per test: its maps are per-instance precisely so no test —
- * and no workspace — inherits another's in-flight state. What staging could
- * not hand out whole lands in `trims`, a fresh store unless a suite reads it. */
-export function managerFor(read: () => DeckEntry[], trims: StagingTrimStore = createStagingTrimStore()): WorktreeManager {
-  const factories: WorktreePlantingFactories = {
-    skills: (inOrder, deck) => createSkillsStaging(inOrder, deck, trims),
-    prunePluginDirs: pluginDirs.prune,
-    onDisarmed: () => {},
-  };
-  return createWorktreeManager(deckView(read), (deck, inOrder) =>
-    createWorktreePlantings(deck, inOrder, factories),
-  );
+  return createWorktreePlantings(createSkillsStaging(deck, trims));
 }
 
 /** Re-arm the doubles after `resetAllMocks` wipes their implementations.
  *
  * RESET, not clear: `clearAllMocks` keeps implementations in place, so one
- * test's recording stub would answer for every test declared after it. What
- * that costs is this — every double has to say again what the real wrapper
- * says, or the owner reads `undefined` as a failure and retries it forever. */
+ * test's recording stub would answer for every test declared after it. */
 export function armDoubles(): void {
   skills.fetchSkills.mockResolvedValue([]);
   skills.stageSkills.mockImplementation(async (wsId: string) => stageAnswerFor(wsId));
-  skills.pruneSkills.mockResolvedValue(true);
-  mcpLibrary.pruneMcpLibrary.mockResolvedValue(true);
-  pluginDirs.prune.mockResolvedValue(true);
   cwdArming.cwdArm.mockResolvedValue({ armed: [], refused: [] });
-  cwdArming.cwdDisarm.mockImplementation(async (roots, liveRoots) => releasedOf(roots, liveRoots));
-  cwdArming.cwdArmPrune.mockResolvedValue(true);
 }

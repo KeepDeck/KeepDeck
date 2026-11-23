@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentStatus, MailChannel } from "@keepdeck/plugin-api";
 import { createCommandRegistry } from "../../domain/commands";
 import type { Pane, Workspace } from "../../domain/deck";
+import type { WriteSource } from "../../domain/lifecycle";
 import type { PaneActivity } from "../../domain/status";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createMailService } from "./mailService";
@@ -19,7 +20,10 @@ const SENDER = {
 
 function setup(
   statusOf: (agentId: string) => AgentStatus | undefined = () => undefined,
-  { companion = false } = {},
+  {
+    companion = false,
+    forgotten = (_source: WriteSource): boolean => false,
+  }: { companion?: boolean; forgotten?: (source: WriteSource) => boolean } = {},
 ) {
   // pane-1 is on a team, so the standing-presence has something to re-state.
   let panes: Pane[] = [
@@ -125,6 +129,7 @@ function setup(
         },
         hasCompanion: () => companion,
       },
+      lifecycle: { forgotten },
     },
   );
 
@@ -176,6 +181,42 @@ function setup(
       registry.execute("mail.send", { to: "pane-2", kind: "note", body }, SENDER),
   };
 }
+
+/**
+ * The mail is a store of the page's, and the lifecycle's «forgotten» is its
+ * fence (integration row B11): the machine forgets a pane before its
+ * cleanup runs, and a write that commits after is refused, not swept.
+ */
+describe("mail service — a forgotten pane writes and receives nothing", () => {
+  const inboxOf = async (h: ReturnType<typeof setup>, pane: string) => {
+    const read = await h.registry.execute("mail.inbox", {}, {
+      kind: "external",
+      client: "mcp",
+      pane: { id: pane, workspaceId: "ws-1", label: pane },
+    });
+    return read.ok ? recordsOf(recordOf(read.value, "mail read").messages, "messages") : [];
+  };
+
+  it("refuses a send from a forgotten pane and keeps nothing of it", async () => {
+    const h = setup(undefined, { forgotten: (source) => source.pane === "pane-1" });
+    const sent = await h.send("from a pane on its way out");
+    expect(sent.ok).toBe(false);
+    expect(await inboxOf(h, "pane-2")).toEqual([]);
+  });
+
+  it("refuses a send to a forgotten pane", async () => {
+    const h = setup(undefined, { forgotten: (source) => source.pane === "pane-2" });
+    const sent = await h.send("to a pane on its way out");
+    expect(sent.ok).toBe(false);
+    expect(await inboxOf(h, "pane-2")).toEqual([]);
+  });
+
+  it("takes mail between panes nobody forgot, as before", async () => {
+    const h = setup();
+    expect((await h.send("hello")).ok).toBe(true);
+    expect(await inboxOf(h, "pane-2")).toHaveLength(1);
+  });
+});
 
 describe("createMailService", () => {
   it("registers the mail commands as soon as it exists", () => {

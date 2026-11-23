@@ -7,7 +7,6 @@
  */
 export * from "./model";
 export * from "./collection";
-export * from "./factories";
 export * from "./lifecycle";
 export * from "./titles";
 export * from "./transforms";

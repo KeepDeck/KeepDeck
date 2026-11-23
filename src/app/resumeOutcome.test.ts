@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentInfo } from "../domain/agents";
-import type { ResumeRequest, Workspace } from "../domain/deck";
+import type { Workspace } from "../domain/deck";
+import type { ResumeOutcome } from "../domain/lifecycle";
 import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { askForPaneBack } from "./resumeOutcome";
 
@@ -27,30 +28,30 @@ const deck = (): Workspace[] => [
 ];
 
 describe("askForPaneBack", () => {
-  it("answers null when the pane is coming back", () => {
-    const resume = vi.fn<() => ResumeRequest>(() => "resuming");
-    expect(askForPaneBack(resume, deck(), AGENTS, "ws-1", "pane-1")).toBeNull();
+  it("answers null when the pane is coming back", async () => {
+    const resume = vi.fn(async (): Promise<ResumeOutcome> => ({ kind: "resuming" }));
+    expect(await askForPaneBack(resume, deck(), AGENTS, "ws-1", "pane-1")).toBeNull();
     expect(resume).toHaveBeenCalledOnce();
   });
 
-  it("names the pane from the deck as it stood BEFORE the request", () => {
+  it("names the pane from the deck as it stood BEFORE the request", async () => {
     // The request can change the very pane the sentence is about — a resume
     // that lands moves it out of the state the label described. Reading after
     // would name whatever the deck became.
     const workspaces = deck();
-    const resume = vi.fn<() => ResumeRequest>(() => {
+    const resume = vi.fn(async (): Promise<ResumeOutcome> => {
       workspaces[0].panes = [];
-      return "unavailable";
+      return { kind: "blocked", why: "unavailable" };
     });
 
-    expect(askForPaneBack(resume, workspaces, AGENTS, "ws-1", "pane-1")).toBe(
+    expect(await askForPaneBack(resume, workspaces, AGENTS, "ws-1", "pane-1")).toBe(
       "No installed agent can start Claude 1.",
     );
   });
 
-  it("falls back to a generic name for a pane that is already gone", () => {
-    const resume = vi.fn<() => ResumeRequest>(() => "gone");
-    expect(askForPaneBack(resume, [], AGENTS, "ws-1", "pane-1")).toBe(
+  it("falls back to a generic name for a pane that is already gone", async () => {
+    const resume = vi.fn(async (): Promise<ResumeOutcome> => ({ kind: "blocked", why: "gone" }));
+    expect(await askForPaneBack(resume, [], AGENTS, "ws-1", "pane-1")).toBe(
       "That agent is no longer open.",
     );
   });

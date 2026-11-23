@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import type { DownloadRequest } from "@keepdeck/plugin-api";
 import { createCommandRegistry } from "../domain/commands";
 import type { DownloadBackend } from "./downloadManager";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
+import { armRefusals } from "./armRefusals";
+import { createDeckActions } from "./deckActions";
 import { createAppRuntime } from "./runtime";
 import { stagingTrims } from "./stagingTrims";
 
@@ -126,6 +129,31 @@ describe("createAppRuntime", () => {
     await flush();
     expect(stagingTrims.get()).toEqual([]);
 
+    runtime.dispose();
+  });
+
+  it("keeps what was said about the deck only while what it is about stands", () => {
+    // The lifecycle takes a closed team's plantings back and forgets a
+    // closed workspace; what the page said about them — an arming pass's
+    // refusals, a stage's trims — goes with them on the deck's next change.
+    const runtime = createAppRuntime(backend(), createCommandRegistry());
+    armRefusals.record("kimi", "/wt/closed", [{ path: ".k/mcp.json", reason: "yours" }]);
+    armRefusals.record("kimi", "/repo", [{ path: ".k/mcp.json", reason: "yours" }]);
+    stagingTrims.record({ id: "ws-gone", instance: "life-gone", name: "gone" }, [
+      { scope: "global", skill: "review", kind: "omitted", path: null, count: 1 },
+    ]);
+
+    createDeckActions(runtime.deckStore).createWorkspace({
+      id: "ws-1",
+      instance: createWorkspaceInstance(),
+      name: "ws",
+      cwd: "/repo",
+      worktreeBaseDir: null,
+      panes: [{ id: "pane-1", agentType: "kimi" }],
+    });
+
+    expect(armRefusals.get().map((refusal) => refusal.cwd)).toEqual(["/repo"]);
+    expect(stagingTrims.get()).toEqual([]);
     runtime.dispose();
   });
 });

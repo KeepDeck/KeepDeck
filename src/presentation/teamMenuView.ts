@@ -6,7 +6,8 @@
  * with the reason drawn under it — never dropped, so the menu does not
  * change shape under the person's hand. Whom Resume and Suspend would take
  * is the orchestrator's answer (`TeamActs`), the very one its doors act on;
- * this file only words it.
+ * what Add member, Disband and Retry would meet is the machine's, carried in
+ * the same answer. This file only words them.
  */
 import {
   createFailed,
@@ -15,6 +16,8 @@ import {
   type TeamActs,
   type Workspace,
 } from "../domain/deck";
+import type { Refusal, TeamGates } from "../domain/lifecycle";
+import { refusalText } from "./lifecycleWords";
 import { teamResumeOffer, teamResumeRefusalText, type TeamResumeRefusal } from "./resumeWords";
 import { teamSuspendRefusalText } from "./suspendWords";
 
@@ -86,6 +89,21 @@ function resumeReason(whys: TeamActs["resume"]["skip"]): TeamResumeRefusal {
   return gone === stuck.length ? { kind: "folders-gone", count: gone } : { kind: "none-resumable" };
 }
 
+/** The machine's refusal of a shut gate, in its words; null for an open
+ * one, or before the machine has said. */
+function gateRefusal(refusal: Refusal | null | undefined): string | null {
+  return refusal ? refusalText(refusal) : null;
+}
+
+/**
+ * Why a member cannot be added to this team now — what the machine's gate
+ * says first (it is leaving, its workspace is archived), then the cap. The
+ * menu's line and the deck bar's door both say it, in the same words.
+ */
+export function addMemberRefusal(ws: Pick<Workspace, "panes">, teamId: string, gates: TeamGates | null): string | null {
+  return gateRefusal(gates?.addMember) ?? memberRefusal(ws, teamId);
+}
+
 function suspendRefusal(acts: TeamActs["suspend"]): string | null {
   if (acts.take.length > 0) return null;
   const whys = acts.skip;
@@ -111,12 +129,12 @@ export function teamMenuView(
       case "suspend":
         return { action, label: TEAM_MENU_WORDS.label.suspend, refusal: suspendRefusal(acts.suspend) };
       case "add-member":
-        // A full team refuses in the cap's own message, the one every door
-        // says it with.
-        return { action, label: TEAM_MENU_WORDS.label[action], refusal: memberRefusal(ws, team.id) };
-      case "rename":
+        return { action, label: TEAM_MENU_WORDS.label[action], refusal: addMemberRefusal(ws, team.id, acts.gates) };
       case "disband":
+        return { action, label: TEAM_MENU_WORDS.label[action], refusal: gateRefusal(acts.gates?.close) };
       case "retry":
+        return { action, label: TEAM_MENU_WORDS.label[action], refusal: gateRefusal(acts.gates?.retry) };
+      case "rename":
         return { action, label: TEAM_MENU_WORDS.label[action], refusal: null };
     }
   };

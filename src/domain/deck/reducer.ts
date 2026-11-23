@@ -297,7 +297,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return { ...state, workspaces, activeId, viewByWs, journal };
     }
     case "archiveWorkspace": {
-      const workspaces = archiveWorkspace(state.workspaces, action.id, action.at);
+      const workspaces = archiveWorkspace(state.workspaces, action.id, action.at, action.panes);
       if (workspaces === state.workspaces) return state;
       // It leaves the strip at once, and the person lands on the first
       // visible workspace (or none). Its own view is kept whole for restore.
@@ -547,12 +547,7 @@ export function deckReducer(state: DeckState, action: DeckAction): DeckState {
       return { ...state, workspaces, journal };
     }
     case "createTeam":
-      return withWorkspaces(
-        state,
-        createTeam(state.workspaces, action.wsId, action.team, {
-          shared: action.shared,
-        }),
-      );
+      return withWorkspaces(state, createTeam(state.workspaces, action.wsId, action.team));
     case "resolveTeamProvisioning":
       // Same ref when the team was dissolved mid-create — the late result of
       // a background create must not resurrect anything.

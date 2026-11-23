@@ -1,15 +1,14 @@
 /**
  * What closing will actually do, in the dialog's own words — the copy, and
  * nothing else: the close sentence, the background-carrier note, and what a
- * worktree teardown that left something behind says.
+ * close's cleanup that left a worktree behind says.
  *
  * Kept apart from the flow that shows it because the sentence has its own
  * history of being wrong (see [`closeMessageFor`]) and its own reason to
- * change; here it is addressable without a workspace, a probe and a render.
- * It reads the slice of a pending close it needs ([`CloseWordsTarget`]) —
- * the flow's `ClosingTarget` is one — and never reaches into the app.
+ * change; here it is addressable without a workspace and a render. It reads
+ * the slice of a pending close it needs ([`CloseWordsTarget`]) — the flow's
+ * `ClosingTarget` is one — and never reaches into the app.
  */
-import type { WorktreeTeardownFailure } from "../domain/deck";
 
 /** The late-painted carrier line: set only when the registry's answer
  * WARNS ("background" proven, or the ask failed = "unknown"). A "none"
@@ -22,9 +21,9 @@ export type CloseWordsTarget =
   | {
       kind: "agent";
       pane: { provisioning: boolean; stopped: boolean; canSuspend: boolean; rising: boolean };
-      /** The team this pane is the last member of, with the directories
-       * its disband would offer; null otherwise. */
-      last: { name: string; targets: readonly unknown[] } | null;
+      /** The team this pane is the last member of, with the folders its
+       * disband would offer; null otherwise. */
+      last: { name: string; folders: readonly unknown[] } | null;
     }
   | { kind: "team"; count: number }
   | { kind: "workspace"; count: number };
@@ -110,7 +109,7 @@ export function closeMessageFor(
   // Mutually exclusive with the branch above by construction: a stopped pane
   // is exactly the one `paneSuspendBlock` refuses.
   const alternative = facts.canSuspend
-    ? closing.last && closing.last.targets.length > 0
+    ? closing.last && closing.last.folders.length > 0
       ? "\nSuspending stops the agent instead, keeping the pane, its worktree and its session."
       : "\nSuspending stops the agent instead, keeping the pane and its session."
     : "";
@@ -123,16 +122,13 @@ export function closeMessageFor(
   return verbs + opening + alternative + note;
 }
 
-/** One worktree a teardown left in place, in one line: the branch when it is
- * known, else the folder, and why. */
-export function teardownFailureText(failure: WorktreeTeardownFailure): string {
-  const name = failure.target.branch ?? failure.target.path;
-  return failure.kind === "held-elsewhere"
-    ? `${name}: another workspace still works in this folder`
-    : `${name}: ${failure.reason}`;
+/** A worktree left in place, in one line: what names it, and why. */
+function leftLine(name: string, why: string): string {
+  return `${name}: ${why}`;
 }
 
-/** The alert after a close whose worktree teardown left some in place. */
-export function worktreesNotDeletedText(failures: readonly WorktreeTeardownFailure[]): string {
-  return `Failed to delete worktree${failures.length === 1 ? "" : "s"}:\n${failures.map(teardownFailureText).join("\n")}`;
+/** The notice the lifecycle leaves when a close's cleanup could not delete a
+ * worktree: the folder, and the reason the cleanup was given. */
+export function worktreeNotDeletedNotice(path: string, reason: string): { title: string; body: string } {
+  return { title: "Failed to delete worktree", body: leftLine(path, reason) };
 }

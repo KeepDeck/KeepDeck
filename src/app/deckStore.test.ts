@@ -76,6 +76,15 @@ describe("DeckStore", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it("counts a revision for every change and none for a no-op", () => {
+    const store = createDeckStore();
+    expect(store.revision()).toBe(0);
+    store.dispatch({ type: "createWorkspace", workspace: workspace("ws-1"), at: "2026-01-01T00:00:00.000Z" });
+    expect(store.revision()).toBe(1);
+    store.dispatch({ type: "createWorkspace", workspace: workspace("ws-1"), at: "2026-01-01T00:00:00.000Z" });
+    expect(store.revision()).toBe(1);
+  });
+
   it("stops publishing after unsubscribe", () => {
     const store = createDeckStore();
     const listener = vi.fn();

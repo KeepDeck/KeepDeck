@@ -20,9 +20,7 @@ import {
   teamsOf,
   type PlacementFields,
   type Team,
-  type TeamLocation,
 } from "./teams";
-import { nextIdSequence } from "../idSequence";
 import { collectExtras } from "../json";
 import { createWorkspaceInstance } from "../workspaceInstance";
 import { MAX_PANES } from "./layout";
@@ -41,11 +39,10 @@ import { isTaskUid } from "../tasks";
  * panes come back as quiet tiles and are revived (resumed or freshly spawned)
  * lazily per workspace by the app layer. The REASON survives the round trip: a
  * pane the user suspended comes back `suspended` and waits for an explicit
- * resume, everything else comes back waking for the revive sweep. The
- * exception is a pane whose worktree create was still in flight when the app
- * quit — it comes back NOT idle at all but with its provisioning marked failed
- * ("interrupted"), so the card offers Retry instead of the revive flow
- * spawning a terminal into a directory that may not exist.
+ * resume, everything else comes back waking for the revive sweep. A team
+ * whose worktree create — or fork — was in flight comes back as it was: what
+ * became of it is the lifecycle machine's to say at boot, from its journal,
+ * never this reader's guess.
  */
 
 import { DECK_MIN_READER, DECK_STATE_VERSION, migrateDeck } from "../migrations";
@@ -53,18 +50,11 @@ import { isJsonRecord, parseInstant } from "@keepdeck/plugin-api";
 
 export { DECK_STATE_VERSION } from "../migrations";
 
-/** What the app closed in the middle of creating: hydration stamps this onto
- * a restored in-flight provisioning so it surfaces as the failed card. */
-export const PROVISIONING_INTERRUPTED = "Worktree creation was interrupted";
-
-/** What hydration yields: the restored state plus the pane-id mint floor
- * derived from the highest persisted `pane-N` (never stored separately — one
- * source of truth). Workspace ids are derived from the live deck at create
- * time, so they need no hydration seed. */
+/** What hydration yields: the restored state, and what rides beside it. Ids
+ * are minted by the lifecycle machine, from the deck it is handed at boot,
+ * so hydration seeds no mint. */
 export interface HydratedDeck {
   state: DeckState;
-  /** Seed for the agent-seq mint: one past the highest restored pane number. */
-  nextAgentSeq: number;
   /** Unknown top-level keys of the stored document (a newer revision's
    * fields) — handed back to `serializeDeck` so saves never strip them. */
   docExtras: Record<string, unknown>;
@@ -105,16 +95,6 @@ export function serializeDeck(
     ...docExtras,
     activeId: state.activeId,
     workspaces: state.workspaces.map((ws) => {
-      // A fork's card is dropped while still in flight — the team AND its
-      // members: its store surgery is an in-memory post-provision step that
-      // can't survive a restart, so restoring the card would Retry into a
-      // non-fork team (the fork silently lost). The user re-forks from the
-      // journal; a RESOLVED fork team has no card and persists normally.
-      const forking = new Set(
-        (ws.teams ?? [])
-          .filter((team) => team.location?.kind === "provisioning" && team.location.fork)
-          .map((team) => team.id),
-      );
       const view = storedView(state.viewByWs[ws.id]);
       return {
       ...ws.extras,
@@ -136,8 +116,8 @@ export function serializeDeck(
       // did — the directory and branch, or the create's intent alone (its
       // status is this run's; hydration stamps its own).
       ...(ws.teams !== undefined &&
-        ws.teams.some((team) => !forking.has(team.id)) && {
-          teams: ws.teams.filter((team) => !forking.has(team.id)).map((team) => {
+        ws.teams.length > 0 && {
+          teams: ws.teams.map((team) => {
             const placement = team.location ? placementToFields(team.location) : {};
             return {
               ...team.extras,
@@ -151,9 +131,7 @@ export function serializeDeck(
             };
           }),
         }),
-      // A fork card's members go with the card, for the same reason.
       panes: ws.panes
-        .filter((p) => !(p.team && forking.has(p.team.teamId)))
         .map((p) => {
           // Membership goes to disk by ID. A pane whose id names no team
           // here is written as on no team: a membership nobody can resolve
@@ -302,12 +280,6 @@ export function hydrateDeck(json: string): HydrateDeckResult {
   // keeps them unique, so only a damaged or hand-edited file trips this.
   if (!teamIdsAreUnique(workspaces)) return corrupt;
 
-  const nextAgentSeq = nextIdSequence(
-    workspaces.flatMap((w) => w.panes.map((p) => p.id)),
-    "pane",
-  );
-  if (nextAgentSeq === null) return corrupt;
-
   const activeId = resolveActiveId(
     workspaces,
     typeof raw.activeId === "string" ? raw.activeId : "",
@@ -333,7 +305,6 @@ export function hydrateDeck(json: string): HydrateDeckResult {
         // live slice, and journal.jsonl hydrates separately after.
         journal: emptyJournal,
       },
-      nextAgentSeq,
       docExtras: collectExtras(raw, DOC_KNOWN_KEYS),
       notices: Array.isArray(raw.migrationNotices)
         ? raw.migrationNotices.filter((note): note is string => typeof note === "string")
@@ -531,8 +502,7 @@ function readArchiveWarnings(value: unknown): ArchiveWarnings | null {
  * folded by the same rule, of which only a directory or a create in flight
  * is a team's — anything else (a branch alone, a remote endpoint) leaves the
  * team without a placement, which is what a roster-only team is. A create in
- * flight comes back as the failed card, like a pane's: the app quit mid-
- * create, and Retry is the honest offer. */
+ * flight comes back as it was; the lifecycle machine settles it at boot. */
 function readTeam(value: unknown): Team | null {
   if (!isJsonRecord(value)) return null;
   if (typeof value.id !== "string" || !value.id) return null;
@@ -546,14 +516,7 @@ function readTeam(value: unknown): Team | null {
   const provisioning = readProvisioning(value.provisioning);
   if (provisioning) placement.provisioning = provisioning;
   const location = placementFromFields(placement);
-  if (location?.kind === "attached") {
-    team.location = location;
-  } else if (location?.kind === "provisioning") {
-    // The app quit mid-create: come back as the failed card — the intent
-    // powers Retry, and no member mounts a terminal into a directory that
-    // may not exist.
-    team.location = { ...location, error: PROVISIONING_INTERRUPTED } satisfies TeamLocation;
-  }
+  if (location?.kind === "attached" || location?.kind === "provisioning") team.location = location;
   const extras = collectExtras(value, TEAM_KNOWN_KEYS);
   if (Object.keys(extras).length > 0) team.extras = extras;
   return team;

@@ -58,8 +58,9 @@ jobs:
     # The app's only target platform; free on a public repository.
     runs-on: macos-latest
     # Slowest of 18 green runs: 11.7 min — a cold Rust cache, diesel_cli
-    # built from source.
-    timeout-minutes: 35
+    # built from source. The host suite's three runs add about 6 min each
+    # (locally, 2026-11-22).
+    timeout-minutes: 60
     if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Bump version to ')
     steps:
       - uses: actions/checkout@v7
@@ -92,6 +93,23 @@ jobs:
       # moves only with rust-toolchain.toml.
       - name: Clippy is clean
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # The host harness's binary (kd-host) is the app on Tauri's test
+      # runtime, built only under its feature: linted under it too.
+      - name: Clippy is clean with the host harness
+        run: cargo clippy -p keepdeck --all-targets --features host-harness -- -D warnings
+
+      # The page's tests on the real app (vitest.host.config.ts): a kd-host
+      # process per test, real time, real processes. Three runs in a row for
+      # now, so a rare race shows here rather than on someone's branch; a
+      # red run is fixed at its cause, never retried away.
+      - name: The page on the real app, three runs
+        run: |
+          for run in 1 2 3; do
+            echo "::group::host run $run of 3"
+            pnpm test:host || exit 1
+            echo "::endgroup::"
+          done
 
       # The task store's generated code is committed: Diesel's schema.rs
       # (from the migrations) and the TS side of its wire types (ts-rs).

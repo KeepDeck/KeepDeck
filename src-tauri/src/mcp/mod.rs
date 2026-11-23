@@ -44,7 +44,7 @@ fn sweep_legacy_socket() {
 }
 
 #[tauri::command(async)]
-pub fn mcp_enable(app: tauri::AppHandle, server: State<McpServer>) -> Result<String, String> {
+pub fn mcp_enable<R: tauri::Runtime>(app: tauri::AppHandle<R>, server: State<McpServer>) -> Result<String, String> {
     sweep_legacy_socket();
     let path = socket_path()?;
     let served = server.enable(&path, bridge::webview_handler(app))?;
@@ -80,8 +80,8 @@ pub struct McpConnection {
 }
 
 #[tauri::command]
-pub fn mcp_connection_command(
-    app: tauri::AppHandle,
+pub fn mcp_connection_command<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     client: Option<String>,
 ) -> Result<McpConnection, String> {
     let binary = tauri::process::current_binary(&app.env()).map_err(|e| e.to_string())?;

@@ -27,38 +27,7 @@ describe("deckReducer createWorkspace", () => {
 });
 
 describe("deckReducer createTeam", () => {
-  const secondTeamOn = (cwd: string, shared?: boolean) => {
-    const start = state({
-      workspaces: [
-        {
-          ...ws("a", []),
-          teams: [{ id: "team-1", name: "api", location: { kind: "attached", cwd } }],
-        },
-      ],
-      activeId: "a",
-    });
-    const next = deckReducer(start, {
-      type: "createTeam",
-      wsId: "a",
-      team: { id: "team-2", name: "web", location: { kind: "attached", cwd } },
-      ...(shared !== undefined && { shared }),
-    });
-    return { start, next };
-  };
-
-  it("refuses a second team in one directory when nobody said to share it", () => {
-    const { start, next } = secondTeamOn("/wt/1");
-    // The SAME state back: the transform refuses on its own, because an agent
-    // driving a command reads no dialog.
-    expect(next).toBe(start);
-  });
-
-  it("takes it when the action carries the person's answer", () => {
-    const { next } = secondTeamOn("/wt/1", true);
-    expect(next.workspaces[0].teams?.map((t) => t.id)).toEqual(["team-1", "team-2"]);
-  });
-
-  it("never takes a create heading for a directory a team works in, answer or not", () => {
+  it("writes the team the lifecycle placed, and refuses a name a team here holds", () => {
     const start = state({
       workspaces: [
         {
@@ -71,14 +40,16 @@ describe("deckReducer createTeam", () => {
     const next = deckReducer(start, {
       type: "createTeam",
       wsId: "a",
-      team: {
-        id: "team-2",
-        name: "web",
-        location: { kind: "provisioning", intent: { repo: "/repo", path: "/wt/1", index: 1 } },
-      },
-      shared: true,
+      team: { id: "team-2", name: "web", location: { kind: "attached", cwd: "/wt/1" } },
     });
-    expect(next).toBe(start);
+    expect(next.workspaces[0].teams?.map((t) => t.id)).toEqual(["team-1", "team-2"]);
+    const named = deckReducer(start, {
+      type: "createTeam",
+      wsId: "a",
+      team: { id: "team-3", name: "API", location: { kind: "attached", cwd: "/wt/3" } },
+    });
+    // The SAME state back: the transform refuses on its own.
+    expect(named).toBe(start);
   });
 });
 
@@ -734,7 +705,7 @@ describe("deckReducer archive and restore", () => {
         activeId: "a",
         viewByWs: { a: { focus: ["a-1"], select: "a-1" } },
       }),
-      { type: "archiveWorkspace", id: "a", at: AT },
+      { type: "archiveWorkspace", id: "a", at: AT, panes: ["a-1"] },
     );
     expect(next.workspaces[0].archived).toEqual({ at: AT, phase: "archiving" });
     expect(next.activeId).toBe("b");
@@ -745,14 +716,14 @@ describe("deckReducer archive and restore", () => {
   it("archiving the last visible workspace leaves nobody active", () => {
     const next = deckReducer(
       state({ workspaces: [archivedWs("a"), ws("b", ["b-1"])], activeId: "b" }),
-      { type: "archiveWorkspace", id: "b", at: AT },
+      { type: "archiveWorkspace", id: "b", at: AT, panes: ["b-1"] },
     );
     expect(next.activeId).toBe("");
   });
 
   it("archiving an already archived workspace returns the same state", () => {
     const before = state({ workspaces: [archivedWs("a"), ws("b", [])], activeId: "b" });
-    expect(deckReducer(before, { type: "archiveWorkspace", id: "a", at: AT })).toBe(before);
+    expect(deckReducer(before, { type: "archiveWorkspace", id: "a", at: AT, panes: [] })).toBe(before);
   });
 
   it("refuses to select an archived workspace", () => {

@@ -121,6 +121,13 @@ pub struct SessionBound {
 pub struct Report {
     pub pane_id: String,
     pub token: String,
+    /// The process the reporter named, as the origin judge read it — the
+    /// one reading of `payload.reporter`, so the webview's pin compares the
+    /// value the judge let through, never a second reading of its own. Left
+    /// out when it named none, exactly as on [`SessionBound`]: the webview
+    /// reads only an absent field as unnamed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reporter: Option<String>,
     pub payload: serde_json::Value,
 }
 
@@ -175,7 +182,7 @@ impl Inbound {
     pub(super) fn reporter(&self) -> Option<String> {
         match self {
             Self::SessionBound(bound) => bound.reporter.clone(),
-            Self::Opaque { report, .. } => reported(&report.payload, "reporter"),
+            Self::Opaque { report, .. } => report.reporter.clone(),
         }
     }
 }
@@ -263,6 +270,7 @@ pub(super) fn interpret(content: &str) -> Result<Inbound, String> {
                 report: Report {
                     pane_id: envelope.pane_id,
                     token: envelope.token,
+                    reporter: reported(&envelope.payload, "reporter"),
                     payload: envelope.payload,
                 },
             })
@@ -652,12 +660,35 @@ pub(super) mod tests {
         assert_eq!(bound.reporter, None);
     }
 
-    // Same pin for the opaque wire shape (`src/ipc/usage.ts`, `status.ts`).
+    // The opaque arm reads its reporter by the same rule: what the origin
+    // judge lets through as unnamed travels to the webview as unnamed.
+    #[test]
+    fn an_opaque_report_names_its_process_once_and_a_blank_one_names_none() {
+        let named = interpret(&serde_json::json!({
+            "v": BRIDGE_PROTOCOL_VERSION, "type": "usage.report", "paneId": "pane-3", "token": "tok",
+            "payload": { "agent": "claude", "reporter": "4021" },
+        }).to_string());
+        let Ok(Inbound::Opaque { report, .. }) = named else { panic!("expected a report, got {named:?}") };
+        assert_eq!(report.reporter.as_deref(), Some("4021"));
+        for blank in [serde_json::json!(""), serde_json::json!(null), serde_json::json!(4021)] {
+            let content = serde_json::json!({
+                "v": BRIDGE_PROTOCOL_VERSION, "type": "usage.report", "paneId": "pane-3", "token": "tok",
+                "payload": { "agent": "claude", "reporter": blank },
+            });
+            let Ok(Inbound::Opaque { report, .. }) = interpret(&content.to_string()) else { panic!("expected a report") };
+            assert_eq!(report.reporter, None, "{blank}");
+        }
+    }
+
+    // Same pin for the opaque wire shape (`src/ipc/bridgeReport.ts`): an
+    // unnamed reporter is left out, never `null` — the webview reads only an
+    // absent field as unnamed.
     #[test]
     fn usage_report_serializes_camel_case() {
         let json = serde_json::to_value(Report {
             pane_id: "pane-7".into(),
             token: "tok".into(),
+            reporter: None,
             payload: serde_json::json!({ "agent": "claude" }),
         })
         .unwrap();
@@ -665,6 +696,19 @@ pub(super) mod tests {
             json,
             serde_json::json!({
                 "paneId": "pane-7", "token": "tok", "payload": { "agent": "claude" },
+            })
+        );
+        let named = serde_json::to_value(Report {
+            pane_id: "pane-7".into(),
+            token: "tok".into(),
+            reporter: Some("4021".into()),
+            payload: serde_json::json!({ "agent": "claude", "reporter": "4021" }),
+        })
+        .unwrap();
+        assert_eq!(
+            named,
+            serde_json::json!({
+                "paneId": "pane-7", "token": "tok", "reporter": "4021", "payload": { "agent": "claude", "reporter": "4021" },
             })
         );
     }

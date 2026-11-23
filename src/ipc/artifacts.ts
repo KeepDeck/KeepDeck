@@ -24,7 +24,14 @@ export async function artifactsDisable(): Promise<void> {
   await invoke("artifacts_disable");
 }
 
-export interface ArtifactPublishPayload {
+/** Who writes, beside the workspace: an agent's team and pane, which the
+ * store's commit gate asks about — absent for the person at the UI. */
+export interface ArtifactWriter {
+  team?: string | null;
+  pane?: string | null;
+}
+
+export interface ArtifactPublishPayload extends ArtifactWriter {
   workspaceId: string;
   cwd: string | null;
   slug?: string;
@@ -108,7 +115,7 @@ export interface ArtifactDeleteResult {
   createdAt: number | null;
 }
 
-export async function artifactDelete(payload: {
+export async function artifactDelete(payload: ArtifactWriter & {
   workspaceId: string;
   slug: string;
   /** Refuse unless the id still names this incarnation — for a caller
@@ -128,11 +135,4 @@ export async function artifactResolveUrls(
   slug: string,
 ): Promise<{ url: string | null; indexUrl: string }> {
   return await invoke("artifact_resolve_urls", { payload, slug });
-}
-
-/** Drop a closing workspace's whole artifact store. Idempotent; called
- * from workspace deletion (the deck model is the only knower of the
- * live workspace set). */
-export async function artifactDropWorkspace(wsId: string): Promise<void> {
-  await invoke("artifact_drop_workspace", { wsId });
 }

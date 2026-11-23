@@ -5,8 +5,9 @@
  *
  * A STANDING CONDITION, not an event: it holds until the user moves their
  * file, so each arming pass replaces what it said about its agent in its
- * folder, and a folder no live pane claims any more is forgotten when it is
- * disarmed. Nothing here expires on a timer.
+ * folder, and a folder no pane on the deck runs in any more is forgotten —
+ * the lifecycle machine takes its plantings back when it closes the last
+ * of them. Nothing here expires on a timer.
  */
 
 export interface ArmRefusal {
@@ -22,8 +23,9 @@ export interface ArmRefusalStore {
   /** One pass's word on one agent in one folder: replaces what was said
    * about that pair before, an empty list included. */
   record(agentId: string, cwd: string, refused: readonly { path: string; reason: string }[]): void;
-  /** Folders taken back whole: nothing stands refused in them any more. */
-  forget(cwds: readonly string[]): void;
+  /** The folders panes still run in: what was said about any other folder
+   * goes — its plantings were taken back with its last pane. */
+  retain(cwds: ReadonlySet<string>): void;
 }
 
 const same = (a: readonly ArmRefusal[], b: readonly ArmRefusal[]): boolean =>
@@ -54,9 +56,8 @@ export function createArmRefusalStore(): ArmRefusalStore {
         ...refused.map(({ path, reason }) => ({ agentId, cwd, path, reason })),
       ]);
     },
-    forget(cwds) {
-      const gone = new Set(cwds);
-      publish(current.filter((r) => !gone.has(r.cwd)));
+    retain(cwds) {
+      publish(current.filter((r) => cwds.has(r.cwd)));
     },
   };
 }

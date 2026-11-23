@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createWorkspaceInstance } from "../../workspaceInstance";
 import type { Pane } from "../panes";
 import type { Workspace } from "../workspaces";
-import { stillTaken, teamResumeCohort, teamSuspendCohort, type TeamActFacts } from "./teamActs";
+import { stillTaken, teamActsOf, teamResumeCohort, teamSuspendCohort, type TeamActFacts } from "./teamActs";
 
 const AT = "2026-11-19T10:00:00.000Z";
 const on = (teamId: string, pane: Omit<Pane, "agentType" | "team"> & Partial<Pane>): Pane => ({
@@ -48,6 +48,7 @@ const facts: TeamActFacts = {
   blocked: (paneId) => paneId === "folder-gone",
   agentAvailable: (agentType) => agentType === "claude",
   suspending: (paneId) => paneId === "reaping",
+  gates: (teamId) => (teamId === "team-1" ? { addMember: { kind: "targetLeaving" }, close: null, retry: null } : null),
 };
 
 describe("teamSuspendCohort — every member a single Suspend would take", () => {
@@ -104,6 +105,13 @@ describe("teamResumeCohort — every member down by a decision that a single Res
     const cohort = teamResumeCohort(deck({ archived: { at: AT, phase: "archived" } }), "team-1", facts);
     expect(cohort.take).toEqual([]);
     expect(cohort.skip.every((why) => why === "archived")).toBe(true);
+  });
+});
+
+describe("teamActsOf — both cohorts and the machine's gates of that team", () => {
+  it("carries the gates the machine named for this team, and none for one it has not", () => {
+    expect(teamActsOf(deck(), "team-1", facts).gates).toEqual({ addMember: { kind: "targetLeaving" }, close: null, retry: null });
+    expect(teamActsOf(deck(), "team-2", facts).gates).toBeNull();
   });
 });
 

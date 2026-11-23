@@ -5,96 +5,72 @@ import {
   findWorkspace,
   membersOf,
   paneHasProcess,
-  teamOfPane,
-  teamsOf,
-  type GitPosition,
   type Pane,
-  type SuspendOutcome,
-  type WorktreeTarget,
-  type WorktreeTeardownFailure,
   type Workspace,
 } from "../domain/deck";
+import type { Consent, IntentOutcome, SuspendResult } from "../domain/lifecycle";
 import type { WorkspaceRef } from "../domain/workspaceInstance";
-import { probeWorktree } from "../ipc/worktree";
-import {
-  closeMessageFor,
-  worktreesNotDeletedText,
-  type CarrierNote,
-} from "../presentation/closeWords";
-import { suspendRefusalText } from "../presentation/suspendWords";
-import {
-  paneFactsOf,
-  pendingCreates,
-  type ClosingTarget,
-  type TeamTeardownOffer,
-} from "./closing/closingTarget";
-import { deletableWorktrees, existingTargets } from "./closing/teardownTargets";
+import type { Intent } from "../ipc/generated/lifecycle/Intent";
+import type { Preview } from "../ipc/generated/lifecycle/Preview";
+import { closeMessageFor, type CarrierNote } from "../presentation/closeWords";
+import { intentOutcomeText, refusalText } from "../presentation/lifecycleWords";
+import { suspendResultText } from "../presentation/suspendWords";
+import { offerSize, paneFactsOf, type ClosingTarget, type TeamTeardownOffer } from "./closing/closingTarget";
 import type { BackgroundCarrier } from "./liveSessions";
 import type { CloseRequest } from "./agentOrchestrator";
 import type { Deck } from "./useDeck";
 
+/** A close that deletes nothing: an agent's alone, or one whose box was
+ * left unticked. */
+const NOTHING: Consent = { stops: [], folders: [], tickets: [] };
+
 /**
  * Owns the confirmed-close flow: all three close paths ([U6]) park a
- * ClosingTarget for the confirm dialog — once its candidate worktrees are
- * probed, so a directory that's already gone is never offered for deletion;
- * confirming removes the pane(s) from the deck AND ends their PTY sessions
- * through the ptyManager (unmounting alone no longer kills a process), then
- * optionally tears the worktrees down per the delete checkbox — after the
- * closes settle, so no worktree dir is a live cwd.
+ * ClosingTarget for the confirm dialog — once the lifecycle machine has
+ * said what the close would end and may delete (`lifecycle_preview`), so
+ * the dialog offers exactly the machine's offer, and a confirm hands that
+ * offer back as the consent, unchanged. What the delete rule is — which
+ * folders, which branches — is the machine's alone; this hook shows it and
+ * freezes it.
  *
  * A directory is a TEAM's: closing one agent is never asked about one, and
  * only a disband (or a workspace close, which disbands every team) carries
  * the offer. The last member of a team is the one pane whose close dialog
  * speaks both verbs.
  */
-
 export function useCloseFlow(
   deck: Deck,
-  /** The hook's collaborators, named rather than positional: the list grew to
-   * four and its tail was two optionals nobody omitted, where forgetting one
-   * silently dropped a feature instead of failing to compile. */
+  /** The hook's collaborators, named rather than positional. */
   deps: {
+    /** A close the machine would not take, or refused at the confirm. */
     onError(message: string): void;
     /** A suspend the dialog offered and the flow then refused. Separate from
-     * `onError`, which reports worktree trouble: the two reach the user as
-     * headed alerts, and one heading cannot honestly cover both. */
+     * `onError`: the two reach the user as headed alerts, and one heading
+     * cannot honestly cover both. */
     onSuspendRefused(message: string): void;
-    /** Live git HEADs, for naming the branches a close would delete. */
-    gitPositions: ReadonlyMap<string, GitPosition>;
     /** paneId → the missing directory, from the revive sweep. A pane stuck on
      * a gone folder has no process; without this the dialog would promise to
      * end a session that isn't there and offer to suspend a dead pane. */
     blockedPanes: Record<string, string>;
-    /** Suspend an agent instead of closing it — the dialog's third action.
-     * Injected rather than imported so this hook keeps owning only the close
-     * decision. */
-    suspendAgent(wsId: string, paneId: string): Promise<SuspendOutcome>;
-    /** Carry out a close the user has confirmed, resolving to the worktrees
-     * it could not delete. Injected for the same reason: what this hook owns
-     * is the CONFIRMATION — which panes, which directories, and whether the
-     * user meant it — not the teardown that follows. */
-    closeAgents(request: CloseRequest): Promise<WorktreeTeardownFailure[]>;
+    /** What the machine would do with a close: what it ends, what it may
+     * delete, or why it would refuse it now. */
+    preview(intent: Intent): Promise<Preview>;
+    /** Suspend an agent instead of closing it — the dialog's third action. */
+    suspendAgent(wsId: string, paneId: string): Promise<SuspendResult>;
+    /** Carry out a close the user has confirmed, with exactly the consent
+     * its dialog showed. */
+    closeAgents(request: CloseRequest): Promise<IntentOutcome>;
     /** Ask the agent's live registry whether panes' conversations are
      * carried by a background process — the fact the close sentence must
      * say before the pane is gone. Batched: ONE registry query per
-     * distinct agent, answers aligned to the entries. Injected like
-     * everything else: the registry is the plugins' world, and this hook
-     * owns the close. */
+     * distinct agent, answers aligned to the entries. */
     backgroundCarriers(entries: {
       agentType: string;
       sessionId: string;
     }[]): Promise<BackgroundCarrier[]>;
   },
 ) {
-  const {
-    onError,
-    onSuspendRefused,
-    gitPositions,
-    blockedPanes,
-    suspendAgent,
-    closeAgents,
-    backgroundCarriers,
-  } = deps;
+  const { onError, onSuspendRefused, blockedPanes, preview, suspendAgent, closeAgents, backgroundCarriers } = deps;
   const [closing, setClosing] = useState<ClosingTarget | null>(null);
   // The late-painted carrier line (see `CarrierNote`). Set ONLY by the ask
   // of the dialog that is still current; cleared whenever a dialog opens,
@@ -104,12 +80,12 @@ export function useCloseFlow(
   // each time the dialog opens so the destructive choice is never sticky.
   const [deleteWorktree, setDeleteWorktree] = useState(false);
   // Dialog generation: bumped by every open, confirm and cancel. The open
-  // flow keys its probe on it, and an in-flight registry ask keys its
+  // flow keys its preview on it, and an in-flight registry ask keys its
   // LATE PAINT on it — an answer arriving after the dialog is gone (or
   // after a newer one opened) drops instead of writing into a dialog it
   // was never asked for.
   const requestSeq = useRef(0);
-  // The dialog's facts are read when it OPENS, which is after the probe —
+  // The dialog's facts are read when it OPENS, which is after the preview —
   // a render later than the click, so the render-time values are stale by
   // then. These carry the live ones across.
   const deckRef = useRef(deck);
@@ -118,22 +94,13 @@ export function useCloseFlow(
   blockedRef.current = blockedPanes;
 
   /** Fire the registry ask for the dialog of `seq`, painting the carrier
-   * line when — and only when — the answer warns. A "none" answer paints
-   * nothing: the ordinary close neither re-renders nor changes a
-   * character. */
-  const askCarriers = (
-    seq: number,
-    entries: { agentType: string; sessionId: string }[],
-  ) => {
+   * line when — and only when — the answer warns. */
+  const askCarriers = (seq: number, entries: { agentType: string; sessionId: string }[]) => {
     if (entries.length === 0) return;
     void backgroundCarriers(entries)
       .then((answers) => {
         if (seq !== requestSeq.current) return; // dialog gone or replaced
-        const kind = answers.includes("background")
-          ? "background"
-          : answers.includes("unknown")
-            ? "unknown"
-            : null;
+        const kind = answers.includes("background") ? "background" : answers.includes("unknown") ? "unknown" : null;
         if (kind) setCarrier({ kind });
       })
       .catch(() => {
@@ -141,51 +108,41 @@ export function useCloseFlow(
       });
   };
 
-  /** Open the confirm dialog once the candidate worktrees are probed. A
-   * close with no candidates skips the probe and opens synchronously. The
-   * REGISTRY ask is deliberately not part of this wait — the dialog opens
-   * on the base facts alone and the carrier line paints when the answer
-   * lands. */
-  const park = (
-    candidates: WorktreeTarget[],
-    make: (targets: WorktreeTarget[]) => ClosingTarget,
-    ask: (seq: number) => void,
-  ) => {
+  /** Open the confirm dialog once the machine has previewed the close. A
+   * close it would refuse now opens nothing and says why. The REGISTRY ask
+   * is deliberately not part of this wait — the carrier line paints when
+   * its answer lands. */
+  const park = (intent: Intent, make: (offer: Preview) => ClosingTarget, carriers: readonly Pane[]) => {
     const seq = ++requestSeq.current;
     setCarrier(null);
-    ask(seq);
-    const open = (targets: WorktreeTarget[]) => {
-      setDeleteWorktree(false);
-      setClosing(make(targets));
-    };
-    if (candidates.length === 0) {
-      open([]);
-      return;
-    }
-    void existingTargets(candidates, probeWorktree).then((targets) => {
-      if (seq === requestSeq.current) open(targets);
-    });
+    askCarriers(seq, carrierEntries(carriers));
+    void preview(intent).then(
+      (offer) => {
+        if (seq !== requestSeq.current) return;
+        if (offer.refusal !== null) {
+          onError(refusalText(offer.refusal));
+          return;
+        }
+        setDeleteWorktree(false);
+        setClosing(make(offer));
+      },
+      () => {
+        if (seq === requestSeq.current) onError(refusalText({ kind: "barrierUp" }));
+      },
+    );
   };
 
   /** One carrier ask per BOUND pane among `panes` (a stopped pane's
-   * conversation can be carried too), folded by `askCarriers` per the
-   * asymmetry rule: any "background" wins, then any "unknown", else nothing
-   * at all. */
+   * conversation can be carried too). */
   const carrierEntries = (panes: readonly Pane[]) =>
-    panes.flatMap((pane) =>
-      pane.session?.id ? [{ agentType: pane.agentType, sessionId: pane.session.id }] : [],
-    );
+    panes.flatMap((pane) => (pane.session?.id ? [{ agentType: pane.agentType, sessionId: pane.session.id }] : []));
 
-  /** What this close would delete, as the dialog must say it — the same
-   * decision the teardown runs, asked here for the sentence. */
-  const offerFor = (ws: Workspace, ending: readonly string[]): WorktreeTarget[] =>
-    deletableWorktrees({
-      workspaces: deck.workspaces,
-      workspace: ws,
-      root: ws.cwd,
-      ending,
-      gitPositions,
-    });
+  /** The machine's offer, as the consent a ticked box would give. */
+  const offerOf = (offer: Preview): TeamTeardownOffer => ({
+    stops: offer.stops,
+    folders: offer.folders,
+    tickets: offer.creations,
+  });
 
   const refOf = (ws: Workspace): WorkspaceRef => ({ id: ws.id, instance: ws.instance });
 
@@ -194,31 +151,27 @@ export function useCloseFlow(
     const pane = ws?.panes.find((candidate) => candidate.id === paneId);
     if (!ws || !pane) return;
     const workspace = refOf(ws);
-    // The last member of its team: the dialog offers the team's worktree,
-    // because the primary verb there is disbanding.
-    const team = teamOfPane(ws, pane);
-    const last = team && membersOf(ws, team.id).length === 1 ? team : null;
-    // The registry ask fires in flight and its answer PAINTS the carrier
-    // line when it lands; the dialog does not wait for it (the standing
-    // rule: opens stay instant). A pane with no session binding has
-    // nothing to ask about.
     park(
-      last ? offerFor(ws, [last.id]) : [],
-      (targets) => ({
-        kind: "agent",
-        workspace,
-        paneId,
-        label,
-        pane: paneFactsOf(
-          findWorkspace(deckRef.current.workspaces, wsId),
-          findPane(deckRef.current.workspaces, wsId, paneId),
-          paneId in blockedRef.current,
-        ),
-        last: last
-          ? { teamId: last.id, name: last.name, targets, pending: pendingCreates([last]) }
-          : null,
-      }),
-      (seq) => askCarriers(seq, carrierEntries([pane])),
+      { kind: "closeAgent", workspace: ws.id, pane: paneId, consent: NOTHING },
+      (offer) => {
+        // The last member of its team: the machine offers the team's
+        // disband beside it, worktree and all — the primary verb there.
+        const lastOf = offer.lastOf;
+        const team = lastOf ? findTeam(ws, lastOf[0]) : undefined;
+        return {
+          kind: "agent",
+          workspace,
+          paneId,
+          label,
+          pane: paneFactsOf(
+            findWorkspace(deckRef.current.workspaces, wsId),
+            findPane(deckRef.current.workspaces, wsId, paneId),
+            paneId in blockedRef.current,
+          ),
+          last: lastOf && team ? { teamId: team.id, name: team.name, ...offerOf(lastOf[1]) } : null,
+        };
+      },
+      [pane],
     );
   };
 
@@ -228,17 +181,9 @@ export function useCloseFlow(
     if (!ws || !team) return;
     const members = membersOf(ws, team.id);
     park(
-      offerFor(ws, [team.id]),
-      (targets) => ({
-        kind: "team",
-        workspace: refOf(ws),
-        teamId: team.id,
-        name: team.name,
-        count: members.length,
-        targets,
-        pending: pendingCreates([team]),
-      }),
-      (seq) => askCarriers(seq, carrierEntries(members)),
+      { kind: "disband", workspace: ws.id, team: team.id, consent: NOTHING },
+      (offer) => ({ kind: "team", workspace: refOf(ws), teamId: team.id, name: team.name, count: members.length, ...offerOf(offer) }),
+      members,
     );
   };
 
@@ -246,73 +191,62 @@ export function useCloseFlow(
     const ws = findWorkspace(deck.workspaces, id);
     if (!ws) return;
     park(
-      offerFor(ws, teamsOf(ws).map((team) => team.id)),
-      (targets) => ({
-        kind: "workspace",
-        workspace: refOf(ws),
-        name: ws.name,
-        count: ws.panes.length,
-        targets,
-        pending: pendingCreates(teamsOf(ws)),
-      }),
-      (seq) => askCarriers(seq, carrierEntries(ws.panes)),
+      { kind: "closeWorkspace", workspace: ws.id, consent: NOTHING },
+      (offer) => ({ kind: "workspace", workspace: refOf(ws), name: ws.name, count: ws.panes.length, ...offerOf(offer) }),
+      ws.panes,
     );
   };
 
   /** The dialog is gone: retire its generation so a straggling registry
-   * answer cannot paint into whatever opens next, and hand the close off. */
-  const dismissWith = (request: CloseRequest) => {
+   * answer cannot paint into whatever opens next, and hand the close off.
+   * A close the world outgrew while the dialog stood — an agent seated or
+   * moved into it, a worktree it would now offer — is asked again: the same
+   * dialog opens on a fresh preview. Any other refusal is said. */
+  const dismissWith = (request: CloseRequest, askAgain: () => void) => {
     requestSeq.current++;
     setCarrier(null);
     setClosing(null);
     setDeleteWorktree(false);
-    void closeAgents(request).then((failures) => {
-      if (failures.length > 0) onError(worktreesNotDeletedText(failures));
+    void closeAgents(request).then((outcome) => {
+      if (outcome.kind === "refused" && outcome.refusal.kind === "changed") return askAgain();
+      const why = intentOutcomeText(outcome);
+      if (why !== null) onError(why);
     });
   };
 
   const confirmClose = () => {
     if (!closing) return;
-    // The destructive choice is settled here and nowhere later: what the
-    // dialog offered, against the box the user actually ticked.
-    // The DECISION travels separately from the list. This list was frozen when
-    // the dialog opened and cannot be complete — a create landing while the
-    // user reads it owns a worktree nothing here has ever seen — so the close
-    // finishes it against the live deck. What this list still contributes is
-    // the observed branch per team, which a bare team read cannot give.
-    const teardown = (offer: TeamTeardownOffer) => ({
-      deleteWorktrees: deleteWorktree,
-      worktrees: deleteWorktree ? offer.targets : [],
-    });
+    // The destructive choice is settled here and nowhere later: the offer
+    // the dialog showed, frozen as the consent, against the box the user
+    // actually ticked. The machine re-checks it at the confirm: what is gone
+    // narrows it, and anything it did not show asks again.
+    const consent = ({ stops, folders, tickets }: TeamTeardownOffer): Consent =>
+      deleteWorktree ? { stops, folders, tickets } : { ...NOTHING, stops };
+    const wsId = closing.workspace.id;
     switch (closing.kind) {
-      case "agent":
+      case "agent": {
         // The last member's primary verb is disbanding: the pane goes, the
         // team with it, and the box decides the directory.
+        const { paneId, label } = closing;
         dismissWith(
           closing.last
-            ? {
-                kind: "team",
-                workspace: closing.workspace,
-                teamId: closing.last.teamId,
-                ...teardown(closing.last),
-              }
-            : { kind: "agent", workspace: closing.workspace, paneId: closing.paneId },
+            ? { kind: "team", workspace: closing.workspace, teamId: closing.last.teamId, consent: consent(closing.last) }
+            : { kind: "agent", workspace: closing.workspace, paneId, consent: NOTHING },
+          () => requestCloseAgent(wsId, paneId, label),
         );
         return;
-      case "team":
-        dismissWith({
-          kind: "team",
-          workspace: closing.workspace,
-          teamId: closing.teamId,
-          ...teardown(closing),
-        });
+      }
+      case "team": {
+        const { teamId } = closing;
+        dismissWith({ kind: "team", workspace: closing.workspace, teamId, consent: consent(closing) }, () =>
+          requestDisbandTeam(wsId, teamId),
+        );
         return;
+      }
       case "workspace":
-        dismissWith({
-          kind: "workspace",
-          workspace: closing.workspace,
-          ...teardown(closing),
-        });
+        dismissWith({ kind: "workspace", workspace: closing.workspace, consent: consent(closing) }, () =>
+          requestCloseWorkspace(wsId),
+        );
         return;
     }
   };
@@ -322,7 +256,8 @@ export function useCloseFlow(
    * disband, and this is not one. */
   const closeAgentOnly = () => {
     if (closing?.kind !== "agent" || !closing.last) return;
-    dismissWith({ kind: "agent", workspace: closing.workspace, paneId: closing.paneId });
+    const { workspace, paneId, label } = closing;
+    dismissWith({ kind: "agent", workspace, paneId, consent: NOTHING }, () => requestCloseAgent(workspace.id, paneId, label));
   };
 
   const cancelClose = () => {
@@ -337,9 +272,7 @@ export function useCloseFlow(
   /** Whether the dialog offers suspending instead of closing at all — from
    * the snapshot it opened with, so the button row cannot reshuffle
    * mid-gesture (see `ClosingTarget.pane`). A team or workspace close is
-   * deliberately never offered it: "suspend" there would mean "don't close,
-   * park all N agents" — a different verb on a different object, which a
-   * button sitting inside "Disband team?" cannot honestly say. */
+   * deliberately never offered it. */
   const canSuspendInstead = closing?.kind === "agent" && closing.pane.canSuspend;
 
   /** Whether the dialog speaks the last member's two verbs. */
@@ -353,50 +286,36 @@ export function useCloseFlow(
     const ws = findWorkspace(deck.workspaces, target.workspace.id);
     if (!ws) return 0;
     const panes = target.kind === "team" ? membersOf(ws, target.teamId) : ws.panes;
-    // A session exists only behind a live process. `idle` of ANY reason means
-    // there is none — including `waking`, which is a pane whose session is
-    // still ahead of it — and a pane mid-create has never had one. Asking
-    // "does it read as stopped" instead counted every rising pane as holding
-    // a session it has not opened yet, which is what a just-launched
-    // workspace is entirely made of.
+    // A session exists only behind a live process: `idle` of ANY reason
+    // means there is none, and a pane mid-create has never had one.
     return panes.filter((pane) => paneHasProcess(ws, pane)).length;
   };
 
-  const closeMessage = closeMessageFor(
-    closing,
-    runningAgentsOf(closing),
-    carrier,
-  );
+  const closeMessage = closeMessageFor(closing, runningAgentsOf(closing), carrier);
 
-  /** How many worktrees the delete offer covers — the ones that exist plus the
-   * creates still out. The dialog gates its checkbox on this rather than on
-   * `targets`, which cannot see a team mid-create. Zero for a member with
-   * company: its close is never asked about a directory. */
-  const offer: TeamTeardownOffer | null =
-    closing === null ? null : closing.kind === "agent" ? closing.last : closing;
-  const worktreeCount = offer ? offer.targets.length + offer.pending : 0;
+  /** How many worktrees the delete offer covers — the folders it names plus
+   * the creates still out. Zero for a member with company: its close is
+   * never asked about a directory. */
+  const offer: TeamTeardownOffer | null = closing === null ? null : closing.kind === "agent" ? closing.last : closing;
+  const worktreeCount = offer ? offerSize(offer) : 0;
 
   /**
    * Take the alternative: dismiss the dialog and park the agent.
    *
    * Refused while the worktree-delete checkbox is ticked, and the button is
-   * disabled to match. The two are contradictory — a suspended pane keeps
-   * pointing at that worktree and expects to come back to it — and of the two
-   * ways to resolve the contradiction, silently ignoring a box the user
-   * ticked is the worse one.
+   * disabled to match: a suspended pane keeps pointing at that worktree and
+   * expects to come back to it.
    */
   const suspendInstead = () => {
     if (!canSuspendInstead || closing?.kind !== "agent" || deleteWorktree) return;
-    const { workspace, paneId } = closing;
+    const { workspace, paneId, label } = closing;
     setClosing(null);
     setDeleteWorktree(false);
     // The dialog is already gone by the time this settles, so a refusal has
-    // nowhere to appear unless it is surfaced here — this was the one caller
-    // that dropped the outcome the other two turn into a sentence.
-    const label = closing.label;
-    void Promise.resolve(suspendAgent(workspace.id, paneId)).then((outcome) => {
-      if (outcome !== "suspended")
-        onSuspendRefused(suspendRefusalText(outcome, label));
+    // nowhere to appear unless it is surfaced here.
+    void suspendAgent(workspace.id, paneId).then((result) => {
+      const why = suspendResultText(result, label);
+      if (why !== null) onSuspendRefused(why);
     });
   };
 

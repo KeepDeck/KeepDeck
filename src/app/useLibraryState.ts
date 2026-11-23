@@ -18,15 +18,19 @@ import { log } from "../ipc/log";
 import { errorMessage } from "@keepdeck/plugin-api";
 
 /** What the hook needs from a library's owner — the writes, the read, and
- * the notify that a write happened through any door. */
+ * the notify that a write happened through any door. The writes here are
+ * the person's, at the UI: they name no agent as their writer. */
 export interface LibraryStatePorts<Scope, Row, Draft> {
   list(): Promise<Row[]>;
-  create(scope: Scope, draft: Draft): Promise<void>;
-  update(scope: Scope, draft: Draft): Promise<void>;
-  rename(scope: Scope, from: string, to: string): Promise<void>;
-  remove(scope: Scope, name: string): Promise<void>;
+  create(scope: Scope, draft: Draft, writer: null): Promise<void>;
+  update(scope: Scope, draft: Draft, writer: null): Promise<void>;
+  rename(scope: Scope, from: string, to: string, writer: null): Promise<void>;
+  remove(scope: Scope, name: string, writer: null): Promise<void>;
   subscribe(listener: () => void): () => void;
 }
+
+/** The person writes at the UI: no agent is the writer. */
+const PERSON = null;
 
 export interface LibraryStateConfig<Scope, Row> {
   /** Whether a stored row IS the item a reference names — for the one
@@ -206,7 +210,7 @@ export function useLibraryState<Scope, Row, Draft>(
   const save = useCallback(
     (scope: Scope, draft: Draft, mode: "create" | "update") =>
       mutate(
-        () => (mode === "create" ? library.create(scope, draft) : library.update(scope, draft)),
+        () => (mode === "create" ? library.create(scope, draft, PERSON) : library.update(scope, draft, PERSON)),
         (e) => `Save failed: ${errorMessage(e)}`,
       ),
     [library, mutate],
@@ -215,7 +219,7 @@ export function useLibraryState<Scope, Row, Draft>(
   const rename = useCallback(
     (scope: Scope, from: string, to: string) =>
       mutate(
-        () => library.rename(scope, from, to),
+        () => library.rename(scope, from, to, PERSON),
         (e) => `Rename failed: ${errorMessage(e)}`,
         { rereadOnSuccess: false },
       ),
@@ -234,7 +238,7 @@ export function useLibraryState<Scope, Row, Draft>(
     (scope: Scope, name: string) =>
       mutate(
         async () => {
-          await library.remove(scope, name);
+          await library.remove(scope, name, PERSON);
           // Dropped from the list HERE, not left to the re-read: for a delete
           // a kept stale list shows the user the thing they just removed.
           setRows((current) =>

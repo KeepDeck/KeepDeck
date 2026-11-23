@@ -146,24 +146,27 @@ export function requestPanesWake(
  * reversed: a boot restore that can't build a resume plan takes the documented
  * fresh-start degradation, because nobody is watching it.
  *
- * The pane returns to the marker it rose FROM, put back verbatim: one that
- * was suspended reads exactly as it did before the failed attempt, stamp and
- * all. A pane that rose from nothing — parked at launch, or restored and then
- * asked for — goes back to `parked`, which is runtime-only. Writing
- * `suspended` there would forge a decision the user never made AND make it
- * durable, so turning the launch policy off could never bring that pane back.
+ * This writes only what is the page's own: a pane that rose from nothing —
+ * parked at launch, or restored and then asked for — goes back to `parked`,
+ * which is runtime-only. A pane that rose from a SUSPENSION is not put back
+ * here: the suspension is the lifecycle machine's flag, and it is the
+ * machine that puts the pane back (a Suspend, whose marker keeps the old
+ * date — [`suspendedAt`]). Written here, the deck would say suspended while
+ * the machine, which had cleared its flag for the resume, did not — and the
+ * next Resume would be refused.
  *
- * Returns the SAME array unless the pane really is mid-manual-wake. */
+ * Returns the SAME array unless the pane really is mid-manual-wake from
+ * nothing. */
 export function failPaneWake(
   workspaces: Workspace[],
   workspaceId: string,
   paneId: string,
 ): Workspace[] {
   const pane = findPane(workspaces, workspaceId, paneId);
-  if (pane?.idle?.reason !== "waking" || pane.idle.origin !== "manual") {
+  if (pane?.idle?.reason !== "waking" || pane.idle.origin !== "manual" || pane.idle.from?.reason === "suspended") {
     return workspaces;
   }
-  const idle: PaneIdle = pane.idle.from ?? { reason: "parked" };
+  const idle: PaneIdle = { reason: "parked" };
   return mapWorkspace(workspaces, workspaceId, (panes) =>
     panes.map((p) => (p.id === paneId ? { ...p, idle } : p)),
   );

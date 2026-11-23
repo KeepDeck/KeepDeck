@@ -58,10 +58,11 @@ pub fn tasks_disable(state: State<TasksState>) {
 }
 
 /// Drop a closing workspace's board — its rows in the database and its
-/// files (the board's old JSON and every copy of it). Idempotent.
+/// files (the board's old JSON and every copy of it), the board on or off.
+/// Idempotent.
 #[tauri::command(async)]
 pub fn tasks_drop_workspace(state: State<TasksState>, ws_id: String) -> Result<(), String> {
-    state.store.drop_workspace(&ws_id)
+    state.store.drop_workspace(&ws_id, &store_root()?)
 }
 
 // ── The database (keepdeck-tasks): every board in one store ──────────────
@@ -85,9 +86,16 @@ pub fn tasks_load_all(state: State<TasksState>) -> Result<Vec<StoredBoard>, Stor
     state.store.with_db(|db| db.load_all())
 }
 
+/// A change from `source` — the writer, set by the app: its workspace, and
+/// its team and pane when it has them.
 #[tauri::command(async)]
-pub fn tasks_apply(state: State<TasksState>, change: ChangeSet) -> Result<Applied, StoreError> {
-    state.store.with_db(|db| db.apply(&change))
+pub fn tasks_apply(
+    state: State<TasksState>,
+    gate: State<crate::forgotten::Gate>,
+    source: crate::forgotten::Source,
+    change: ChangeSet,
+) -> Result<Applied, StoreError> {
+    state.store.apply(&gate, &source, &change)
 }
 
 #[tauri::command(async)]

@@ -130,6 +130,8 @@ describe("registerArtifactCommands", () => {
     expect(artifactPublish).toHaveBeenCalledWith(
       expect.objectContaining({
         workspaceId: "ws-1",
+        team: null,
+        pane: "pane-1",
         cwd: "/repo",
         slug: "auth-flow",
       }),
@@ -314,8 +316,11 @@ describe("registerArtifactCommands", () => {
     });
     const { run } = setup([pane()]);
     await run("artifact.delete", { id: "x" }, paneSource());
+    // The agent's pane rides beside the workspace, for the store's gate.
     expect(artifactDelete).toHaveBeenCalledWith({
       workspaceId: "ws-1",
+      team: null,
+      pane: "pane-1",
       slug: "x",
     });
   });
@@ -386,5 +391,35 @@ describe("registerArtifactCommands", () => {
     expect(announce).toHaveBeenCalledTimes(2);
     // Nothing was removed, so nothing on screen went stale either.
     expect(changed).toHaveBeenCalledTimes(3);
+  });
+});
+
+/**
+ * The store's door judges a write by who made it (integration row B26):
+ * the lifecycle forgets a pane or a team before its cleanup runs, and a
+ * write from it is refused under the store's own lock. That holds only if
+ * the writer's team and pane reach the door — the workspace id alone lets
+ * a forgotten pane's write in.
+ */
+describe("an agent's artifact write names its writer at the door", () => {
+  const teamed = pane({ team: { teamId: "team-1", role: "lead" } });
+  const teams: Workspace["teams"] = [{ id: "team-1", name: "api", location: { kind: "attached", cwd: "/repo" } }];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(artifactPublish).mockResolvedValue({
+      slug: "auth-flow", version: 1, isNew: true, url: "http://x/a/t/auth-flow", indexUrl: "http://x/i/",
+    });
+    vi.mocked(artifactDelete).mockResolvedValue({ id: "auth-flow", deleted: true, versionCount: 1, createdAt: 1 });
+  });
+
+  it("publish and delete carry the workspace, the team and the pane", async () => {
+    const { run } = setup([teamed], teams);
+    await run("artifact.publish", { title: "T", format: "html", content: "x" }, paneSource());
+    await run("artifact.delete", { id: "auth-flow" }, paneSource());
+
+    const writer = { workspaceId: "ws-1", team: "team-1", pane: "pane-1" };
+    expect(artifactPublish).toHaveBeenCalledWith(expect.objectContaining(writer));
+    expect(artifactDelete).toHaveBeenCalledWith(expect.objectContaining(writer));
   });
 });

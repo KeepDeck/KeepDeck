@@ -21,7 +21,7 @@ import type {
   CommandSpec,
 } from "../../domain/commands";
 import type { Workspace } from "../../domain/deck";
-import { findWorkspaceOfPane, remoteEndpointOf } from "../../domain/deck";
+import { findWorkspaceOfPane, remoteEndpointOf, teamOfPane } from "../../domain/deck";
 import { paneExecutionCwd } from "../../domain/deck/roots";
 import {
   isArtifactFormat,
@@ -85,6 +85,8 @@ function str(args: Record<string, unknown>, name: string): string | undefined {
 interface CallerContext {
   workspaceId: string;
   workspaceInstance: Workspace["instance"];
+  /** The caller's team, for the store's gate beside its pane. */
+  teamId: string | null;
   paneId: string;
   label: string;
   cwd: string | null;
@@ -112,6 +114,7 @@ function callerContext(
     return {
       workspaceId: owner.id,
       workspaceInstance: owner.instance,
+      teamId: teamOfPane(owner, found)?.id ?? null,
       paneId: found.id,
       label: pane.label,
       cwd: paneExecutionCwd(owner, found),
@@ -222,6 +225,8 @@ function publishCommand(deps: ArtifactCommandDeps): CommandSpec {
         getSettings()?.artifactAutoOpen ?? DEFAULT_SETTINGS.artifactAutoOpen;
       const wire = await artifactPublish({
         workspaceId: caller.workspaceId,
+        team: caller.teamId,
+        pane: caller.paneId,
         cwd: caller.cwd,
         slug: str(args, "id"),
         title,
@@ -328,7 +333,7 @@ function deleteCommand(deps: ArtifactCommandDeps): CommandSpec {
       // No expected generation: an agent's delete is an instruction about
       // a NAME, not an answer about a row it was shown.
       const outcome = await deleteArtifact(
-        { workspaceId: caller.workspaceId, slug: id },
+        { workspaceId: caller.workspaceId, team: caller.teamId, pane: caller.paneId, slug: id },
         { changed: deps.changed },
       );
       if (outcome.deleted && deps.announce) {

@@ -27,7 +27,9 @@ mod library;
 mod staging;
 mod tree;
 
+use crate::forgotten::{Gate, Source};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 // Re-exported for the command signatures below and for `lib.rs`'s managed
 // state; each shape is DEFINED beside the code that produces it, so a change
@@ -79,52 +81,117 @@ fn bundled_arm_check(dir: &std::path::Path, name: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The one lock every write into the library takes — the MCP library's
+/// twin: a create's "is it there" and its write, a rename's collision check
+/// and its move, are two steps each, and two agents' commands land on one
+/// directory at once.
+#[derive(Default)]
+pub struct SkillsLibraryLock(Mutex<()>);
+
+/// The library as its commands write it: its lock, the commit gate, its
+/// root. `writer` throughout: the agent writing, as the app knows it; none
+/// for the person.
+struct Library<'a> {
+    lock: &'a SkillsLibraryLock,
+    gate: &'a Gate,
+    root: &'a Path,
+}
+
+impl Library<'_> {
+    /// One write into a scope: under the library's lock, the commit gate
+    /// asked first — a closed agent writes nowhere, and a forgotten
+    /// workspace's scope takes nothing more.
+    fn write_in(
+        &self,
+        writer: Option<&Source>,
+        scope: &str,
+        ws_id: Option<&str>,
+        write: impl FnOnce(&Path) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.gate.write_under(&self.lock.0, writer, ws_id, || write(&library::scope_dir(self.root, scope, ws_id)?))
+    }
+
+    fn save(&self, writer: Option<&Source>, scope: &str, ws_id: Option<&str>, name: &str, content: &str, expect_new: bool) -> Result<(), String> {
+        if scope == "bundled" {
+            // The tier has no directory to write — the teaching text points
+            // at the copy-into-your-own flow (a scope:'bundled' ARGUMENT is
+            // always a door error, whatever the arms say about names).
+            return Err(
+                "bundled skills ship with KeepDeck and update with it — create your own in Global (the text is selectable, copy any part)".into(),
+            );
+        }
+        self.write_in(writer, scope, ws_id, |dir| {
+            if expect_new {
+                // Arm 3: create with a bundled name SUCCEEDS — the shadow path.
+                library::create(dir, name, content).map_err(|e| e.to_string())
+            } else {
+                // Arms 1/2 for updates: the row-existence check, THEN the save
+                // (the Rust save is an upsert with no row check of its own —
+                // without the gate a raw IPC update on a bundled name silently
+                // creates the shadow it should have refused to edit).
+                bundled_arm_check(dir, name)?;
+                library::save(dir, name, content).map_err(|e| e.to_string())
+            }
+        })
+    }
+
+    fn delete(&self, writer: Option<&Source>, scope: &str, ws_id: Option<&str>, name: &str) -> Result<(), String> {
+        if scope == "bundled" {
+            return Err(
+                "bundled skills ship with KeepDeck and update with it — nothing to delete here".into(),
+            );
+        }
+        self.write_in(writer, scope, ws_id, |dir| {
+            bundled_arm_check(dir, name)?;
+            library::delete(dir, name).map_err(|e| e.to_string())
+        })
+    }
+
+    fn rename(&self, writer: Option<&Source>, scope: &str, ws_id: Option<&str>, from: &str, to: &str) -> Result<(), String> {
+        if scope == "bundled" {
+            return Err(
+                "bundled skills ship with KeepDeck and update with it — nothing to rename here".into(),
+            );
+        }
+        self.write_in(writer, scope, ws_id, |dir| {
+            bundled_arm_check(dir, from)?;
+            library::rename(dir, from, to).map_err(|e| e.to_string())
+        })
+    }
+}
+
 /// Write one skill's `SKILL.md` (content is composed and validated by the
 /// webview; this side refuses unsafe path segments — and, when the caller says
-/// this is a CREATE, a name that is already taken).
+/// this is a CREATE, a name that is already taken). The library's lock and
+/// the commit gate are the app's managed state.
 #[tauri::command(async)]
-pub fn skills_save(
+pub fn skills_save<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
     name: String,
     content: String,
     expect_new: bool,
 ) -> Result<(), String> {
+    use tauri::Manager;
     let root = skills_root()?;
-    if scope == "bundled" {
-        // The tier has no directory to write — the teaching text points
-        // at the copy-into-your-own flow (a scope:'bundled' ARGUMENT is
-        // always a door error, whatever the arms say about names).
-        return Err(
-            "bundled skills ship with KeepDeck and update with it — create your own in Global (the text is selectable, copy any part)".into(),
-        );
-    }
-    let dir = library::scope_dir(&root, &scope, ws_id.as_deref())?;
-    if expect_new {
-        // Arm 3: create with a bundled name SUCCEEDS — the shadow path.
-        library::create(&dir, &name, &content).map_err(|e| e.to_string())
-    } else {
-        // Arms 1/2 for updates: the row-existence check, THEN the save
-        // (the Rust save is an upsert with no row check of its own —
-        // without the gate a raw IPC update on a bundled name silently
-        // creates the shadow it should have refused to edit).
-        bundled_arm_check(&dir, &name)?;
-        library::save(&dir, &name, &content).map_err(|e| e.to_string())
-    }
+    let (lock, gate) = (app.state::<SkillsLibraryLock>(), app.state::<Gate>());
+    Library { lock: &lock, gate: &gate, root: &root }.save(writer.as_ref(), &scope, ws_id.as_deref(), &name, &content, expect_new)
 }
 
 /// Remove one skill's directory entirely (assets included). Missing is fine.
 #[tauri::command(async)]
-pub fn skills_delete(scope: String, ws_id: Option<String>, name: String) -> Result<(), String> {
+pub fn skills_delete(
+    lock: tauri::State<'_, SkillsLibraryLock>,
+    gate: tauri::State<'_, Gate>,
+    writer: Option<Source>,
+    scope: String,
+    ws_id: Option<String>,
+    name: String,
+) -> Result<(), String> {
     let root = skills_root()?;
-    if scope == "bundled" {
-        return Err(
-            "bundled skills ship with KeepDeck and update with it — nothing to delete here".into(),
-        );
-    }
-    let dir = library::scope_dir(&root, &scope, ws_id.as_deref())?;
-    bundled_arm_check(&dir, &name)?;
-    library::delete(&dir, &name).map_err(|e| e.to_string())
+    Library { lock: &lock, gate: &gate, root: &root }.delete(writer.as_ref(), &scope, ws_id.as_deref(), &name)
 }
 
 /// Rename one skill by moving its whole directory — assets travel with it,
@@ -136,20 +203,16 @@ pub fn skills_delete(scope: String, ws_id: Option<String>, name: String) -> Resu
 /// succeeds is the door-slam class).
 #[tauri::command(async)]
 pub fn skills_rename(
+    lock: tauri::State<'_, SkillsLibraryLock>,
+    gate: tauri::State<'_, Gate>,
+    writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
     from: String,
     to: String,
 ) -> Result<(), String> {
     let root = skills_root()?;
-    if scope == "bundled" {
-        return Err(
-            "bundled skills ship with KeepDeck and update with it — nothing to rename here".into(),
-        );
-    }
-    let dir = library::scope_dir(&root, &scope, ws_id.as_deref())?;
-    bundled_arm_check(&dir, &from)?;
-    library::rename(&dir, &from, &to).map_err(|e| e.to_string())
+    Library { lock: &lock, gate: &gate, root: &root }.rename(writer.as_ref(), &scope, ws_id.as_deref(), &from, &to)
 }
 
 /// Rebuild and return the staging for one workspace — no view when the
@@ -161,6 +224,7 @@ pub fn skills_rename(
 pub fn skills_stage(
     locks: tauri::State<'_, SkillsLocks>,
     gates: tauri::State<'_, GateRegistry>,
+    forgotten: tauri::State<'_, Gate>,
     ws_id: String,
     excluded: Vec<staging::ExcludedSource>,
 ) -> Result<StagingAnswer, String> {
@@ -169,15 +233,19 @@ pub fn skills_stage(
     // The composition root owns the feature dependency; this command sees a
     // fresh bool from the registry and staging below stays artifacts-free.
     let claimed = gates.resolve(GateKey::Artifacts);
-    staging::stage(&locks, &root, &ws_id, BUNDLED, claimed, &excluded)
+    staging::stage(&locks, &forgotten, &root, &ws_id, BUNDLED, claimed, &excluded)
         .map_err(|e| e.to_string())
 }
 
-/// Drop the stagings of workspaces that no longer exist. The library is user
-/// content and is never touched here.
-#[tauri::command(async)]
-pub fn skills_prune(locks: tauri::State<'_, SkillsLocks>, live_ws_ids: Vec<String>) -> Result<(), String> {
-    staging::prune_views(&locks, &skills_root()?, &live_ws_ids).map_err(|e| e.to_string())
+/// Keep only the `live` workspaces' stagings — boot's reconciliation. The
+/// library is user content and is never touched here.
+pub(crate) fn retain_stagings(locks: &SkillsLocks, live: &[String]) -> Result<(), String> {
+    staging::prune_views(locks, &skills_root()?, live).map_err(|e| e.to_string())
+}
+
+/// One closed workspace's staging goes. What its people authored stays.
+pub(crate) fn forget_staging(locks: &SkillsLocks, ws_id: &str) -> Result<(), String> {
+    staging::forget_views(locks, &skills_root()?, ws_id).map_err(|e| e.to_string())
 }
 
 /// Run `read` while the staged view holding `path` (a real path) stays whole
@@ -239,6 +307,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_forgotten_writer_or_scope_writes_nothing_into_the_skills_library() {
+        let (_tmp, root) = root();
+        let lock = SkillsLibraryLock::default();
+        let forget = crate::forgotten::testing::Forget::default();
+        let gate = forget.gate();
+        let lib = Library { lock: &lock, gate: &gate, root: &root };
+        forget.forget("ws-gone");
+        forget.forget("pane-7");
+        let closed = Source { workspace: "ws-1".into(), team: None, pane: Some("pane-7".into()) };
+        let into = |writer: Option<&Source>, ws_id: &str| lib.save(writer, "workspace", Some(ws_id), "review", "---\nname: review\n---\n", true);
+        assert!(into(None, "ws-gone").unwrap_err().contains("closed"));
+        assert!(into(Some(&closed), "ws-1").is_err());
+        assert!(!root.join("library/ws").exists(), "nothing written");
+        into(None, "ws-1").expect("the person writes into a live workspace");
+        assert!(root.join("library/ws/ws-1/review/SKILL.md").is_file());
+    }
+
+    #[test]
     fn prune_on_a_fresh_home_is_a_no_op() {
         let (_tmp, root) = root();
         staging::prune_views(&SkillsLocks::default(), &root, &["ws-1".into()]).unwrap();
@@ -264,7 +350,8 @@ mod tests {
             content: "---\nname: probe\ndescription: \"Probe: the tier\"\n---\nBody\n",
             gate: None,
         }];
-        let views = staging::stage(&SkillsLocks::default(), &root, "ws-1", &tier, false, &[])
+        let gate = crate::forgotten::testing::Forget::default().gate();
+        let views = staging::stage(&SkillsLocks::default(), &gate, &root, "ws-1", &tier, false, &[])
             .unwrap()
             .view
             .unwrap();
@@ -273,108 +360,80 @@ mod tests {
         assert_eq!(views.skills[0].content, tier[0].content);
     }
 
+    /// The library over `root`, nothing forgotten.
+    fn with_library(root: &Path, test: impl FnOnce(&Library)) {
+        let lock = SkillsLibraryLock::default();
+        let gate = crate::forgotten::testing::Forget::default().gate();
+        test(&Library { lock: &lock, gate: &gate, root });
+    }
+
     #[test]
     fn the_three_refusal_arms_rust_side() {
-        std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
-        let global_dir = skills_root().unwrap().join("library").join("global");
+        let (_tmp, root) = root();
+        let global_dir = root.join("library").join("global");
+        std::fs::create_dir_all(&global_dir).unwrap();
+        with_library(&root, |lib| {
+            // Arm 3: CREATE with a bundled name SUCCEEDS — the blessed shadow.
+            lib.save(None, "global", None, "artifacts", "user's own copy", true).unwrap();
+            assert!(global_dir.join("artifacts").join(library::SKILL_FILE).exists());
 
-        // Arm 3: CREATE with a bundled name SUCCEEDS — the blessed shadow.
-        skills_save(
-            "global".into(),
-            None,
-            "artifacts".into(),
-            "user's own copy".into(),
-            true,
-        )
-        .unwrap();
-        assert!(global_dir.join("artifacts").join(library::SKILL_FILE).exists());
+            // Arm 1: UPDATE on the existing (user) row → normal CRUD.
+            lib.save(None, "global", None, "artifacts", "edited", false).unwrap();
 
-        // Arm 1: UPDATE on the existing (user) row → normal CRUD.
-        skills_save(
-            "global".into(),
-            None,
-            "artifacts".into(),
-            "edited".into(),
-            false,
-        )
-        .unwrap();
+            // Arm 2: DELETE (the row exists) → normal CRUD; then a second
+            // delete (row ABSENT, bundled name) → the teaching refusal.
+            lib.delete(None, "global", None, "artifacts").unwrap();
+            let refusal = lib.delete(None, "global", None, "artifacts").unwrap_err();
+            assert!(
+                refusal.contains("bundled skill ships with the name"),
+                "the teaching refusal names the shadow path: {refusal}"
+            );
 
-        // Arm 2: DELETE (the row exists) → normal CRUD; then a second
-        // delete (row ABSENT, bundled name) → the teaching refusal.
-        skills_delete("global".into(), None, "artifacts".into()).unwrap();
-        let refusal = skills_delete("global".into(), None, "artifacts".into())
-            .unwrap_err();
-        assert!(
-            refusal.contains("bundled skill ships with the name"),
-            "the teaching refusal names the shadow path: {refusal}"
-        );
-
-        // The upsert hole stays closed: an UPDATE on an absent bundled
-        // name refuses rather than silently creating a row.
-        let upsert = skills_save(
-            "global".into(),
-            None,
-            "artifacts".into(),
-            "sneaky shadow".into(),
-            false,
-        )
-        .unwrap_err();
-        assert!(upsert.contains("bundled skill ships with the name"));
-        assert!(
-            !global_dir.join("artifacts").join(library::SKILL_FILE).exists(),
-            "no row was silently created"
-        );
+            // The upsert hole stays closed: an UPDATE on an absent bundled
+            // name refuses rather than silently creating a row.
+            let upsert = lib.save(None, "global", None, "artifacts", "sneaky shadow", false).unwrap_err();
+            assert!(upsert.contains("bundled skill ships with the name"));
+            assert!(
+                !global_dir.join("artifacts").join(library::SKILL_FILE).exists(),
+                "no row was silently created"
+            );
+        });
     }
 
     #[test]
     fn the_rename_matrix_for_bundled_names() {
-        std::fs::create_dir_all(skills_root().unwrap().join("library").join("global")).unwrap();
-        let global_dir = skills_root().unwrap().join("library").join("global");
+        let (_tmp, root) = root();
+        let global_dir = root.join("library").join("global");
+        std::fs::create_dir_all(&global_dir).unwrap();
         library::save(&global_dir, "mine", "content").unwrap();
+        with_library(&root, |lib| {
+            // Rename ONTO a bundled name (absent target): an authoring act —
+            // SUCCEEDS (any-free-name semantics, visible in the list).
+            lib.rename(None, "global", None, "mine", "artifacts").unwrap();
+            assert!(global_dir.join("artifacts").join(library::SKILL_FILE).exists());
+            assert!(!global_dir.join("mine").exists());
 
-        // Rename ONTO a bundled name (absent target): an authoring act —
-        // SUCCEEDS (any-free-name semantics, visible in the list).
-        skills_rename("global".into(), None, "mine".into(), "artifacts".into())
-            .unwrap();
-        assert!(global_dir.join("artifacts").join(library::SKILL_FILE).exists());
-        assert!(!global_dir.join("mine").exists());
-
-        // Rename FROM an absent bundled name → arm 2 teaching refusal.
-        library::delete(&global_dir, "artifacts").unwrap();
-        library::save(&global_dir, "other", "content").unwrap();
-        let refusal = skills_rename(
-            "global".into(),
-            None,
-            "artifacts".into(),
-            "other".into(),
-        )
-        .unwrap_err();
-        assert!(refusal.contains("bundled skill ships with the name"));
+            // Rename FROM an absent bundled name → arm 2 teaching refusal.
+            library::delete(&global_dir, "artifacts").unwrap();
+            library::save(&global_dir, "other", "content").unwrap();
+            let refusal = lib.rename(None, "global", None, "artifacts", "other").unwrap_err();
+            assert!(refusal.contains("bundled skill ships with the name"));
+        });
     }
 
     #[test]
     fn a_bundled_scope_argument_refuses_with_the_teaching_text() {
-        let refusal = skills_save(
-            "bundled".into(),
-            None,
-            "anything".into(),
-            "content".into(),
-            true,
-        )
-        .unwrap_err();
-        assert!(
-            refusal.contains("bundled skills ship with KeepDeck"),
-            "the scope argument refuses with the copy-into-your-own teaching: {refusal}"
-        );
-        let del = skills_delete("bundled".into(), None, "anything".into()).unwrap_err();
-        assert!(del.contains("bundled skills ship with KeepDeck"));
-        let ren = skills_rename(
-            "bundled".into(),
-            None,
-            "a".into(),
-            "b".into(),
-        )
-        .unwrap_err();
-        assert!(ren.contains("bundled skills ship with KeepDeck"));
+        let (_tmp, root) = root();
+        with_library(&root, |lib| {
+            let refusal = lib.save(None, "bundled", None, "anything", "content", true).unwrap_err();
+            assert!(
+                refusal.contains("bundled skills ship with KeepDeck"),
+                "the scope argument refuses with the copy-into-your-own teaching: {refusal}"
+            );
+            let del = lib.delete(None, "bundled", None, "anything").unwrap_err();
+            assert!(del.contains("bundled skills ship with KeepDeck"));
+            let ren = lib.rename(None, "bundled", None, "a", "b").unwrap_err();
+            assert!(ren.contains("bundled skills ship with KeepDeck"));
+        });
     }
 }

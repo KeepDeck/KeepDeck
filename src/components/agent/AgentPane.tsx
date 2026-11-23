@@ -1,7 +1,7 @@
 import { useRestart } from "./useRestart";
 import type { RoleChoice } from "../../presentation/roleChoiceView";
 import type { AgentRestartMode, UnconnectedLaunch } from "../../domain/agents";
-import type { RestartOutcome } from "../../app/agentOrchestrator";
+import type { IntentOutcome } from "../../domain/lifecycle";
 import {
   idleReadsAsStopped,
   type PaneBody,
@@ -170,7 +170,7 @@ export interface AgentPaneProps {
   /** Answers what it did. NOT optional-returning: a caller that resolved with
    * nothing would leave the card promising a restart that stood down, which is
    * the bug the outcome exists to prevent. */
-  onRestart?(mode: AgentRestartMode): Promise<RestartOutcome>;
+  onRestart?(mode: AgentRestartMode): Promise<IntentOutcome>;
 }
 
 /**
@@ -258,7 +258,7 @@ export function AgentPane({
   // A successful restart remounts the whole pane via its epoch. Until then
   // both choices stay inert, and a pane that stops resets the machine —
   // see [`useRestart`], where those two rules live with their reasoning.
-  const { restarting, restartFailed, restart } = useRestart(onRestart, idle);
+  const { restarting, restartFailed, refusal: restartRefusal, restart } = useRestart(onRestart, idle);
   // The suspended card and the activity tooltip both date themselves, so the
   // clock has to move even when nothing else re-renders this pane: a quiet
   // deck would otherwise read "now" for as long as it stayed quiet. Either
@@ -476,6 +476,11 @@ export function AgentPane({
                 {restartFailed && (
                   <span className="pane__exit-restart-error" role="alert">
                     Restart failed
+                  </span>
+                )}
+                {restartRefusal !== null && (
+                  <span className="pane__exit-restart-error" role="alert">
+                    {restartRefusal}
                   </span>
                 )}
               </div>

@@ -25,7 +25,6 @@ import {
 } from "./plans";
 import { log } from "../../ipc/log";
 import { execCovers } from "../../plugins/capabilities/execCovers";
-import { pluginsFsWriteRemove } from "../../ipc/pluginsFsWrite";
 import { mintBridgeToken, mintMcpToken } from "../ids";
 import { postbackCount } from "../postbacks";
 import { peekPaneSpawnSpec } from "./cache";
@@ -102,43 +101,19 @@ export interface BuiltPlan {
    * Never rejects — a planting that failed costs the pane what it was for,
    * never its process. */
   deliver(): Promise<void>;
-  /** A fork plan's scaffolding, to be removed once the fork starts or once
-   * it is clear it never will — absent when the plan declared none. */
-  discard?: PlanDiscard;
+  /** What a fork plan declared its scaffolding to be — absent for any other
+   * plan. Data, never an act: the lifecycle removes it, as the plugin, once
+   * the fork's session binds or when the fork rolls back. */
+  discard?: DeclaredDiscard;
 }
 
-/** The two ends a fork's scaffolding can meet; each never rejects. */
-export interface PlanDiscard {
-  onceStarted(): Promise<void>;
-  ifNeverStarted(): Promise<void>;
-}
-
-/** Remove what a fork plan declared, as its plugin — the containment the
- * plugin's own calls get. A failure (a plugin with nowhere to write among
- * them) is logged, never thrown: a leftover is a defect to see, not a reason
- * to fail the pane that left it. */
-function planDiscard(
-  agentId: string,
-  pluginId: string,
-  declared: NonNullable<SpawnPlanOutput["discard"]>,
-): PlanDiscard | undefined {
-  const onceStarted = declared.onceStarted ?? [];
-  const ifNeverStarted = declared.ifNeverStarted ?? [];
-  if (onceStarted.length === 0 && ifNeverStarted.length === 0) return undefined;
-  const removeAll = async (paths: readonly string[]) => {
-    for (const path of paths) {
-      await pluginsFsWriteRemove(pluginId, path).catch((error: unknown) =>
-        log.warn(
-          "web:agents",
-          `${agentId}: fork scaffolding ${path} was not removed: ${errorMessage(error)}`,
-        ),
-      );
-    }
-  };
-  return {
-    onceStarted: () => removeAll(onceStarted),
-    ifNeverStarted: () => removeAll(ifNeverStarted),
-  };
+/** A fork's scaffolding, as its plugin declared it: what goes once the
+ * launch is bound (and on any rollback), and what goes only by a rollback —
+ * the copy itself. Paths of the plugin's own store. */
+export interface DeclaredDiscard {
+  plugin: string;
+  onceStarted: string[];
+  ifNeverStarted: string[];
 }
 
 /**
@@ -495,14 +470,15 @@ export async function buildPlan(
       : [];
   const env = paneEnv(entry.id, mcpEnv, output.env, bridge);
   // Only a fork's surgery leaves scaffolding: a spawn or resume that declared
-  // some is ignored. Each removal is made as the plugin, held natively to
-  // its own write roots — the host grants by removal nothing the plugin was
-  // not granted.
+  // some is ignored. The removal is the lifecycle's, made as the plugin, held
+  // natively to its own write roots.
   if (output.discard && variant.kind !== "fork") {
     log.warn("web:agents", `${entry.id}: ignoring a discard declared outside a fork plan`);
   }
-  const discard =
-    variant.kind === "fork" && output.discard ? planDiscard(entry.id, pluginId, output.discard) : undefined;
+  const discard: DeclaredDiscard | undefined =
+    variant.kind === "fork"
+      ? { plugin: pluginId, onceStarted: output.discard?.onceStarted ?? [], ifNeverStarted: output.discard?.ifNeverStarted ?? [] }
+      : undefined;
   const yolo = startsInYolo(owner, base.yolo === true, output.yolo);
   logLaunchYolo(paneId, entry.id, variant.kind, base.yolo === true, yolo);
   return {

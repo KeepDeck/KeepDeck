@@ -1,40 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   armDoubles,
-  managerFor,
+  plantingsFor,
   cwdArming,
-  mcpLibrary,
-  pluginDirs,
   ref,
   skills,
   stagedFor,
-  worktree,
   type DeckEntry,
-  type WorktreeManager,
+  type WorktreePlantings,
 } from "./testSupport";
 import { createStagingTrimStore, type StagingTrimStore } from "../stagingTrims";
 
 let deck: DeckEntry[] = [];
-let manager: WorktreeManager;
+let plantings: WorktreePlantings;
 
 beforeEach(() => {
   vi.resetAllMocks();
   deck = [];
   armDoubles();
-  manager = managerFor(() => deck);
+  plantings = plantingsFor(() => deck);
 });
 
 describe("skillsFor", () => {
   it("stages afresh for every launch, concurrent ones included", async () => {
     const [a, b] = await Promise.all([
-      manager.skillsFor(ref("ws-1")),
-      manager.skillsFor(ref("ws-1")),
+      plantings.skillsFor(ref("ws-1")),
+      plantings.skillsFor(ref("ws-1")),
     ]);
     expect(a).toEqual(stagedFor("ws-1"));
     expect(b).toEqual(a);
     expect(skills.stageSkills).toHaveBeenCalledTimes(2);
 
-    await manager.skillsFor(ref("ws-1"));
+    await plantings.skillsFor(ref("ws-1"));
     expect(skills.stageSkills).toHaveBeenCalledTimes(3);
   });
 
@@ -44,13 +41,13 @@ describe("skillsFor", () => {
     // served that same answer until the user edited a skill.
     const short = { dir: "/staging/ws-1/skills", skills: [{ name: "artifacts", content: "---\ndescription: A\n---\n" }] };
     skills.stageSkills.mockResolvedValueOnce({ view: short, trims: [] });
-    expect(await manager.skillsFor(ref("ws-1"))).toEqual(short);
+    expect(await plantings.skillsFor(ref("ws-1"))).toEqual(short);
 
-    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
+    expect(await plantings.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
   });
 
   it("stages to the durable workspace id, whichever lifetime asks", async () => {
-    await manager.skillsFor(ref("ws-1", "life-2"));
+    await plantings.skillsFor(ref("ws-1", "life-2"));
     // The DISK key is the durable id — that's where the user's library is.
     expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", []);
   });
@@ -60,7 +57,7 @@ describe("skillsFor", () => {
       { scope: "global", wsId: null, name: "fine", content: "---\ndescription: Reviews\n---\n" },
       { scope: "global", wsId: null, name: "bare", content: "no frontmatter" },
     ]);
-    await manager.skillsFor(ref("ws-1"));
+    await plantings.skillsFor(ref("ws-1"));
     expect(skills.stageSkills).toHaveBeenLastCalledWith("ws-1", [
       { scope: "global", wsId: null, name: "bare" },
     ]);
@@ -68,10 +65,10 @@ describe("skillsFor", () => {
 
   it("stages nothing when the library cannot be read to judge it — and asks again next time", async () => {
     skills.fetchSkills.mockRejectedValueOnce(new Error("unreadable"));
-    expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
+    expect(await plantings.skillsFor(ref("ws-1"))).toBeNull();
     expect(skills.stageSkills).not.toHaveBeenCalled();
 
-    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
+    expect(await plantings.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
     expect(skills.stageSkills).toHaveBeenCalledTimes(1);
   });
 
@@ -79,9 +76,9 @@ describe("skillsFor", () => {
     // One transient error used to cost every later pane in the workspace its
     // skills until the user happened to edit one (task-568).
     skills.stageSkills.mockRejectedValueOnce(new Error("disk full"));
-    expect(await manager.skillsFor(ref("ws-1"))).toBeNull();
+    expect(await plantings.skillsFor(ref("ws-1"))).toBeNull();
 
-    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
+    expect(await plantings.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
   });
 });
 
@@ -91,14 +88,14 @@ describe("what staging could not hand out whole", () => {
 
   beforeEach(() => {
     trims = createStagingTrimStore();
-    manager = managerFor(() => deck, trims);
-    deck = [{ id: "ws-1", roots: [] }];
+    plantings = plantingsFor(() => deck, trims);
+    deck = [{ id: "ws-1" }];
   });
 
   it("is said under the workspace lifetime that staged it, and only beside the views", async () => {
     skills.stageSkills.mockResolvedValue({ view: stagedFor("ws-1"), trims: [linkOut] });
     // The spawn is handed the views alone.
-    expect(await manager.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
+    expect(await plantings.skillsFor(ref("ws-1"))).toEqual(stagedFor("ws-1"));
     expect(trims.get()).toEqual([
       { ...linkOut, workspaceId: "ws-1", workspaceInstance: "ws-1-life-1", workspaceName: "ws-1" },
     ]);
@@ -107,58 +104,35 @@ describe("what staging could not hand out whole", () => {
   it("is not said by the stage of a lifetime that is gone, even once a new workspace holds its id", async () => {
     // Closed while its stage was in flight, and the slot handed to a new
     // workspace: that one has not staged yet, so nothing stands under it.
-    deck = [{ id: "ws-1", instance: "life-2", roots: [] }];
+    deck = [{ id: "ws-1", instance: "life-2" }];
     skills.stageSkills.mockResolvedValue({ view: stagedFor("ws-1"), trims: [linkOut] });
-    await manager.skillsFor(ref("ws-1", "life-1"));
-    expect(trims.get()).toEqual([]);
-  });
-
-  it("is dropped by the sweep once its lifetime is gone, though a new one holds the id", async () => {
-    deck = [{ id: "ws-1", instance: "life-1", roots: ["/a"] }];
-    skills.stageSkills.mockResolvedValue({ view: stagedFor("ws-1"), trims: [linkOut] });
-    await manager.skillsFor(ref("ws-1", "life-1"));
-    await manager.sweep(true);
-    expect(trims.get()).toHaveLength(1);
-
-    deck = [{ id: "ws-1", instance: "life-2", roots: ["/b"] }];
-    await manager.sweep(true);
-    expect(trims.get()).toEqual([]);
-  });
-
-  it("is dropped by the sweep even when the new lifetime holds the same id and the same roots", async () => {
-    deck = [{ id: "ws-1", instance: "life-1", roots: [] }];
-    skills.stageSkills.mockResolvedValue({ view: stagedFor("ws-1"), trims: [linkOut] });
-    await manager.skillsFor(ref("ws-1", "life-1"));
-    await manager.sweep(true);
-
-    deck = [{ id: "ws-1", instance: "life-2", roots: [] }];
-    await manager.sweep(true);
+    await plantings.skillsFor(ref("ws-1", "life-1"));
     expect(trims.get()).toEqual([]);
   });
 
   it("is replaced by the workspace's next stage — a fixed skill leaves the list", async () => {
     skills.stageSkills.mockResolvedValueOnce({ view: stagedFor("ws-1"), trims: [linkOut] });
-    await manager.skillsFor(ref("ws-1"));
+    await plantings.skillsFor(ref("ws-1"));
     expect(trims.get()).toHaveLength(1);
 
-    await manager.skillsFor(ref("ws-1"));
+    await plantings.skillsFor(ref("ws-1"));
     expect(trims.get()).toEqual([]);
   });
 
   it("is forgotten the moment the library moves, before any launch stages again", async () => {
     skills.stageSkills.mockResolvedValueOnce({ view: stagedFor("ws-1"), trims: [linkOut] });
-    await manager.skillsFor(ref("ws-1"));
-    manager.invalidateSkills();
+    await plantings.skillsFor(ref("ws-1"));
+    plantings.invalidateSkills();
     expect(trims.get()).toEqual([]);
   });
 
   it("is not said by a stage asked for before the library moved", async () => {
     let answer!: (value: unknown) => void;
     skills.stageSkills.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
-    const staging = manager.skillsFor(ref("ws-1"));
+    const staging = plantings.skillsFor(ref("ws-1"));
     await vi.waitFor(() => expect(skills.stageSkills).toHaveBeenCalled());
 
-    manager.invalidateSkills();
+    plantings.invalidateSkills();
     answer({ view: stagedFor("ws-1"), trims: [linkOut] });
     await staging;
 
@@ -167,26 +141,13 @@ describe("what staging could not hand out whole", () => {
 
   it("survives a failed stage — a failure says nothing about the library", async () => {
     skills.stageSkills.mockResolvedValueOnce({ view: stagedFor("ws-1"), trims: [linkOut] });
-    await manager.skillsFor(ref("ws-1"));
+    await plantings.skillsFor(ref("ws-1"));
     // The same workspace re-staged after the library moved, and failing.
-    manager.invalidateSkills();
+    plantings.invalidateSkills();
     trims.record({ id: "ws-1", instance: "ws-1-life-1", name: "ws-1" }, [linkOut]);
     skills.stageSkills.mockRejectedValueOnce(new Error("disk full"));
-    await manager.skillsFor(ref("ws-1"));
+    await plantings.skillsFor(ref("ws-1"));
     expect(trims.get()).toHaveLength(1);
-  });
-
-  it("is forgotten with a workspace that is gone", async () => {
-    deck = [{ id: "ws-1", roots: ["/a"] }, { id: "ws-2", roots: ["/b"] }];
-    skills.stageSkills.mockImplementation(async (wsId: string) => ({ view: stagedFor(wsId), trims: [linkOut] }));
-    await manager.skillsFor(ref("ws-1"));
-    await manager.skillsFor(ref("ws-2"));
-    await manager.sweep(true);
-    expect(trims.get().map((trim) => trim.workspaceId)).toEqual(["ws-1", "ws-2"]);
-
-    deck = [{ id: "ws-2", roots: ["/b"] }];
-    await manager.sweep(true);
-    expect(trims.get().map((trim) => trim.workspaceId)).toEqual(["ws-2"]);
   });
 });
 
@@ -200,314 +161,21 @@ describe("what an agent's plugin plants in a pane's cwd", () => {
   });
 
   it("plants the request as it was handed, and answers what landed", async () => {
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
+    deck = [{ id: "ws-1" }];
     cwdArming.cwdArm.mockResolvedValue({ armed: [".agent/conf"], refused: [] });
 
-    expect(await manager.armCwd(request("/repo"))).toEqual({ armed: [".agent/conf"], refused: [] });
+    expect(await plantings.armCwd(request("/repo"))).toEqual({ armed: [".agent/conf"], refused: [] });
     expect(cwdArming.cwdArm).toHaveBeenCalledWith(request("/repo"));
-  });
-
-  it("waits for a teardown in flight, like every other write into a cwd", async () => {
-    // The ordering the whole owner exists for: a write that landed between
-    // git's recursive delete and its final rmdir leaves a husk git no longer
-    // recognises.
-    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    worktree.removeWorktree.mockImplementation(async () => held);
-    const order: string[] = [];
-    cwdArming.cwdArm.mockImplementation(async () => {
-      order.push("planted");
-      return { armed: [".agent/conf"], refused: [] };
-    });
-    cwdArming.cwdDisarm.mockImplementation(async (roots) => {
-      order.push("disarmed");
-      return [...roots];
-    });
-
-    const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
-    const planting = manager.armCwd(request("/wt/a"));
-    release();
-    await removing;
-    await planting;
-
-    expect(order).toEqual(["disarmed", "planted"]);
-  });
-
-  it("plants nothing for an archived workspace — not even a planting queued before the archive", async () => {
-    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    worktree.removeWorktree.mockImplementation(async () => held);
-    cwdArming.cwdArm.mockResolvedValue({ armed: [".agent/conf"], refused: [] });
-
-    // Queued behind a teardown while the workspace is in use; archived
-    // before its turn comes.
-    const removing = manager.remove([{ repo: "/r", path: "/elsewhere", branch: "b" }]);
-    const planting = manager.armCwd(request("/wt/a"));
-    deck = [{ id: "ws-1", roots: ["/wt/a"], archived: true }];
-    release();
-    await removing;
-
-    expect(await planting).toEqual({ armed: [], refused: [] });
-    expect(cwdArming.cwdArm).not.toHaveBeenCalled();
   });
 
   it("plants into a cwd the deck cannot see YET — that is the normal case", async () => {
     // A manual resume, a fork into a directory and a fork into a fresh
     // worktree all build their plan BEFORE the pane lands, so the deck does
-    // not claim the cwd at write time. Narrowing against the live set here
-    // (as `skillsFor` must, because it arms a whole snapshotted SET) refused
-    // exactly those three flows, silently.
-    deck = [{ id: "ws-1", roots: [] }];
+    // not claim the cwd at write time.
+    deck = [{ id: "ws-1" }];
     cwdArming.cwdArm.mockResolvedValue({ armed: [".agent/conf"], refused: [] });
 
-    expect(await manager.armCwd(request("/wt/landing"))).toEqual({ armed: [".agent/conf"], refused: [] });
+    expect(await plantings.armCwd(request("/wt/landing"))).toEqual({ armed: [".agent/conf"], refused: [] });
     expect(cwdArming.cwdArm).toHaveBeenCalledWith(request("/wt/landing"));
-  });
-});
-
-describe("sweep", () => {
-  /** What the last disarm released. */
-  function lastDisarm(): Promise<string[] | null> | undefined {
-    const { results } = cwdArming.cwdDisarm.mock;
-    return results[results.length - 1]?.value;
-  }
-
-  it("refuses while the deck is still loading — it would read as empty", async () => {
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
-    await manager.sweep(false);
-    expect(skills.pruneSkills).not.toHaveBeenCalled();
-    expect(cwdArming.cwdDisarm).not.toHaveBeenCalled();
-  });
-
-  it("prunes the workspaces that are gone, at boot and on every close", async () => {
-    deck = [
-      { id: "ws-1", roots: ["/repo"] },
-      { id: "ws-2", roots: ["/other"] },
-    ];
-    await manager.sweep(true);
-    expect(skills.pruneSkills).toHaveBeenLastCalledWith(["ws-1", "ws-2"]);
-
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
-    await manager.sweep(true);
-    expect(skills.pruneSkills).toHaveBeenLastCalledWith(["ws-1"]);
-    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/repo", "/other"], ["/repo"]);
-    expect(await lastDisarm()).toEqual(["/other"]);
-  });
-
-  it("takes an archived workspace's plantings back, except where a workspace in use still works", async () => {
-    deck = [
-      { id: "ws-1", instance: "life-1", roots: ["/repo", "/wt/a"], archived: true },
-      { id: "ws-2", roots: ["/repo"] },
-    ];
-    expect(await manager.disarmArchived({ id: "ws-1", instance: "life-1" })).toBe(true);
-    // The archive's own claim protects nothing: only the workspace in use does.
-    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/repo", "/wt/a"], ["/repo"]);
-    expect(await lastDisarm()).toEqual(["/wt/a"]);
-  });
-
-  it("answers a failed take-back as a failure, for the archive to record", async () => {
-    deck = [{ id: "ws-1", instance: "life-1", roots: ["/wt/a"], archived: true }];
-    cwdArming.cwdDisarm.mockResolvedValueOnce(null);
-    expect(await manager.disarmArchived({ id: "ws-1", instance: "life-1" })).toBe(false);
-  });
-
-  it("an empty hydrated deck sweeps everything", async () => {
-    deck = [];
-    await manager.sweep(true);
-    expect(skills.pruneSkills).toHaveBeenLastCalledWith([]);
-  });
-
-  it("disarms a closing workspace's roots, late-added ones included", async () => {
-    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
-    await manager.sweep(true);
-    // A worktree pane lands AFTER that sweep…
-    deck = [{ id: "ws-1", roots: ["/wt/a", "/wt/b"] }];
-    await manager.sweep(true);
-    // …and the close still disarms BOTH of the workspace's roots.
-    deck = [];
-    await manager.sweep(true);
-    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/wt/a", "/wt/b"], []);
-    expect(skills.pruneSkills).toHaveBeenLastCalledWith([]);
-  });
-
-  it("disarms only the root that left, never one the workspace still claims", async () => {
-    // Panes that share a cwd are not counted here on purpose: `roots` IS the
-    // claim, so a workspace keeps its cwd listed while any pane runs in it, and
-    // the sweep's rule is simply "no live workspace claims this any more".
-    // Sharing across WORKSPACES is covered by the teardown's own case.
-    deck = [{ id: "ws-1", roots: ["/repo", "/wt/a"] }];
-    await manager.sweep(true);
-
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
-    await manager.sweep(true);
-
-    // Every root the last sweep saw is put to the disarm, with the live ones
-    // beside it: the guard that keeps /repo armed is the disarm's own.
-    expect(cwdArming.cwdDisarm).toHaveBeenLastCalledWith(["/repo", "/wt/a"], ["/repo"]);
-    expect(await lastDisarm()).toEqual(["/wt/a"]);
-  });
-
-  it("prunes against the deck as it is NOW, not as it was one IPC ago", async () => {
-    // The list that decides what to delete used to be read before the disarm's
-    // round trip, so a workspace created in that window was pruned as dead and
-    // its panes spawned pointing at deleted staging dirs.
-    deck = [{ id: "ws-1", roots: ["/wt/a"] }];
-    await manager.sweep(true); // baseline: ws-1 known
-
-    deck = [{ id: "ws-1", roots: [] }]; // a pane closed → something to disarm
-    cwdArming.cwdDisarm.mockImplementation(async (roots) => {
-      // A new workspace lands while the disarm is in flight.
-      deck = [
-        { id: "ws-1", roots: [] },
-        { id: "ws-2", roots: ["/repo2"] },
-      ];
-      return [...roots];
-    });
-
-    await manager.sweep(true);
-
-    expect(skills.pruneSkills).toHaveBeenLastCalledWith(["ws-1", "ws-2"]);
-  });
-
-  it("does nothing when the live set is unchanged — a rename must not cost two IPCs", async () => {
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
-    await manager.sweep(true);
-    expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
-
-    // The trigger fires on every deck transition; only what the manager acts on
-    // decides whether there is work.
-    await manager.sweep(true);
-    await manager.sweep(true);
-    expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
-  });
-
-  it("sweeps the MCP library's workspace scopes with the same live set", async () => {
-    // The crash path: a workspace the deck lost without closing it never had
-    // its scope forgotten, and its id will be handed to the next one.
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
-    await manager.sweep(true);
-    expect(mcpLibrary.pruneMcpLibrary).toHaveBeenLastCalledWith(["ws-1"]);
-
-    // Its failure is a failed pass like any other: the next sweep retries.
-    deck = [{ id: "ws-2", roots: ["/repo2"] }];
-    mcpLibrary.pruneMcpLibrary.mockResolvedValueOnce(false);
-    await manager.sweep(true);
-    await manager.sweep(true);
-    expect(mcpLibrary.pruneMcpLibrary).toHaveBeenCalledTimes(3);
-  });
-
-  it("retries a pass whose housekeeping failed instead of recording it as done", async () => {
-    // The IPCs swallow their own errors, so a pass that got nowhere used to be
-    // remembered as having cleaned this state — and at boot that state is exactly
-    // what a crash left behind.
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
-    skills.pruneSkills.mockResolvedValueOnce(false);
-
-    await manager.sweep(true);
-    expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
-
-    await manager.sweep(true); // same deck, but nothing was actually swept
-    expect(skills.pruneSkills).toHaveBeenCalledTimes(2);
-  });
-
-  it("still runs the first pass on an empty deck — that is the crash sweep", async () => {
-    // An empty hydrated deck compares equal to the initial state, and skipping
-    // it would leave whatever an earlier session or an update left behind.
-    deck = [];
-    await manager.sweep(true);
-    expect(skills.pruneSkills).toHaveBeenCalledWith([]);
-  });
-
-  it("prunes plugins' directories by the same live ids, and retries a pass they failed", async () => {
-    deck = [{ id: "ws-2", roots: ["/b"] }, { id: "ws-1", roots: ["/a"] }];
-    pluginDirs.prune.mockResolvedValueOnce(false);
-    await manager.sweep(true);
-    expect(pluginDirs.prune).toHaveBeenCalledWith(["ws-1", "ws-2"]);
-    await manager.sweep(true);
-    expect(pluginDirs.prune).toHaveBeenCalledTimes(2);
-  });
-
-  it("coalesces a burst — six panes closing sweep the same dirs once", async () => {
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    skills.pruneSkills.mockImplementationOnce(async () => {
-      await held;
-      return true;
-    });
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
-
-    const first = manager.sweep(true);
-    // Three more transitions land while the first pass is still in flight.
-    const rest = [manager.sweep(true), manager.sweep(true), manager.sweep(true)];
-    release();
-    await Promise.all([first, ...rest]);
-
-    // ONE pass of IPCs for the whole burst. The queue serializes the four
-    // requests and each one after the first finds the live set already accounted
-    // for, so it costs nothing — no second mechanism needed to coalesce.
-    expect(skills.pruneSkills).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("removing a checkout no team holds", () => {
-  const request = { repo: "/repo", path: "/wt/old", discardDirty: false };
-
-  it("removes it, leaving its branch, and keeps nothing it was not asked to", async () => {
-    deck = [{ id: "ws-1", roots: ["/repo"] }];
-    worktree.removeWorktree.mockResolvedValue(undefined);
-    expect(await manager.removeUnheld(request)).toEqual({ kind: "removed" });
-    expect(worktree.removeWorktree).toHaveBeenCalledWith("/repo", "/wt/old", { discardDirty: false, discardUnmerged: false });
-    expect(worktree.saveWorktreeHead).not.toHaveBeenCalled();
-  });
-
-  it("asks again inside the queue: a team that landed there since holds it, and nothing is touched", async () => {
-    deck = [{ id: "ws-1", roots: ["/repo", "/wt/old/"] }];
-    expect(await manager.removeUnheld(request)).toEqual({ kind: "held" });
-    expect(worktree.removeWorktree).not.toHaveBeenCalled();
-  });
-
-  it("holds a workspace's own folder even with no team in it", async () => {
-    // Every test deck's workspaces sit in /repo; this one has no team at all.
-    deck = [{ id: "ws-1", roots: [] }];
-    expect(await manager.removeUnheld({ ...request, path: "/repo/" })).toEqual({ kind: "held" });
-    expect(worktree.removeWorktree).not.toHaveBeenCalled();
-  });
-
-  it("holds an archived workspace's directories as well — retained, not free", async () => {
-    deck = [{ id: "ws-1", roots: ["/wt/old"], archived: true }];
-    expect(await manager.removeUnheld(request)).toEqual({ kind: "held" });
-  });
-
-  it("keeps a detached checkout's commit first, and removes nothing when it cannot", async () => {
-    deck = [];
-    worktree.removeWorktree.mockResolvedValue(undefined);
-    expect(await manager.removeUnheld({ ...request, keepHeadAs: "archive/web/old" })).toEqual({
-      kind: "removed",
-      keptAs: "refs/tags/archive/web/old",
-    });
-    worktree.saveWorktreeHead.mockRejectedValueOnce(new Error("tag exists"));
-    worktree.removeWorktree.mockClear();
-    expect(await manager.removeUnheld({ ...request, keepHeadAs: "archive/web/old" })).toEqual({
-      kind: "not-kept",
-      reason: "tag exists",
-    });
-    expect(worktree.removeWorktree).not.toHaveBeenCalled();
-  });
-
-  it("says what git refused", async () => {
-    deck = [];
-    worktree.removeWorktree.mockRejectedValueOnce(new Error("worktree has uncommitted changes; not removing"));
-    expect(await manager.removeUnheld(request)).toEqual({
-      kind: "failed",
-      reason: "worktree has uncommitted changes; not removing",
-    });
   });
 });

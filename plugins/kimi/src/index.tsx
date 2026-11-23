@@ -152,7 +152,13 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
       ...launchPlans({
         stage: stageLaunch,
         resume: (input) => ["--session", input.sessionId],
-        fork: async (input) => ["--session", await kimiForkPlan(ctx, input)],
+        // The clone is all a fork leaves in kimi's store besides its index
+        // line, which kimi skips once the clone is gone: a rollback, before
+        // the fork starts or after, takes the clone.
+        fork: async (input) => {
+          const fork = await kimiForkPlan(ctx, input);
+          return { args: ["--session", fork.sessionId], discard: { ifNeverStarted: [fork.clone] } };
+        },
       }),
       // A plan that threw still launches kimi: in YOLO, when it was asked.
       "bare.plan": yoloFloor(YOLO_SWITCH),

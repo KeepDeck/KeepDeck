@@ -94,6 +94,8 @@ export function storeErrorText(error: StoreError): string {
       return error.detail;
     case "migrationFailed":
       return `the task database could not be brought to this KeepDeck's schema (step ${error.migration}): ${error.detail} — it is as it was, and a copy taken before the step is beside it`;
+    case "forgotten":
+      return "what this change was for is closed — nothing more is written for it";
   }
 }
 

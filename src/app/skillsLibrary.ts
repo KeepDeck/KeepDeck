@@ -12,6 +12,7 @@ import {
   type SkillDraft,
   type SkillScope,
 } from "../domain/skills";
+import type { WriteSource } from "../domain/lifecycle";
 import type { SkillsInvalidation } from "./worktrees";
 
 /**
@@ -60,6 +61,9 @@ export interface LibrarySkill {
 
 /** The stored library itself. Injected so the owner can be driven without IPC,
  * and so the one adapter that knows the Rust command names stays below. */
+/** The library's files. Every write names its writer — the agent writing,
+ * as the app knows it, or null for the person at the UI — for the store's
+ * gate to refuse one the lifecycle has forgotten. */
 export interface SkillsStorage {
   fetch(): Promise<LibrarySkill[]>;
   save(
@@ -67,9 +71,10 @@ export interface SkillsStorage {
     name: string,
     content: string,
     expectNew: boolean,
+    writer: WriteSource | null,
   ): Promise<void>;
-  rename(scope: SkillScope, from: string, to: string): Promise<void>;
-  remove(scope: SkillScope, name: string): Promise<void>;
+  rename(scope: SkillScope, from: string, to: string, writer: WriteSource | null): Promise<void>;
+  remove(scope: SkillScope, name: string, writer: WriteSource | null): Promise<void>;
 }
 
 export interface SkillsLibraryPorts {
@@ -105,7 +110,7 @@ export interface SkillsLibrary {
    * through this library, they are only ever PRESERVED from what is already on
    * disk (see `update`), so a create writes exactly name, description and body.
    */
-  create(scope: SkillScope, draft: SkillDraft): Promise<void>;
+  create(scope: SkillScope, draft: SkillDraft, writer: WriteSource | null): Promise<void>;
   /**
    * Overwrite an existing skill — refused if there is none by that name, so an
    * update can never turn into a create.
@@ -115,7 +120,7 @@ export interface SkillsLibrary {
    * so a caller that cannot send those keys back does not eat them, and one that
    * captured them earlier does not write a stale copy over a later hand edit.
    */
-  update(scope: SkillScope, draft: SkillDraft): Promise<void>;
+  update(scope: SkillScope, draft: SkillDraft, writer: WriteSource | null): Promise<void>;
   /**
    * Rename a skill: move its directory — assets travel along — and rewrite the
    * frontmatter `name:` to match, because the CLIs read that field and a
@@ -128,11 +133,11 @@ export interface SkillsLibrary {
    * refuses it too, but only after the frontmatter rewrite has landed, and that
    * leaves two directories declaring one skill with no way back.
    */
-  rename(scope: SkillScope, from: string, to: string): Promise<void>;
+  rename(scope: SkillScope, from: string, to: string, writer: WriteSource | null): Promise<void>;
   /** Remove a skill, assets included. Refused if there is none by that name:
    * the storage underneath calls a missing directory a success, which would
    * answer "done" to a caller that named the wrong skill. */
-  remove(scope: SkillScope, name: string): Promise<void>;
+  remove(scope: SkillScope, name: string, writer: WriteSource | null): Promise<void>;
   /**
    * Be told when the library changed, and unsubscribe with the returned
    * function.
@@ -283,24 +288,24 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
     list: rows,
     read: async (scope, name) => skillDraftOf((await library(scope)).existing(name)),
 
-    create: async (scope, draft) => {
+    create: async (scope, draft, writer) => {
       requireValidName(draft.name);
       // Composed BEFORE the wrapper, like every other refusal: a draft the
       // format cannot carry has changed nothing, and must not forget a report.
       const content = authoredFile({ ...draft, extraFrontmatter: [] });
-      await writeThenRefresh(() => ports.storage.save(scope, draft.name, content, true));
+      await writeThenRefresh(() => ports.storage.save(scope, draft.name, content, true, writer));
     },
 
-    update: async (scope, draft) => {
+    update: async (scope, draft, writer) => {
       const row = (await library(scope)).existing(draft.name);
       requireRewritable(row.content);
       // The stored extras win: they are what is on disk now.
       const stored = skillDraftOf(row);
       const content = authoredFile({ ...draft, extraFrontmatter: stored.extraFrontmatter });
-      await writeThenRefresh(() => ports.storage.save(scope, draft.name, content, false));
+      await writeThenRefresh(() => ports.storage.save(scope, draft.name, content, false, writer));
     },
 
-    rename: async (scope, from, to) => {
+    rename: async (scope, from, to, writer) => {
       requireValidName(to);
       const scoped = await library(scope);
       const stored = scoped.existing(from);
@@ -322,7 +327,7 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
         // finds the frontmatter already correct and retries only the move, forever.
         // Move first and the storage — the only layer that sees the disk — refuses
         // before a single byte is written.
-        await ports.storage.rename(scope, from, to);
+        await ports.storage.rename(scope, from, to, writer);
         // A failure HERE leaves the directory moved and its frontmatter naming the
         // old skill. Mild by comparison and self-announcing: the directory wins
         // wherever a skill is read, so the skill is listed and editable under its
@@ -331,14 +336,14 @@ export function createSkillsLibrary(ports: SkillsLibraryPorts): SkillsLibrary {
         // any empty one), renaming it once more, which splices the frontmatter with
         // no authoring gate in the way.
         if (renamed.kind === "rewritten") {
-          await ports.storage.save(scope, to, renamed.content, false);
+          await ports.storage.save(scope, to, renamed.content, false, writer);
         }
       });
     },
 
-    remove: async (scope, name) => {
+    remove: async (scope, name, writer) => {
       (await library(scope)).existing(name);
-      await writeThenRefresh(() => ports.storage.remove(scope, name));
+      await writeThenRefresh(() => ports.storage.remove(scope, name, writer));
     },
 
     subscribe: notifier.subscribe,

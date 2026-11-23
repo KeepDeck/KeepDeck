@@ -234,7 +234,9 @@ describe("skills.read", () => {
 });
 
 describe("skills.create", () => {
-  it("writes the draft it was given", async () => {
+  it("writes the draft it was given, naming the pane that wrote it", async () => {
+    // The library's door refuses a writer the lifecycle has forgotten, under
+    // its own lock (integration row B26): the agent's pane must reach it.
     const { registry, skills } = setup([workspace({})]);
 
     const result = await registry.execute(
@@ -257,6 +259,7 @@ describe("skills.create", () => {
         body: "Run the script.\n",
         extraFrontmatter: [],
       },
+      expect.objectContaining({ workspace: "ws-1", pane: "p1" }),
     );
   });
 
@@ -301,6 +304,7 @@ describe("skills.update", () => {
         body: "New body\n",
         extraFrontmatter: [],
       },
+      null,
     );
   });
 
@@ -332,7 +336,7 @@ describe("skills.rename and skills.delete", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toEqual({ name: "deep-review" });
-    expect(skills.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review");
+    expect(skills.rename).toHaveBeenCalledWith({ kind: "global" }, "review", "deep-review", null);
     expect(skills.read).not.toHaveBeenCalled();
   });
 
@@ -346,7 +350,7 @@ describe("skills.rename and skills.delete", () => {
     );
 
     expect(result.ok).toBe(true);
-    expect(skills.remove).toHaveBeenCalledWith({ kind: "global" }, "review");
+    expect(skills.remove).toHaveBeenCalledWith({ kind: "global" }, "review", null);
     expect(skills.read).not.toHaveBeenCalled();
   });
 
@@ -391,6 +395,7 @@ describe("arguments are read the same way as everywhere else in the set", () => 
       // The body is the exception, kept verbatim: it is content, and trimming
       // it would edit what the caller wrote.
       { name: "deploy", description: "Ships it", body: " Run it\n", extraFrontmatter: [] },
+      null,
     );
   });
 

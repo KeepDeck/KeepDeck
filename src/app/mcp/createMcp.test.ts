@@ -17,7 +17,6 @@ function wired(storage: Partial<McpStorage> = {}) {
     save: async () => {},
     rename: async () => {},
     remove: async () => {},
-    forgetWorkspace: vi.fn(async () => {}),
     ...storage,
   };
   const disable = vi.fn(() => Promise.resolve());
@@ -47,6 +46,7 @@ describe("the MCP feature behind one door", () => {
       mcp.library.create(
         { kind: "global" },
         { name: "keepdeck", body: { transport: "stdio", command: "x", args: [], env: {} } },
+        null,
       ),
     ).rejects.toThrow(/KeepDeck ships with/);
   });
@@ -65,11 +65,9 @@ describe("the MCP feature behind one door", () => {
     mcp.dispose();
   });
 
-  it("forgets a workspace through the library, and disposes the service", async () => {
-    const { mcp, store, disable } = wired();
+  it("disposes the service", async () => {
+    const { mcp, disable } = wired();
     await flush();
-    await mcp.forgetWorkspace("ws-1");
-    expect(store.forgetWorkspace).toHaveBeenCalledWith("ws-1");
     mcp.dispose();
     await flush();
     expect(disable).toHaveBeenCalled();

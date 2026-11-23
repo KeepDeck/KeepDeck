@@ -31,7 +31,7 @@ import { usePersistence } from "./usePersistence";
 import { useBrowserSharedSeam } from "./useSessionsBrowser";
 import { useSettings } from "./useSettings";
 import { useSpawnContext } from "./useSpawnContext";
-import { suspendRefusalText } from "../presentation/suspendWords";
+import { suspendResultText } from "../presentation/suspendWords";
 import { useUpdate } from "./useUpdate";
 import { buildDockTabs } from "../components/dock/useDockTabs";
 import { DEFAULT_SETTINGS } from "../domain/settings";
@@ -55,6 +55,7 @@ import {
   type WorkspaceUpdateResult,
 } from "../domain/deck";
 import type { AppInfo } from "../ipc/app";
+import { previewIntent } from "../ipc/lifecycle";
 import { readAppInfo } from "./appInfo";
 import { layering, statsDeepLinkOnScreen, tasksBoardOnScreen } from "../presentation/layering";
 import { anyOverlayCovers, subscribeOverlayCover } from "./overlayCover";
@@ -154,10 +155,10 @@ export function useAppController(runtime: AppRuntime) {
     onTeamFailed: (message) => pushAlert("Could not start the team", message),
   }, runView.blocked, runtime.agentDoors);
   const closeFlow = useCloseFlow(deck, {
-    onError: (message) => pushAlert("Worktree error", message),
+    onError: (message) => pushAlert("Can't close", message),
     onSuspendRefused: (message) =>
       pushAlert("Can't suspend this agent", message),
-    gitPositions: gitHeads,
+    preview: previewIntent,
     blockedPanes: runView.blocked,
     suspendAgent: orchestrator.suspend,
     closeAgents: orchestrator.close,
@@ -169,14 +170,17 @@ export function useAppController(runtime: AppRuntime) {
   });
   const archiveFlow = useArchiveFlow({
     workspaces: deck.workspaces,
+    preview: previewIntent,
     archive: orchestrator.archive,
     onRefused: pushAlert,
   });
   const teamSuspendFlow = useTeamSuspendFlow({
     workspaces: deck.workspaces,
+    agents,
     activities: paneActivities,
     teamActs: orchestrator.teamActs,
     suspendTeam: orchestrator.suspendTeam,
+    onRefused: (message) => pushAlert("Can't suspend the team", message),
   });
   /** A rename asked for from a mark's menu, for the crumb to start — the
    * workspace it names, until the crumb has taken it. */
@@ -285,7 +289,8 @@ export function useAppController(runtime: AppRuntime) {
     overlayCovers,
   });
   // The one door to another member, for the bar, ⌘T and the cards alike.
-  const openMemberDoor = (ws: Workspace, teamId: string) => memberDoor(ws, teamId, windows.modal);
+  const openMemberDoor = (ws: Workspace, teamId: string) =>
+    memberDoor(ws, teamId, orchestrator.teamActs(ws.id, teamId)?.gates ?? null, windows.modal);
   const barMemberDoor = active && openTeam ? openMemberDoor(active, openTeam.id) : null;
   const canAddMember = barMemberDoor?.open ?? false;
   const canAddTeam = !!active && addTeamDoorOpen(active) && !windows.modal;
@@ -399,12 +404,9 @@ export function useAppController(runtime: AppRuntime) {
         agents,
       );
       if (!target) return;
-      void orchestrator.suspend(target.wsId, target.paneId).then((outcome) => {
-        if (outcome === "suspended") return;
-        pushAlert(
-          "Can't suspend this agent",
-          suspendRefusalText(outcome, target.label),
-        );
+      void orchestrator.suspend(target.wsId, target.paneId).then((result) => {
+        const why = suspendResultText(result, target.label);
+        if (why !== null) pushAlert("Can't suspend this agent", why);
       });
     },
     toggleMaximize: () => {
@@ -452,7 +454,7 @@ export function useAppController(runtime: AppRuntime) {
     view: shownWs,
     onRename: (name: string) => {
       const ws = findWorkspace(deck.workspaces, shownWs.id);
-      if (ws) deck.updateWorkspace({ id: ws.id, instance: ws.instance }, { name });
+      if (ws) orchestrator.updateWorkspace({ id: ws.id, instance: ws.instance }, { name });
     },
     onMove: (place: WorkspacePlace) => deck.moveWorkspace(shownWs.id, place),
     onArchive: () => archiveFlow.request(shownWs.id),
@@ -485,10 +487,10 @@ export function useAppController(runtime: AppRuntime) {
           // The card's very lines, through the same doors the card's take.
           menu: teamMenuView(active, openTeam, orchestrator.teamActs(active.id, openTeam.id), "crumb"),
           onRename: (name: string) => deck.renameTeam(active.id, openTeam.id, name),
-          onResume: () => orchestrator.resumeTeam(active.id, openTeam.id),
+          onResume: () => runtime.application.resumeTeam(active.id, openTeam.id),
           onSuspend: () => teamSuspendFlow.request(active.id, openTeam.id),
           onDisband: () => closeFlow.requestDisbandTeam(active.id, openTeam.id),
-          onRetry: () => orchestrator.retryProvisioning(active.id, openTeam.id),
+          onRetry: () => runtime.application.retryProvisioning(active.id, openTeam.id),
         }
       : {
           kind: "teams",
@@ -535,16 +537,13 @@ export function useAppController(runtime: AppRuntime) {
           .sort((a, b) => (Date.parse(b.archived?.at ?? "") || 0) - (Date.parse(a.archived?.at ?? "") || 0))[0];
         modal.openWorkspaces(latest?.id ?? null);
       },
-      onRestore: (wsId: string) => {
-        const ws = findWorkspace(deck.workspaces, wsId);
-        if (ws) orchestrator.restore({ id: ws.id, instance: ws.instance });
-      },
+      onRestore: runtime.application.restoreWorkspace,
       onArchive: archiveFlow.request,
       onCloseWorkspace: closeFlow.requestCloseWorkspace,
       /** The page's edits — one transition, the domain's answer handed back
        * so the page can say why one was refused. */
-      /** A checkout nobody holds, removed through the worktree owner's queue. */
-      onRemoveWorktree: runtime.worktrees.removeUnheld,
+      /** A checkout nobody holds, removed by one operation of the machine. */
+      onRemoveWorktree: orchestrator.removeUnheld,
       /** "New team in a worktree": the "+ Team" door, on that workspace —
        * brought on screen first, the window let go so the dialog is not
        * behind it. */
@@ -567,7 +566,7 @@ export function useAppController(runtime: AppRuntime) {
       onUpdate: (wsId: string, patch: WorkspacePatch): WorkspaceUpdateResult => {
         const ws = findWorkspace(deck.workspaces, wsId);
         if (!ws) return { ok: false, refusal: { kind: "unknown-workspace" } };
-        return deck.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
+        return orchestrator.updateWorkspace({ id: ws.id, instance: ws.instance }, patch);
       },
     },
     deck,

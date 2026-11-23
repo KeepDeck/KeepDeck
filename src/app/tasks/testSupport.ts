@@ -4,7 +4,7 @@ import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { decodeBoard, encodeBoard, type TaskLanding } from "../../domain/tasks";
 import { mintSequence } from "../../domain/tasks/testSupport";
 import { decodeFaultText } from "./refusalText";
-import type { TasksStorePort } from "./tasksService";
+import { WriteForgotten, type TasksStorePort } from "./tasksService";
 
 /** A store in memory, with the writes and drops it saw in order. It keeps
  * each board as the JSON a file would hold, read through the codec — so a
@@ -15,6 +15,8 @@ export function fakeStore(initial: Record<string, string> = {}) {
   /** Every call that touched the disk, in order. */
   const calls: ("write" | "drop")[] = [];
   let failNext: string | null = null;
+  /** The next write meets the lifecycle's fence: its workspace forgotten. */
+  let forgottenNext = false;
   let refusal: string | null = null;
   /** A write whose bytes land at once but whose answer waits. */
   let holdNext: Promise<void> | null = null;
@@ -31,6 +33,10 @@ export function fakeStore(initial: Record<string, string> = {}) {
       return decoded.ok ? { kind: "board", board: decoded.board } : { kind: "unreadable", error: decodeFaultText(decoded.fault) };
     },
     write: async ({ workspaceId, board }) => {
+      if (forgottenNext) {
+        forgottenNext = false;
+        throw new WriteForgotten("what this change was for is closed");
+      }
       if (failNext !== null) {
         const why = failNext;
         failNext = null;
@@ -99,6 +105,10 @@ export function fakeStore(initial: Record<string, string> = {}) {
     calls,
     failNextWrite(why: string) {
       failNext = why;
+    },
+    /** The next write is refused as forgotten by the lifecycle. */
+    forgetNextWrite() {
+      forgottenNext = true;
     },
     /** From now on nothing can be written, for `why` (null: writes again). */
     refuseWrites(why: string | null) {

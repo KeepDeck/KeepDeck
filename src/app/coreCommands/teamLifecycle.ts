@@ -2,6 +2,7 @@ import type { CommandArgs, CommandRegistry } from "../../domain/commands";
 import { createFailed, createIsOut, teamNameTaken } from "../../domain/deck";
 import { requiredStr, str } from "./args";
 import type { CoreCommandDeps } from ".";
+import { refusedBy } from "./refused";
 import { targetTeam, targetWorkspace } from "./targets";
 
 /**
@@ -80,7 +81,7 @@ export function registerTeamLifecycleCommands(
       id: "team.retry",
       title: "Retry a team's failed worktree create — the card's Retry",
       args: [TEAM, WORKSPACE],
-      run: (args) => {
+      run: async (args) => {
         const { ws, team } = named(args);
         const location = team.location;
         // Only a FAILED create is retried: one still running would be
@@ -98,7 +99,10 @@ export function registerTeamLifecycleCommands(
             `team "${team.name}" has nothing to retry — it is not waiting on a worktree create`,
           );
         }
-        deps.retryProvisioning(ws.id, team.id);
+        // The machine has the last word: a team being closed, a retry
+        // already running, an archived workspace.
+        const outcome = await deps.retryProvisioning(ws.id, team.id);
+        if (outcome.kind !== "accepted") throw refusedBy(outcome);
         return {
           workspaceId: ws.id,
           teamId: team.id,

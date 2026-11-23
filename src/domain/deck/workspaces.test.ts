@@ -10,7 +10,6 @@ import {
   closeWorkspace,
   findWorkspace,
   findWorkspaceOfPane,
-  firstFreeTeamWorktree,
   moveWorkspace,
   parentDir,
   stepPlaces,
@@ -24,12 +23,10 @@ import {
   restoreWorkspace,
   settleArchive,
   visibleWorkspaces,
-  directoryState,
   setWorkspacePluginSlot,
-  worktreeTargets,
   type Workspace,
 } from "./workspaces";
-import { gitWatchPaths, paneExecutionCwd } from "./roots";
+import { gitWatchPaths, paneExecutionCwd, paneFolders } from "./roots";
 import {
   clearPaneIdle,
   failPaneWake,
@@ -303,9 +300,9 @@ describe("archive, settle, restore", () => {
   const AT = "2026-11-16T10:00:00.000Z";
   const deck = () => [ws("a", [1]), ws("b", [])];
 
-  it("puts a workspace away in phase archiving — its panes suspended in the same change", () => {
+  it("puts a workspace away in phase archiving — the panes it is told of suspended in the same change", () => {
     const before = deck();
-    const after = archiveWorkspace(before, "a", AT);
+    const after = archiveWorkspace(before, "a", AT, ["a-p1"]);
     expect(after[0]).toEqual({
       ...before[0],
       archived: { at: AT, phase: "archiving" },
@@ -315,61 +312,45 @@ describe("archive, settle, restore", () => {
     expect(visibleWorkspaces(after).map((w) => w.id)).toEqual(["b"]);
   });
 
-  it("leaves EVERY local pane down durably, whatever it was doing — and nothing else", () => {
+  it("marks exactly the panes it is told of, whatever they were doing — and keeps a suspend's own date", () => {
     const EARLIER = "2026-11-01T00:00:00.000Z";
-    const creating = (id: string, error?: string): Team => ({
-      id,
-      name: id,
-      location: { kind: "provisioning", intent: { repo: "/tmp", path: `/wt/${id}`, index: 1 }, ...(error && { error }) },
-    });
     const before: Workspace = {
       ...ws("a", []),
-      teams: [creating("t-run"), creating("t-failed", "refused")],
       panes: [
         { id: "running", agentType: "claude" },
         { id: "parked", agentType: "claude", idle: { reason: "parked" } },
         { id: "rising", agentType: "claude", idle: { reason: "waking", origin: "manual", from: { reason: "parked" } } },
         { id: "mine", agentType: "claude", idle: { reason: "suspended", at: EARLIER } },
         { id: "remote", agentType: "codex", location: { kind: "remote", endpoint: "ws://vps" } },
-        { id: "making", agentType: "claude", team: { teamId: "t-run", role: "lead" } },
-        { id: "failed", agentType: "claude", team: { teamId: "t-failed", role: "lead" } },
       ],
     };
-    const [after] = archiveWorkspace([before], "a", AT);
+    // Which agents an archive stops is the lifecycle machine's to say: here
+    // every local one, the one already suspended among them.
+    const [after] = archiveWorkspace([before], "a", AT, ["running", "parked", "rising", "mine"]);
     expect(Object.fromEntries(after.panes.map((p) => [p.id, p.idle]))).toEqual({
       running: { reason: "suspended", at: AT },
       parked: { reason: "suspended", at: AT },
       rising: { reason: "suspended", at: AT },
-      // The person's own suspend keeps its date.
       mine: { reason: "suspended", at: EARLIER },
-      // Not KeepDeck's to stop; the archive ends its client.
       remote: undefined,
-      // A create still running is waited for, and settled after.
-      making: undefined,
-      // A failed create is a card waiting for Retry — no process, nothing to mark.
-      failed: undefined,
     });
   });
 
-  it("settling marks what landed since the archive began, dated by the archive", () => {
-    const team: Team = { id: "t-run", name: "t", location: { kind: "provisioning", intent: { repo: "/tmp", path: "/wt/t", index: 1 } } };
-    const start: Workspace = { ...ws("a", []), teams: [team], panes: [{ id: "making", agentType: "claude", team: { teamId: "t-run", role: "lead" } }] };
-    const archiving = archiveWorkspace([start], "a", AT);
-    // The create lands while the archive waits for it.
-    const landed = archiving.map((w) => ({ ...w, teams: [{ ...team, location: { kind: "attached" as const, cwd: "/wt/t" } }] }));
-    const [settled] = settleArchive(landed, "a", { reaps: [], disarm: false });
-    expect(settled.panes[0].idle).toEqual({ reason: "suspended", at: AT });
+  it("settling marks no pane: the archive's were marked when it began", () => {
+    const archiving = archiveWorkspace([ws("a", [1, 2])], "a", AT, ["a-p1"]);
+    const [settled] = settleArchive(archiving, "a", { reaps: [], disarm: false });
+    expect(settled.panes).toBe(archiving[0].panes);
     expect(settled.archived).toEqual({ at: AT, phase: "archived" });
   });
 
   it("archiving twice, or a workspace that is not there, changes nothing", () => {
-    const once = archiveWorkspace(deck(), "a", AT);
-    expect(archiveWorkspace(once, "a", "2026-11-17T00:00:00.000Z")).toBe(once);
-    expect(archiveWorkspace(once, "gone", AT)).toBe(once);
+    const once = archiveWorkspace(deck(), "a", AT, ["a-p1"]);
+    expect(archiveWorkspace(once, "a", "2026-11-17T00:00:00.000Z", ["a-p1"])).toBe(once);
+    expect(archiveWorkspace(once, "gone", AT, [])).toBe(once);
   });
 
   it("settles with what is still owed, and only keeps warnings that owe something", () => {
-    const archiving = archiveWorkspace(deck(), "a", AT);
+    const archiving = archiveWorkspace(deck(), "a", AT, ["a-p1"]);
     const owing = settleArchive(archiving, "a", { reaps: ["a-p1"], disarm: true });
     expect(owing[0].archived).toEqual({ at: AT, phase: "archived", warnings: { reaps: ["a-p1"], disarm: true } });
     const clear = settleArchive(owing, "a", { reaps: [], disarm: false });
@@ -384,7 +365,7 @@ describe("archive, settle, restore", () => {
 
   it("restores by taking the marker off and nothing else — every pane stays down", () => {
     const before = deck();
-    const archived = settleArchive(archiveWorkspace(before, "a", AT), "a", { reaps: [], disarm: false });
+    const archived = settleArchive(archiveWorkspace(before, "a", AT, ["a-p1"]), "a", { reaps: [], disarm: false });
     const restored = restoreWorkspace(archived, "a");
     expect(restored[0]).toEqual({ ...before[0], panes: archived[0].panes });
     expect(restored[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });
@@ -416,112 +397,6 @@ describe("renamePane", () => {
       id: "a-p1",
       agentType: "claude",
     });
-  });
-});
-
-describe("worktreeTargets", () => {
-  // A worktree-mode workspace: two teams on worktrees of their own, one on
-  // the repo root, and one whose create is still out. Members are beside
-  // the point — the directory is the team's.
-  const wtWs: Workspace = {
-    id: "a",
-    instance: createWorkspaceInstance(),
-    name: "a",
-    cwd: "/repo",
-    worktreeBaseDir: "/wt",
-    panes: [
-      { id: "a-p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } },
-      { id: "a-p2", agentType: "claude", team: { teamId: "team-2", role: "lead" } },
-      { id: "a-p3", agentType: "claude", team: { teamId: "team-3", role: "lead" } },
-      { id: "a-p4", agentType: "claude", team: { teamId: "team-4", role: "lead" } },
-    ],
-    teams: [
-      { id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/kd-a-1", branch: "kd/a/1" } },
-      { id: "team-2", name: "two", location: { kind: "attached", cwd: "/wt/kd-a-2", branch: "kd/a/2" } },
-      { id: "team-3", name: "root", location: { kind: "attached", cwd: "/repo", branch: "main" } },
-      {
-        id: "team-4",
-        name: "making",
-        location: {
-          kind: "provisioning",
-          intent: { repo: "/repo", path: "/wt/kd-a-4", index: 4 },
-        },
-      },
-    ],
-  };
-
-  it("collects every team's worktree for a workspace close", () => {
-    expect(worktreeTargets(wtWs)).toEqual([
-      { repo: "/repo", path: "/wt/kd-a-1", branch: "kd/a/1" },
-      { repo: "/repo", path: "/wt/kd-a-2", branch: "kd/a/2" },
-    ]);
-  });
-
-  it("collects only the named team for a disband", () => {
-    expect(worktreeTargets(wtWs, "team-2")).toEqual([
-      { repo: "/repo", path: "/wt/kd-a-2", branch: "kd/a/2" },
-    ]);
-  });
-
-  it("never targets the workspace root — a team there disbands without deleting", () => {
-    expect(worktreeTargets(wtWs, "team-3")).toEqual([]);
-    // However the root is spelled: the same directory is the same directory.
-    const trailing: Workspace = { ...wtWs, cwd: "/repo/" };
-    expect(worktreeTargets(trailing, "team-3")).toEqual([]);
-    expect(
-      worktreeTargets(wtWs, "team-3", new Map([["/repo", { branch: "main" }]])),
-    ).toEqual([]);
-  });
-
-  it("has nothing to name for a team whose create is still out", () => {
-    // The close flow covers that worktree by the create's ticket, not by
-    // a directory the team does not hold yet.
-    expect(worktreeTargets(wtWs, "team-4")).toEqual([]);
-  });
-
-  it("collects a detached-HEAD worktree (cwd, no branch)", () => {
-    const detached: Workspace = {
-      ...wtWs,
-      teams: [{ id: "team-1", name: "one", location: { kind: "attached", cwd: "/wt/kd-a-1" } }],
-    };
-    const targets = worktreeTargets(detached, "team-1");
-    expect(targets).toHaveLength(1);
-    expect(targets[0]).toMatchObject({ repo: "/repo", path: "/wt/kd-a-1" });
-    expect(targets[0].branch).toBeUndefined();
-  });
-
-  it("returns nothing for a non-worktree workspace — every team runs in the root", () => {
-    const plain: Workspace = {
-      id: "b",
-      instance: createWorkspaceInstance(),
-      name: "b",
-      cwd: "/repo",
-      worktreeBaseDir: null,
-      panes: [{ id: "b-p1", agentType: "claude", team: { teamId: "team-1", role: "lead" } }],
-      teams: [{ id: "team-1", name: "root", location: { kind: "attached", cwd: "/repo" } }],
-    };
-    expect(worktreeTargets(plain)).toEqual([]);
-    expect(worktreeTargets(plain, "team-1")).toEqual([]);
-    expect(
-      worktreeTargets(plain, undefined, new Map([["/repo", { branch: "main" }]])),
-    ).toEqual([]);
-  });
-
-  it("uses runtime current branch for owned worktrees; a detached head offers the dir alone", () => {
-    const heads = new Map([
-      ["/wt/kd-a-1", { branch: "feature/x" }],
-      ["/wt/kd-a-2", { head: "a".repeat(40) }],
-    ]);
-
-    // The detached team's target carries NO branch — not even the team's
-    // durable one, which the observed bare commit has superseded. Deleting a
-    // branch would be ambiguous there; skipping the whole target (as this
-    // once did) stranded the directory with the delete checkbox gone, against
-    // the WorktreeTarget contract.
-    expect(worktreeTargets(wtWs, undefined, heads)).toEqual([
-      { repo: "/repo", path: "/wt/kd-a-1", branch: "feature/x" },
-      { repo: "/repo", path: "/wt/kd-a-2", branch: undefined },
-    ]);
   });
 });
 
@@ -610,6 +485,8 @@ describe("gitWatchPaths", () => {
       },
     ];
     expect(gitWatchPaths(deck)).toEqual(new Set(["/wt/one", "/tmp", "/wt/two"]));
+    // The same set as the folders panes run in: one rule, two readers.
+    expect(paneFolders(deck)).toEqual(gitWatchPaths(deck));
   });
 
   it("skips a team whose create is still out", () => {
@@ -622,129 +499,6 @@ describe("gitWatchPaths", () => {
         },
       ]),
     ).toEqual(new Set());
-  });
-});
-
-describe("directoryState", () => {
-  it("says what a location field needs: worked in, being created, or free", () => {
-    const deck: Workspace[] = [
-      {
-        ...ws("a", []),
-        teams: [teamAt("team-1", "/wt/live", "kd/a/1"), creatingTeam("team-2", "/wt/pending")],
-        panes: [memberOf("a-p1", "team-1"), memberOf("a-p2", "team-2"), { id: "a-p3", agentType: "claude" }],
-      },
-    ];
-    const here = deck[0];
-    // A team WORKS there — not a refusal: the field offers the attach, and
-    // the create asks the person whose directory it is.
-    expect(directoryState(deck, here, "/wt/live")).toBe("worked-in");
-    expect(directoryState(deck, here, "  /wt/live/ ")).toBe("worked-in");
-    // A create is heading there: nothing to attach to, and no second one.
-    expect(directoryState(deck, here, "/wt/pending")).toBe("being-created");
-    expect(directoryState(deck, here, "/wt/free")).toBe("free");
-    expect(directoryState(deck, here, "   ")).toBe("free");
-  });
-
-  it("a create that FAILED is not one still running", () => {
-    // Its card waits for Retry; telling the person to "try again in a
-    // moment" would be a wait that never ends.
-    const failed = creatingTeam("team-2", "/wt/pending");
-    if (failed.location?.kind !== "provisioning") throw new Error("a creating team provisions");
-    const deck: Workspace[] = [
-      {
-        ...ws("a", []),
-        teams: [{ ...failed, location: { ...failed.location, error: "boom" } }],
-        panes: [],
-      },
-    ];
-    expect(directoryState(deck, deck[0], "/wt/pending")).toBe("worked-in");
-  });
-});
-
-describe("firstFreeTeamWorktree", () => {
-  /** Rust-style naming: index i → folder `kd-a-<i>`, branch `kd/a/<i>`. */
-  const suggest = async (i: number) => ({
-    branch: `kd/a/${i}`,
-    folder: `kd-a-${i}`,
-  });
-  /** A deck whose teams hold `/base/kd-a-<n>` for each given n. */
-  const holding = (...nums: number[]): Workspace[] => [
-    {
-      ...ws("a", []),
-      teams: nums.map((n) => teamAt(`team-${n}`, `/base/kd-a-${n}`)),
-      panes: nums.map((n) => memberOf(`a-p${n}`, `team-${n}`)),
-    },
-  ];
-
-  it("returns the start index untouched when it's free", async () => {
-    expect(await firstFreeTeamWorktree(holding(1), "/base", suggest, 2)).toEqual({
-      path: "/base/kd-a-2",
-      branch: "kd/a/2",
-    });
-  });
-
-  it("skips occupied paths — folder and branch advance together", async () => {
-    expect(await firstFreeTeamWorktree(holding(2, 3), "/base", suggest, 2)).toEqual({
-      path: "/base/kd-a-4",
-      branch: "kd/a/4",
-    });
-  });
-
-  it("skips a provisioning intent's target path too", async () => {
-    const deck: Workspace[] = [
-      {
-        ...ws("a", []),
-        teams: [creatingTeam("team-1", "/base/kd-a-2")],
-        panes: [memberOf("a-p1", "team-1")],
-      },
-    ];
-    expect((await firstFreeTeamWorktree(deck, "/base", suggest, 2))?.path).toBe(
-      "/base/kd-a-3",
-    );
-  });
-
-  it("normalizes the base dir's trailing slash", async () => {
-    expect((await firstFreeTeamWorktree([], "/base///", suggest, 1))?.path).toBe(
-      "/base/kd-a-1",
-    );
-  });
-
-  it("gives up when suggestions dry up, or when every try is occupied", async () => {
-    expect(await firstFreeTeamWorktree([], "/base", async () => null, 1)).toBeNull();
-    // A suggest stuck on one occupied name must hit the cap, not spin forever.
-    const stuck = async () => ({ branch: "kd/a/2", folder: "kd-a-2" });
-    expect(await firstFreeTeamWorktree(holding(2), "/base", stuck, 2)).toBeNull();
-  });
-
-  it("skips a candidate the probe classifies as blocked (leftover dir with files)", async () => {
-    const probe = async (path: string) => ({
-      exists: path === "/base/kd-a-1",
-      isWorktree: false,
-      empty: false,
-      branch: null,
-    });
-    expect(await firstFreeTeamWorktree([], "/base", suggest, 1, probe)).toEqual({
-      path: "/base/kd-a-2",
-      branch: "kd/a/2",
-    });
-  });
-
-  it("keeps a candidate that probes as an idle worktree — attaching is a valid outcome", async () => {
-    const probe = async () => ({
-      exists: true,
-      isWorktree: true,
-      empty: false,
-      branch: "kd/a/1",
-    });
-    expect((await firstFreeTeamWorktree([], "/base", suggest, 1, probe))?.path).toBe(
-      "/base/kd-a-1",
-    );
-  });
-
-  it("a null probe result (backend down) keeps the candidate", async () => {
-    expect(
-      (await firstFreeTeamWorktree([], "/base", suggest, 1, async () => null))?.path,
-    ).toBe("/base/kd-a-1");
   });
 });
 
@@ -1106,13 +860,22 @@ describe("failPaneWake", () => {
   const AT = "2026-07-25T09:00:00.000Z";
   const withPane = (pane: Pane): Workspace[] => [{ ...ws("a", []), panes: [pane] }];
 
-  it("puts a manual wake back down with the stamp it went up with", () => {
+  it("never writes a suspension: a wake from one is the machine's to put back", () => {
+    // The lifecycle machine cleared its flag for the resume this wake served;
+    // a marker written here would be the deck's alone, and the next Resume
+    // would be refused (task-917). The machine's Suspend puts it back.
     const suspended = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } });
     const waking = requestPaneWake(suspended, "a", "a-p1");
-    const back = failPaneWake(waking, "a", "a-p1");
-    // The card reads exactly as it did before the failed attempt — restamping
-    // it "just now" would misdate a suspend the user made hours ago.
-    expect(back[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });
+    expect(failPaneWake(waking, "a", "a-p1")).toBe(waking);
+  });
+
+  it("leaves the machine's put-back the suspension's own date", () => {
+    // What the machine's Suspend writes for a pane rising from a suspension:
+    // the card reads as it did before the failed attempt — restamping it
+    // "just now" would misdate a suspend the user made hours ago.
+    const suspended = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } });
+    const waking = requestPaneWake(suspended, "a", "a-p1");
+    expect(suspendPane(waking, "a", "a-p1", "2026-07-25T11:30:00.000Z")[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });
   });
 
   it("returns a merely-PARKED pane to parked, never to a durable suspend", () => {
@@ -1142,21 +905,14 @@ describe("failPaneWake", () => {
     });
   });
 
-  it("lands on the LATEST suspend when the user stops a pane mid-wake", () => {
-    // Reachable in three gestures: resume a suspended pane, stop it again
-    // while the sweep is still probing, resume once more. The second suspend
-    // is the one the pane must return to — restoring the first would date the
-    // card by a decision the user has already replaced.
+  it("keeps the date the agent went down when a Suspend takes back a wake that never came up", () => {
+    // Resume a suspended pane, stop it again while the sweep is still
+    // probing: the agent never came back up, so it has been down since the
+    // first suspension, and that is the date its card keeps.
     const LATER = "2026-07-25T11:30:00.000Z";
     const suspended = withPane({ id: "a-p1", agentType: "claude", idle: { reason: "suspended", at: AT } });
     const rising = requestPaneWake(suspended, "a", "a-p1");
-    const stoppedAgain = suspendPane(rising, "a", "a-p1", LATER);
-    const risingAgain = requestPaneWake(stoppedAgain, "a", "a-p1");
-
-    expect(failPaneWake(risingAgain, "a", "a-p1")[0].panes[0].idle).toEqual({
-      reason: "suspended",
-      at: LATER,
-    });
+    expect(suspendPane(rising, "a", "a-p1", LATER)[0].panes[0].idle).toEqual({ reason: "suspended", at: AT });
   });
 
   it("leaves a BOOT restore alone — its fresh-start degradation is deliberate", () => {

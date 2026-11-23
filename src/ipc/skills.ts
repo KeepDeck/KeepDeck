@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { WriteSource } from "../domain/lifecycle";
 import type { SkillScope, StagingTrim } from "../domain/skills";
-import { log } from "./log";
-import { errorMessage } from "@keepdeck/plugin-api";
+import { writerWire } from "./writeSource";
 
 /** One stored library skill (mirrors the Rust `SkillDto`). A `bundled`
  * row is READ-ONLY: the tier ships with the app; mutations refuse
@@ -76,19 +76,20 @@ export async function saveSkill(
   name: string,
   content: string,
   expectNew: boolean,
+  writer: WriteSource | null,
 ): Promise<void> {
-  await invoke("skills_save", { ...wire(scope), name, content, expectNew });
+  await invoke("skills_save", { ...wire(scope), name, content, expectNew, writer: writerWire(writer) });
 }
 
 /** Remove one skill (its whole directory). Throws on failure. */
-export async function deleteSkill(scope: SkillScope, name: string): Promise<void> {
-  await invoke("skills_delete", { ...wire(scope), name });
+export async function deleteSkill(scope: SkillScope, name: string, writer: WriteSource | null): Promise<void> {
+  await invoke("skills_delete", { ...wire(scope), name, writer: writerWire(writer) });
 }
 
 /** Rename one skill by moving its directory — assets travel along. Throws
  * on failure (a name collision included). */
-export async function renameSkill(scope: SkillScope, from: string, to: string): Promise<void> {
-  await invoke("skills_rename", { ...wire(scope), from, to });
+export async function renameSkill(scope: SkillScope, from: string, to: string, writer: WriteSource | null): Promise<void> {
+  await invoke("skills_rename", { ...wire(scope), from, to, writer: writerWire(writer) });
 }
 
 /** Rebuild and fetch a workspace's staging; `excluded` rows stage nowhere.
@@ -99,18 +100,4 @@ export async function stageSkills(
   excluded: readonly ExcludedSkill[],
 ): Promise<SkillsStage> {
   return await invoke<SkillsStage>("skills_stage", { wsId, excluded });
-}
-
-/** Drop the derived dirs of workspaces not in `liveWsIds` (closed ones must
- * not keep dead staging around). Best-effort — a failed sweep only logs — and
- * reports whether it got through, so the sweep that records "this state is
- * cleaned up" can decline to record a failure. */
-export async function pruneSkills(liveWsIds: string[]): Promise<boolean> {
-  try {
-    await invoke("skills_prune", { liveWsIds });
-    return true;
-  } catch (e) {
-    log.warn("web:skills", `skills_prune failed: ${errorMessage(e)}`);
-    return false;
-  }
 }

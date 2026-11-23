@@ -119,6 +119,9 @@ export interface MailServiceDeps {
     /** Whether the pane's process announced its agent's companion. */
     hasCompanion(paneId: string): boolean;
   };
+  /** The lifecycle's fence: a write for a pane, team or workspace it has
+   * forgotten — a close under way — is refused, not swept up after. */
+  lifecycle: { forgotten: MailCommandDeps["forgotten"] };
 }
 
 /** A companion's word that its agent started no turn for a ring. */
@@ -312,22 +315,28 @@ export function createMailService(deps: MailServiceDeps): MailService {
     // labelled channel. Having a renderer is not the same thing: kimi has
     // one and asks only as a turn starts.
     asksAtTurnEnd: (paneId) => collectsAtTurnEnd(statusOfPane(paneId)?.mail),
+    // The lifecycle's fence at the hook's claim and at a hand-over coming
+    // back: a pane it forgot, read with its workspace and team off the deck.
+    forgotten: (paneId) => {
+      const at = locate(paneId);
+      return at !== null && deps.lifecycle.forgotten({ workspace: at.workspace.id, team: at.team?.id ?? null, pane: paneId });
+    },
   });
   const unregister = registerMailCommands(deps.registry, {
     workspaces: deps.deck.workspaces,
     agents: deps.agents.labels,
     settleRoster: deps.deck.settleRoster,
     reachOf: deps.deck.reachOf,
+    forgotten: deps.lifecycle.forgotten,
     mail: manager,
   });
   const presence = startPresence();
   learnLiveVersions();
 
-  // Swept on every deck change rather than at close: a pane can also leave by
-  // a workspace closing, and one sweep covers both.
+  // What a closed pane's mail was is the lifecycle's to forget, by command
+  // to the mail's owner. Only this service's own view follows the deck.
   const unsubscribePanes = deps.deck.subscribe(() => {
     const live = livePaneIds();
-    manager.retain(live);
     for (const paneId of [...touchedSinceRing]) {
       if (!live.has(paneId)) touchedSinceRing.delete(paneId);
     }

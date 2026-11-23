@@ -16,9 +16,10 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use keepdeck_tasks::{LegacyBoard, Store, StoreError};
+use keepdeck_tasks::{Applied, ChangeSet, LegacyBoard, Store, StoreError};
 use sha2::{Digest, Sha256};
 
+use crate::forgotten::{Gate, Source};
 use crate::fs_claim::{claim, ClaimedRoot};
 use crate::state::write_atomic;
 
@@ -182,24 +183,95 @@ impl TasksStore {
     /// the database answers (damaged, a newer build's): a deleted
     /// workspace's briefs and comments do not stay on disk because the
     /// database could not drop its rows — which is still said. Idempotent.
-    pub fn drop_workspace(&self, workspace_id: &str) -> Result<(), String> {
+    ///
+    /// The board off is no reason to keep it: the toggle says whether the
+    /// tools answer, the claim guards the data. Off, with neither the
+    /// workspace's files nor a database under `root`, there is nothing to
+    /// drop; with either there, the store is claimed for the drop and let
+    /// go after — under the lifecycle lock, so an enable in this process
+    /// waits. Only a claim another copy holds, or a drop that fails, is
+    /// said, to be asked again.
+    pub fn drop_workspace(&self, workspace_id: &str, root: &Path) -> Result<(), String> {
+        require_safe(workspace_id)?;
+        let enabled = lock(&self.enabled);
+        if enabled.is_none() {
+            return drop_while_off(root, workspace_id);
+        }
+        drop(enabled);
         let rows = self.with_db(|db| db.drop_workspace(workspace_id).map(|_| ()));
         let files = self.drop_files(workspace_id);
         files?;
         rows.map_err(|e| format!("the task database kept the board of {workspace_id}: {e}"))
     }
 
+    /// Apply a change, unless what it is for is forgotten: the writer, the
+    /// workspace of a board it writes, or the team of a task on one. Asked
+    /// under the database's lock, the one a workspace's drop takes — a
+    /// change already in lands before the drop and goes with it.
+    pub fn apply(&self, gate: &Gate, source: &Source, change: &ChangeSet) -> Result<Applied, StoreError> {
+        self.with_db(|db| {
+            admitted(db, gate, source, change)?;
+            db.apply(change)
+        })
+    }
+
     fn drop_files(&self, workspace_id: &str) -> Result<(), String> {
         self.with_enabled(|root, data| {
             require_safe(workspace_id)?;
             let _guard = lock(data);
-            match fs::remove_dir_all(root.join("ws").join(workspace_id)) {
-                Ok(()) => Ok(()),
-                Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
-                Err(e) => Err(format!("dropping the task board for {workspace_id} failed: {e}")),
-            }
+            remove_files(root, workspace_id)
         })
     }
+}
+
+/// A workspace's board files under `root` go; absent is gone.
+fn remove_files(root: &Path, workspace_id: &str) -> Result<(), String> {
+    match fs::remove_dir_all(root.join("ws").join(workspace_id)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("dropping the task board for {workspace_id} failed: {e}")),
+    }
+}
+
+/// [`TasksStore::drop_workspace`] with the store off: nothing stored is
+/// done; anything stored goes under the claim, taken for the drop.
+fn drop_while_off(root: &Path, workspace_id: &str) -> Result<(), String> {
+    let stands = |path: PathBuf| fs::symlink_metadata(path).is_ok();
+    let database = stands(root.join(keepdeck_tasks::db::DB_FILE));
+    if !database && !stands(root.join("ws").join(workspace_id)) {
+        return Ok(());
+    }
+    let _claimed = claim(root, "task board")?;
+    remove_files(root, workspace_id)?;
+    if database {
+        // Opened as the next enable opens it: a schema this build moves
+        // forward is moved forward here.
+        let mut store = Store::open(root).map_err(|e| e.to_string())?;
+        let rows = store.drop_workspace(workspace_id);
+        store.close();
+        rows.map_err(|e| format!("the task database kept the board of {workspace_id}: {e}"))?;
+    }
+    Ok(())
+}
+
+/// The commit gate's questions about one change. A board that belongs to
+/// no workspace — or to none any more — has nothing to forget; the store
+/// itself answers a write to a board that is not there.
+fn admitted(db: &mut Store, gate: &Gate, source: &Source, change: &ChangeSet) -> Result<(), StoreError> {
+    let refused = |_| StoreError::Forgotten;
+    gate.admit(source).map_err(refused)?;
+    for board in &change.boards {
+        let workspace = match &board.workspace {
+            Some(workspace) => Some(workspace.clone()),
+            None => db.workspace_of(&board.board)?,
+        };
+        let Some(workspace) = workspace else { continue };
+        gate.admit(&Source::from(workspace.as_str())).map_err(refused)?;
+        for team in board.tasks.iter().filter_map(|task| task.team_id.clone()) {
+            gate.admit(&Source { workspace: workspace.clone(), team: Some(team), pane: None }).map_err(refused)?;
+        }
+    }
+    Ok(())
 }
 
 /// The checksum the migration keeps for each source file.
@@ -294,13 +366,111 @@ mod tests {
         std::fs::write(path.join("board.json"), json).unwrap();
     }
 
+    fn new_board(request: &str, workspace: &str, team: Option<&str>) -> ChangeSet {
+        let task = keepdeck_tasks::TaskWrite {
+            uid: format!("u-{request}"),
+            board_pos: 0,
+            team_id: team.map(str::to_owned),
+            title: "t".into(),
+            body: String::new(),
+            body_v: 1,
+            kind: "task".into(),
+            status: "todo".into(),
+            priority: "normal".into(),
+            assignee: None,
+            author: "lead".into(),
+            created: 1,
+            updated: 1,
+            key: Some("task-1".into()),
+            labels: None,
+            artifacts: None,
+            comments: vec![],
+            log: vec![],
+            briefs: vec![],
+        };
+        ChangeSet {
+            request_id: request.into(),
+            boards: vec![keepdeck_tasks::BoardChange {
+                board: format!("b-{workspace}"),
+                workspace: Some(workspace.into()),
+                expected_rev: 0,
+                next_id: 2,
+                tasks: vec![task],
+                removed: vec![],
+                relations_put: vec![],
+                relations_removed: vec![],
+            }],
+        }
+    }
+
+    #[test]
+    fn a_change_for_a_forgotten_writer_workspace_or_team_is_refused_and_nothing_lands() {
+        let (_dir, store) = enabled_store();
+        store.with_db(|db| db.import(&[], &[]).and_then(|()| db.activate_migration())).unwrap();
+        let forget = crate::forgotten::testing::Forget::default();
+        let gate = forget.gate();
+        let lead = Source { workspace: "ws-1".into(), team: Some("team-a".into()), pane: Some("pane-1".into()) };
+        forget.forget("pane-9");
+        forget.forget("team-gone");
+        forget.forget("ws-gone");
+
+        let gone_writer = Source { pane: Some("pane-9".into()), ..lead.clone() };
+        assert_eq!(store.apply(&gate, &gone_writer, &new_board("r1", "ws-1", None)), Err(StoreError::Forgotten));
+        assert_eq!(store.apply(&gate, &lead, &new_board("r2", "ws-gone", None)), Err(StoreError::Forgotten));
+        assert_eq!(store.apply(&gate, &lead, &new_board("r3", "ws-1", Some("team-gone"))), Err(StoreError::Forgotten));
+        assert_eq!(store.with_db(|db| db.load_all()).unwrap(), vec![], "nothing landed");
+
+        assert!(store.apply(&gate, &lead, &new_board("r4", "ws-1", Some("team-a"))).is_ok());
+        // The board's workspace is the store's word once the board exists.
+        forget.forget("ws-1");
+        let mut later = new_board("r5", "ws-1", None);
+        later.boards[0].workspace = None;
+        later.boards[0].expected_rev = 1;
+        assert_eq!(store.apply(&gate, &Source::from("ws-2"), &later), Err(StoreError::Forgotten));
+    }
+
     #[test]
     fn every_operation_refuses_while_off_with_the_switch_named() {
         let store = TasksStore::default();
         assert_eq!(store.legacy_boards().unwrap_err(), OFF_MESSAGE);
         assert_eq!(store.retire_legacy().unwrap_err(), OFF_MESSAGE);
-        assert_eq!(store.drop_workspace("ws-1").unwrap_err(), OFF_MESSAGE);
         assert_eq!(store.with_db(|db| db.status()).unwrap_err(), StoreError::Off);
+    }
+
+    /// Off is no reason to keep a closed workspace's board, nor to owe its
+    /// drop: nothing stored is nothing to drop, and no store is made for
+    /// it; a board stored goes — its files and its rows — under the claim,
+    /// taken for the drop and let go, so turning the board on right after
+    /// works.
+    #[test]
+    fn a_store_that_is_off_drops_a_workspace_all_the_same() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("tasks");
+        let off = TasksStore::default();
+        off.drop_workspace("ws-1", &root).unwrap();
+        assert!(!root.exists(), "no store is made to drop nothing from");
+
+        let on = TasksStore::default();
+        on.enable(&root).unwrap();
+        put(&dir, "ws-1", "{}");
+        on.disable();
+        assert!(root.join(keepdeck_tasks::db::DB_FILE).is_file());
+        off.drop_workspace("ws-1", &root).unwrap();
+        assert!(!root.join("ws/ws-1").exists());
+        off.enable(&root).expect("the drop let its claim go");
+        assert!(off.with_db(|db| db.drop_workspace("ws-1")).is_ok());
+    }
+
+    /// Another copy holding the board: the drop is not raced but said, and
+    /// asked again.
+    #[test]
+    fn a_store_that_is_off_does_not_drop_under_another_copys_claim() {
+        let (dir, other) = enabled_store();
+        put(&dir, "ws-1", "{}");
+        let off = TasksStore::default();
+        assert!(off.drop_workspace("ws-1", &dir.path().join("tasks")).is_err());
+        assert!(dir.path().join("tasks/ws/ws-1").exists());
+        drop(other);
     }
 
     #[test]
@@ -346,7 +516,7 @@ mod tests {
     fn an_unsafe_workspace_id_is_refused_and_never_read() {
         let (dir, store) = enabled_store();
         for bad in ["../x", "a/b", "", "."] {
-            assert!(store.drop_workspace(bad).unwrap_err().contains("unsafe workspace id"), "drop {bad:?}");
+            assert!(store.drop_workspace(bad, &dir.path().join("tasks")).unwrap_err().contains("unsafe workspace id"), "drop {bad:?}");
         }
         std::fs::create_dir_all(dir.path().join("tasks/ws/.hidden")).unwrap();
         std::fs::write(dir.path().join("tasks/ws/.hidden/board.json"), "x").unwrap();
@@ -362,7 +532,7 @@ mod tests {
         put(&dir, "ws-1", "{}");
         let store = TasksStore::default();
         store.enable(&root).unwrap();
-        let said = store.drop_workspace("ws-1").unwrap_err();
+        let said = store.drop_workspace("ws-1", &root).unwrap_err();
         assert!(said.contains("kept the board of ws-1"), "{said}");
         assert!(!dir.path().join("tasks/ws/ws-1").exists());
     }
@@ -371,9 +541,9 @@ mod tests {
     fn dropping_a_workspace_removes_its_files_and_is_idempotent() {
         let (dir, store) = enabled_store();
         put(&dir, "ws-1", "{}");
-        store.drop_workspace("ws-1").expect("drop");
+        store.drop_workspace("ws-1", &dir.path().join("tasks")).expect("drop");
         assert!(!dir.path().join("tasks/ws/ws-1").exists());
-        store.drop_workspace("ws-1").expect("drop again");
+        store.drop_workspace("ws-1", &dir.path().join("tasks")).expect("drop again");
     }
 
     #[test]

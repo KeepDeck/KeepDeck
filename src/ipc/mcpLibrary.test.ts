@@ -18,8 +18,6 @@ import { ipcMcpStorage } from "./mcpLibraryStorage";
 import {
   deleteMcpServer,
   fetchMcpServers,
-  forgetMcpWorkspace,
-  pruneMcpLibrary,
   renameMcpServer,
   saveMcpServer,
 } from "./mcpLibrary";
@@ -37,54 +35,43 @@ describe("the MCP library invoke-key contract", () => {
     await fetchMcpServers();
     expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_list");
 
-    await saveMcpServer({ kind: "global" }, "github", "{}", false);
+    await saveMcpServer({ kind: "global" }, "github", "{}", false, null);
     expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_save", {
       scope: "global",
       wsId: null,
       name: "github",
       content: "{}",
       expectNew: false,
+      writer: null,
     });
 
-    await saveMcpServer({ kind: "workspace", wsId: "ws-2" }, "fresh", "{}", true);
+    // An agent's write names it, as the store's gate reads a writer.
+    await saveMcpServer({ kind: "workspace", wsId: "ws-2" }, "fresh", "{}", true, { workspace: "ws-2", team: "team-1", pane: "pane-4" });
     expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_save", {
       scope: "workspace",
       wsId: "ws-2",
       name: "fresh",
       content: "{}",
       expectNew: true,
+      writer: { workspaceId: "ws-2", team: "team-1", pane: "pane-4" },
     });
 
-    await deleteMcpServer({ kind: "workspace", wsId: "ws-2" }, "github");
+    await deleteMcpServer({ kind: "workspace", wsId: "ws-2" }, "github", null);
     expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_delete", {
       scope: "workspace",
       wsId: "ws-2",
       name: "github",
+      writer: null,
     });
 
-    await renameMcpServer({ kind: "global" }, "old", "new");
+    await renameMcpServer({ kind: "global" }, "old", "new", null);
     expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_rename", {
       scope: "global",
       wsId: null,
       from: "old",
       to: "new",
+      writer: null,
     });
-
-    await forgetMcpWorkspace("ws-2");
-    expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_forget_workspace", {
-      wsId: "ws-2",
-    });
-
-    await pruneMcpLibrary(["ws-1", "ws-2"]);
-    expect(tauri.invoke).toHaveBeenLastCalledWith("mcp_library_prune", {
-      liveWsIds: ["ws-1", "ws-2"],
-    });
-  });
-
-  it("a prune that fails answers false rather than throwing — the sweep retries", async () => {
-    tauri.invoke.mockRejectedValueOnce(new Error("locked"));
-    expect(await pruneMcpLibrary([])).toBe(false);
-    expect(await pruneMcpLibrary([])).toBe(true);
   });
 
   it("round-trips a scope through the wire and back", async () => {
@@ -94,7 +81,7 @@ describe("the MCP library invoke-key contract", () => {
       { kind: "global" },
       { kind: "workspace", wsId: "ws-7" },
     ] satisfies McpScope[]) {
-      await saveMcpServer(scope, "x", "{}", false);
+      await saveMcpServer(scope, "x", "{}", false, null);
       const sent = recordOf(tauri.invoke.mock.lastCall?.[1], "invoke args");
       tauri.invoke.mockResolvedValueOnce([{ ...sent, name: "x", content: "{}" }]);
       const [row] = await ipcMcpStorage.fetch();

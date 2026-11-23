@@ -18,6 +18,7 @@ mod server;
 mod store;
 mod token;
 
+use crate::forgotten::{Gate, Source};
 use std::sync::Mutex;
 use tauri::State;
 
@@ -46,6 +47,11 @@ impl ArtifactsState {
     /// story lives in the artifacts lane).
     pub(crate) fn is_claimed(&self) -> bool {
         self.root.lock().expect("artifacts root poisoned").is_some()
+    }
+
+    /// A closed workspace's whole store goes — the feature on or off.
+    pub(crate) fn drop_workspace(&self, ws_id: &str) -> Result<(), String> {
+        self.store.drop_workspace(ws_id, &store_root()?).map_err(|e| e.0)
     }
 }
 
@@ -102,6 +108,7 @@ fn open_browser(url: &str) -> Result<(), String> {
 fn enable_at(
     state: &ArtifactsState,
     root: &std::path::Path,
+    gate: Gate,
     start: impl FnOnce(&std::path::Path) -> Result<server::DisplayServer, String>,
 ) -> Result<u16, String> {
     // Root then server is the lifecycle lock order. Keeping both locks across
@@ -126,7 +133,7 @@ fn enable_at(
 
     let claimed_here = bound.is_none();
     if claimed_here {
-        state.store.enable(root)?;
+        state.store.enable(root, gate)?;
         *bound = Some(root.to_path_buf());
     }
 
@@ -150,9 +157,9 @@ fn enable_at(
 }
 
 #[tauri::command(async)]
-pub fn artifacts_enable(state: State<ArtifactsState>) -> Result<u16, String> {
+pub fn artifacts_enable(state: State<ArtifactsState>, gate: State<Gate>) -> Result<u16, String> {
     let root = store_root()?;
-    enable_at(&state, &root, server::DisplayServer::start)
+    enable_at(&state, &root, gate.inner().clone(), server::DisplayServer::start)
 }
 
 /// Server teardown first (bye), then release the claim. Idempotent.
@@ -174,8 +181,9 @@ pub fn artifacts_disable(state: State<ArtifactsState>) {
 //
 // The WORKSPACE is host fact, resolved TS-side from the command source
 // and passed in the payload — never an agent-supplied argument (the §6
-// verdict). Who published is not recorded at all: a pane's label is its
-// live title, so what a version kept was a snapshot of a moving string,
+// verdict); so are the writer's team and pane, which the store's commit
+// gate asks about. Who published is not recorded at all: a pane's label is
+// its live title, so what a version kept was a snapshot of a moving string,
 // and nothing needs the answer. `cwd` rides the same payload as
 // `Option<String>`: the
 // three-rung ladder's rung 2 (provisioning pane) publishes `content`
@@ -184,7 +192,8 @@ pub fn artifacts_disable(state: State<ArtifactsState>) {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublishPayload {
-    workspace_id: String,
+    #[serde(flatten)]
+    source: Source,
     cwd: Option<String>,
     slug: Option<String>,
     title: String,
@@ -228,7 +237,8 @@ pub struct ReadPayload {
 #[derive(serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeletePayload {
-    workspace_id: String,
+    #[serde(flatten)]
+    source: Source,
     slug: String,
     /// Which incarnation of the slug the caller means. Present when a
     /// human was ASKED about a row and is now answering; absent for an
@@ -249,6 +259,7 @@ pub struct ResolveUrlsResult {
 #[tauri::command(async)]
 pub fn artifact_publish(
     state: State<ArtifactsState>,
+    gate: State<Gate>,
     payload: PublishPayload,
 ) -> Result<PublishResult, String> {
     use store::{ArtifactFormat, PublishRequest};
@@ -275,14 +286,17 @@ pub fn artifact_publish(
     };
     let out = state
         .store
-        .publish(&payload.workspace_id, request, unix_time_ms())
+        .publish(payload.source.clone(), request, unix_time_ms())
         .map_err(|e| e.0)?;
+    let workspace_id = payload.source.workspace.as_str();
     // The display tail — everything here runs AFTER the store's data
     // mutex released (publish returned): compose URLs (null when the
     // server is down, honestly — a publish never fails on that), then
     // broadcast, then AUTO-OPEN on first-publish-of-NEW (best-effort:
     // an opener failure degrades to the notification that exists
-    // anyway, logged, never failing the publish).
+    // anyway, logged, never failing the publish). A source forgotten
+    // since the commit is announced to no one: its artifact goes with
+    // the cleanup that forgot it.
     //
     // The server LOCK is held only for the existence check + compose;
     // broadcast runs on the CLONED Arc — a wedged subscriber inside
@@ -291,14 +305,17 @@ pub fn artifact_publish(
     let url_and_index = {
         let server = state.server.lock().expect("artifacts server poisoned");
         server.as_ref().map(|live| {
-            let (url, index) = live.compose_urls(&payload.workspace_id, &out.slug, &out.token);
+            let (url, index) = live.compose_urls(workspace_id, &out.slug, &out.token);
             (url, index, live.shared_arc())
         })
     };
+    let live = gate.admit(&payload.source).is_ok();
     let (url, index_url) = match url_and_index {
         Some((url, index, shared)) => {
-            server::broadcast_version_on(&shared, &payload.workspace_id, &out.slug, out.version);
-            if out.is_new && payload.auto_open {
+            if live {
+                server::broadcast_version_on(&shared, workspace_id, &out.slug, out.version);
+            }
+            if live && out.is_new && payload.auto_open {
                 // Auto-open runs OUTSIDE every lock (the opener can
                 // block on the OS).
                 if let Err(e) = open_browser(&url) {
@@ -440,7 +457,7 @@ pub fn artifact_delete(
     let out = state
         .store
         .delete(
-            &payload.workspace_id,
+            payload.source.clone(),
             &payload.slug,
             payload.expected_generation.as_deref(),
         )
@@ -448,7 +465,7 @@ pub fn artifact_delete(
     if out.deleted {
         let server = state.server.lock().expect("artifacts server poisoned");
         if let Some(live) = server.as_ref() {
-            live.broadcast_bye(&payload.workspace_id, &payload.slug, "artifact deleted");
+            live.broadcast_bye(&payload.source.workspace, &payload.slug, "artifact deleted");
         }
     }
     Ok(out)
@@ -480,20 +497,13 @@ pub fn artifact_resolve_urls(
     }
 }
 
-/// Workspace deletion's hook: drop that workspace's whole artifact
-/// store. Idempotent on absence; failure surfaces to the caller (the TS
-/// side logs and continues — the deck teardown must not abort).
-#[tauri::command(async)]
-pub fn artifact_drop_workspace(
-    state: State<ArtifactsState>,
-    ws_id: String,
-) -> Result<(), String> {
-    state.store.drop_workspace(&ws_id).map_err(|e| e.0)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn gate() -> Gate {
+        crate::forgotten::testing::Forget::default().gate()
+    }
 
     /// A display server that died on its own must never be reported as
     /// live. The accept loop self-destructs on a poll fault or on
@@ -507,13 +517,13 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("artifacts");
 
-        let first = enable_at(&state, &root, server::DisplayServer::start).expect("first enable");
+        let first = enable_at(&state, &root, gate(), server::DisplayServer::start).expect("first enable");
         {
             let server = state.server.lock().expect("server lock");
             server.as_ref().expect("a live server").stop();
         }
 
-        let second = enable_at(&state, &root, server::DisplayServer::start).expect("re-enable");
+        let second = enable_at(&state, &root, gate(), server::DisplayServer::start).expect("re-enable");
         assert_ne!(
             first, second,
             "a dead server's port must not be handed back as if it served",
@@ -538,7 +548,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("artifacts");
 
-        let error = enable_at(&state, &root, |_| Err("injected display failure".into()))
+        let error = enable_at(&state, &root, gate(), |_| Err("injected display failure".into()))
             .expect_err("injected start must fail");
 
         assert_eq!(error, "injected display failure");
@@ -547,7 +557,7 @@ mod tests {
         assert!(state.server.lock().expect("server lock").is_none());
         // The claim guard was released too: a subsequent owner can claim the
         // same root instead of inheriting the failed enable's lock.
-        state.store.enable(&root).expect("claim after rollback");
+        state.store.enable(&root, gate()).expect("claim after rollback");
         state.store.disable();
     }
 

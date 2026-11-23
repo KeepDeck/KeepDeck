@@ -2,6 +2,7 @@
 import { HOST, resetCoreCommandTestState, setup, workspace } from "./testSupport";
 import { beforeEach, describe, expect, it } from "vitest";
 import { registerPaneInput } from "../paneInput";
+import { intentOutcomeText } from "../../presentation/lifecycleWords";
 import { workspaceArchivedMessage } from "./targets";
 
 beforeEach(() => {
@@ -73,7 +74,7 @@ describe("agent.focus / agent.close / pane.write", () => {
         ],
       }),
     ]);
-    suspendAgent.mockResolvedValueOnce("remote");
+    suspendAgent.mockResolvedValueOnce({ kind: "blocked", why: "remote" });
 
     const result = await registry.execute("agent.suspend", {}, HOST);
 
@@ -93,7 +94,7 @@ describe("agent.focus / agent.close / pane.write", () => {
       }),
     ]);
 
-    resumeAgent.mockReturnValueOnce("resuming");
+    resumeAgent.mockResolvedValueOnce({ kind: "resuming" });
     const ok = await registry.execute("agent.resume", { agent: "p1" }, HOST);
     expect(ok).toEqual({ ok: true, value: { workspaceId: "ws-1", paneId: "p1" } });
     expect(resumeAgent).toHaveBeenCalledWith("ws-1", "p1");
@@ -101,10 +102,17 @@ describe("agent.focus / agent.close / pane.write", () => {
     // Without this inverse an automation that suspends an agent strands it.
     // And the flow's own answer decides — reporting success for a resume that
     // did nothing is what the sibling command was fixed for.
-    resumeAgent.mockReturnValueOnce("running");
+    resumeAgent.mockResolvedValueOnce({ kind: "blocked", why: "running" });
     const already = await registry.execute("agent.resume", { agent: "live" }, HOST);
     expect(already.ok).toBe(false);
     if (!already.ok) expect(already.error.message).toContain("already running");
+
+    // The machine's own refusal reaches the caller in its words too.
+    const refusal = { kind: "refused", refusal: { kind: "barrierUp" } } as const;
+    resumeAgent.mockResolvedValueOnce(refusal);
+    const barred = await registry.execute("agent.resume", { agent: "p1" }, HOST);
+    if (!barred.ok) expect(barred.error.message).toBe(intentOutcomeText(refusal));
+    expect(barred.ok).toBe(false);
   });
 
   it("refuses to touch an agent in an archived workspace named by the caller", async () => {

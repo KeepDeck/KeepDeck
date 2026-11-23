@@ -19,9 +19,6 @@ export interface McpDeps extends Omit<McpServiceDeps, "library"> {
 export interface Mcp {
   service: McpService;
   library: McpLibrary;
-  /** Forget a closing workspace's library scope — the feature's share of the
-   * deck's per-workspace teardown; see [`McpLibrary.forgetWorkspace`]. */
-  forgetWorkspace(wsId: string): Promise<void>;
   dispose(): void;
 }
 
@@ -47,7 +44,6 @@ export function createMcp({ storage, ...serviceDeps }: McpDeps): Mcp {
   return {
     service,
     library: wired,
-    forgetWorkspace: (wsId) => wired.forgetWorkspace(wsId),
     dispose: () => service.dispose(),
   };
 }

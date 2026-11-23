@@ -17,6 +17,7 @@
  * and the service refuses every change with it.
  */
 import { EMPTY_BOARD, decodeBoard, type TaskBoard, type TaskLanding } from "../../domain/tasks";
+import type { WriteSource } from "../../domain/lifecycle";
 import type { Applied } from "../../ipc/generated/tasks/Applied";
 import type { ChangeSet } from "../../ipc/generated/tasks/ChangeSet";
 import type { SearchHit } from "../../ipc/generated/tasks/SearchHit";
@@ -27,14 +28,16 @@ import { migrateBoards, type MigrationOutcome, type MigrationPort } from "./migr
 import { BOARD_NOT_OPEN, BOARD_READ_STALE, decodeFaultText, migrationRefusalText, storeErrorText } from "./refusalText";
 import { boardChange, HistoryRewritten } from "./storeDiff";
 import { boardFromStored } from "./storeWire";
-import type { BoardRead, Recovery, TasksStorePort } from "./tasksService";
+import { WriteForgotten, type BoardRead, type Recovery, type TasksStorePort } from "./tasksService";
 
 /** What this owner needs from the Rust store. */
 export interface TaskDatabasePort extends MigrationPort {
   enable(): Promise<void>;
   disable(): Promise<void>;
   load(workspace: string): Promise<StoredBoard | null>;
-  apply(change: ChangeSet): Promise<Applied>;
+  /** Apply a change for `source`; a writer the lifecycle forgot is refused
+   * under the store's lock. */
+  apply(source: WriteSource, change: ChangeSet): Promise<Applied>;
   drop(workspace: string): Promise<void>;
   search(query: string, boards: string[], limit: number): Promise<SearchHit[]>;
   restoreBackup(at: number): Promise<void>;
@@ -158,7 +161,10 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
     place.pending = { change, target };
     let applied: Applied;
     try {
-      applied = await call(() => deps.db.apply(change));
+      // The board is its workspace's, and its writes are coalesced whole-board
+      // states: the writer this store can name is the workspace. A pane's own
+      // fence is at the command door that took its change.
+      applied = await call(() => deps.db.apply({ workspace }, change));
     } catch (e: unknown) {
       if (!deps.isStoreError(e)) throw e;
       place.pending = null;
@@ -192,7 +198,9 @@ export function createDbBoardStore(deps: DbBoardStoreDeps): DbBoardStore {
       }
       refused = whole === null ? null : await send(workspace, place, { requestId: deps.mintUid(), boards: [whole] }, target);
     }
-    if (refused !== null) throw new Error(storeErrorText(refused));
+    if (refused === null) return;
+    if (refused.code === "forgotten") throw new WriteForgotten(storeErrorText(refused));
+    throw new Error(storeErrorText(refused));
   };
 
   /** Where the database stands, settled: the boards moved into it (or

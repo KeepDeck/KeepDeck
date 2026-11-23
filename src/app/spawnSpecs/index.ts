@@ -30,7 +30,7 @@ import {
   isPaneSpawnSpecPending,
   peekPanePlanError,
 } from "./cache";
-import { buildPlan, findAgent, type PaneSpawnFacts } from "./plan";
+import { buildPlan, findAgent, type DeclaredDiscard, type PaneSpawnFacts } from "./plan";
 import { errorMessage } from "@keepdeck/plugin-api";
 
 export * from "./plans";
@@ -53,6 +53,7 @@ export {
 } from "./cache";
 export type {
   CwdArmAsk,
+  DeclaredDiscard,
   McpAccess,
   McpAccessAsk,
   McpAccessTarget,
@@ -128,29 +129,34 @@ export async function buildResumeSpec(
  * `fork.plan` performs its store surgery, then fills how the forked session
  * spawns. The fork's own (new) session id is reported by the spawned CLI's
  * reporter like any fresh spawn. The source id remains as `forkOf` so the
- * host can baseline the cloned transcript once the new id is bound. */
+ * host can baseline the cloned transcript once the new id is bound.
+ *
+ * Answers the scaffolding the surgery declared — what the lifecycle removes
+ * once the fork's session binds or when the fork rolls back — whether or not
+ * the plan was still wanted when it landed: what was made exists either way.
+ * Rejects when the agent cannot fork, or its hook threw. */
 export async function buildForkSpec(
   plugins: SpawnPluginAccess,
   agentType: string,
   facts: PaneSpawnFacts,
   ctx: SpawnPlanContext,
   fork: { sessionId: string; sourceCwd: string; transcriptPath?: string },
-): Promise<boolean> {
+): Promise<DeclaredDiscard> {
   const agent = findAgent(plugins, agentType);
-  if (!agent) return false;
+  if (!agent) throw new Error(`no installed plugin provides ${agentType}`);
   if (!contributionSupportsFork(agent.entry)) {
-    log.warn(
-      "web:agents",
-      `${agentType}: cannot fork ${fork.sessionId} — plugin has no fork.plan hook`,
-    );
-    return false;
+    throw new Error(`${agentType} cannot fork a session — its plugin has no fork.plan hook`);
   }
   // A throwing hook PROPAGATES (mirroring resume): the recipes throw
   // precise, fail-loud diagnostics for store-layout drift, and muting them
   // into a boolean left the caller a generic message and a double log line.
-  return buildAndCache(facts.paneId, () =>
-    buildPlan(plugins, agent, facts, ctx, { kind: "fork", ...fork }),
-  );
+  let declared: DeclaredDiscard = { plugin: agent.pluginId, onceStarted: [], ifNeverStarted: [] };
+  await buildAndCache(facts.paneId, async () => {
+    const built = await buildPlan(plugins, agent, facts, ctx, { kind: "fork", ...fork });
+    if (built.discard) declared = built.discard;
+    return built;
+  });
+  return declared;
 }
 
 /**

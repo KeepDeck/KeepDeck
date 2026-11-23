@@ -25,6 +25,7 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
+use crate::forgotten::{Gate, Source};
 use crate::state::write_atomic_mode;
 
 const SERVER_FILE_EXT: &str = "json";
@@ -46,6 +47,24 @@ impl McpLibraryLock {
     fn hold(&self) -> MutexGuard<'_, ()> {
         self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+/// One write into a scope: under the library's lock, the commit gate asked
+/// first — a closed agent writes nowhere, and a forgotten workspace's scope,
+/// which its forgetting removes under this same lock, takes nothing more.
+fn write_in(
+    lock: &McpLibraryLock,
+    gate: &Gate,
+    root: &Path,
+    writer: Option<&Source>,
+    scope: &str,
+    ws_id: Option<&str>,
+    write: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), String> {
+    gate.write_under(&lock.0, writer, ws_id, || {
+        let dir = scope_dir(root, scope, ws_id)?;
+        write(&dir).map_err(|e| e.to_string())
+    })
 }
 
 /// One library server on the wire (mirrors the TS `StoredMcpServer`,
@@ -248,19 +267,25 @@ pub(super) fn forget_workspace(root: &Path, ws_id: &str) -> io::Result<()> {
 
 /// Drop the scopes of workspaces that no longer exist — the crash path,
 /// where the deck never got to call [`forget_workspace`] and the next
-/// workspace to take a freed id would inherit the scope. Best-effort per
-/// directory: one stubborn directory must not abort the sweep.
+/// workspace to take a freed id would inherit the scope. One stubborn
+/// directory does not keep the rest, and is said.
 pub(super) fn prune(root: &Path, live: &[String]) -> io::Result<()> {
-    for dir in crate::fs_names::sorted_dirs(&root.join("ws"))? {
-        let id = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
-        if live.contains(&id) {
-            continue;
-        }
-        if let Err(e) = fs::remove_dir_all(&dir) {
-            log::warn!("mcp library: pruning {} failed: {e}", dir.display());
-        }
-    }
-    Ok(())
+    let dead = crate::fs_names::sorted_dirs(&root.join("ws"))?
+        .into_iter()
+        .filter(|dir| !live.iter().any(|id| dir.file_name().is_some_and(|name| name == id.as_str())));
+    crate::fs_names::remove_each(dead, |dir| fs::remove_dir_all(dir))
+}
+
+/// One closed workspace's scope goes, under the library's lock.
+pub(crate) fn forget_scope(lock: &McpLibraryLock, ws_id: &str) -> Result<(), String> {
+    let _held = lock.hold();
+    forget_workspace(&library_root()?, ws_id).map_err(|e| e.to_string())
+}
+
+/// Keep only the `live` workspaces' scopes, under the library's lock.
+pub(crate) fn retain_scopes(lock: &McpLibraryLock, live: &[String]) -> Result<(), String> {
+    let _held = lock.hold();
+    prune(&library_root()?, live).map_err(|e| e.to_string())
 }
 
 fn library_root() -> Result<PathBuf, String> {
@@ -277,71 +302,54 @@ pub fn mcp_library_list(lock: tauri::State<'_, McpLibraryLock>) -> Result<Vec<Mc
 /// Write one server's file (content is composed and validated by the webview;
 /// this side refuses unsafe path segments — and, when the caller says this is
 /// a CREATE, a name that is already taken).
+/// `writer`: the agent writing, as the app knows it; none for the person.
+/// The library's lock and the commit gate are the app's managed state.
 #[tauri::command(async)]
-pub fn mcp_library_save(
-    lock: tauri::State<'_, McpLibraryLock>,
+pub fn mcp_library_save<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
     name: String,
     content: String,
     expect_new: bool,
 ) -> Result<(), String> {
-    let _held = lock.hold();
-    let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
-    let written = if expect_new {
-        create(&dir, &name, &content)
-    } else {
-        save(&dir, &name, &content)
-    };
-    written.map_err(|e| e.to_string())
+    use tauri::Manager;
+    let (lock, gate) = (app.state::<McpLibraryLock>(), app.state::<Gate>());
+    write_in(&lock, &gate, &library_root()?, writer.as_ref(), &scope, ws_id.as_deref(), |dir| {
+        if expect_new {
+            create(dir, &name, &content)
+        } else {
+            save(dir, &name, &content)
+        }
+    })
 }
 
 /// Remove one server. Missing is fine.
 #[tauri::command(async)]
 pub fn mcp_library_delete(
     lock: tauri::State<'_, McpLibraryLock>,
+    gate: tauri::State<'_, Gate>,
+    writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
     name: String,
 ) -> Result<(), String> {
-    let _held = lock.hold();
-    let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
-    delete(&dir, &name).map_err(|e| e.to_string())
+    write_in(&lock, &gate, &library_root()?, writer.as_ref(), &scope, ws_id.as_deref(), |dir| delete(dir, &name))
 }
 
 /// Rename one server. Refuses to move onto an existing one.
 #[tauri::command(async)]
 pub fn mcp_library_rename(
     lock: tauri::State<'_, McpLibraryLock>,
+    gate: tauri::State<'_, Gate>,
+    writer: Option<Source>,
     scope: String,
     ws_id: Option<String>,
     from: String,
     to: String,
 ) -> Result<(), String> {
-    let _held = lock.hold();
-    let dir = scope_dir(&library_root()?, &scope, ws_id.as_deref())?;
-    rename(&dir, &from, &to).map_err(|e| e.to_string())
-}
-
-/// Workspace deletion's hook: drop that workspace's library scope. The deck
-/// model is the only knower of the live workspace set; Rust cannot derive it.
-#[tauri::command(async)]
-pub fn mcp_library_forget_workspace(
-    lock: tauri::State<'_, McpLibraryLock>,
-    ws_id: String,
-) -> Result<(), String> {
-    let _held = lock.hold();
-    forget_workspace(&library_root()?, &ws_id).map_err(|e| e.to_string())
-}
-
-/// The sweep's hook: drop the scopes of workspaces the deck no longer has.
-#[tauri::command(async)]
-pub fn mcp_library_prune(
-    lock: tauri::State<'_, McpLibraryLock>,
-    live_ws_ids: Vec<String>,
-) -> Result<(), String> {
-    let _held = lock.hold();
-    prune(&library_root()?, &live_ws_ids).map_err(|e| e.to_string())
+    write_in(&lock, &gate, &library_root()?, writer.as_ref(), &scope, ws_id.as_deref(), |dir| rename(dir, &from, &to))
 }
 
 #[cfg(test)]
@@ -360,6 +368,25 @@ mod tests {
 
     fn ws(root: &Path, id: &str) -> PathBuf {
         root.join("ws").join(id)
+    }
+
+    #[test]
+    fn a_forgotten_writer_or_scope_writes_nothing_into_the_library() {
+        let (_tmp, root) = root();
+        let lock = McpLibraryLock::default();
+        let forget = crate::forgotten::testing::Forget::default();
+        let gate = forget.gate();
+        forget.forget("ws-gone");
+        forget.forget("pane-7");
+        let closed = Source { workspace: "ws-1".into(), team: None, pane: Some("pane-7".into()) };
+        let into = |writer: Option<&Source>, ws_id: &str| {
+            write_in(&lock, &gate, &root, writer, "workspace", Some(ws_id), |dir| save(dir, "git", "{}"))
+        };
+        assert!(into(None, "ws-gone").unwrap_err().contains("closed"));
+        assert!(into(Some(&closed), "ws-1").is_err());
+        assert!(!ws(&root, "ws-gone").exists() && !ws(&root, "ws-1").exists(), "nothing written");
+        into(None, "ws-1").expect("the person writes into a live workspace");
+        assert!(ws(&root, "ws-1").join("git.json").is_file());
     }
 
     #[test]

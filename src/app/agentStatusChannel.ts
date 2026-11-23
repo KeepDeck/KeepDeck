@@ -3,9 +3,9 @@ import { onAgentStatus } from "../ipc/status";
 import type { AgentStatusTracker } from "./agentStatusTracker";
 import type { DeckWatch } from "./deckStore";
 import type { PaneAttribution } from "./paneAttribution";
+import type { PaneSessionState } from "./ptyManager";
 import { attributedEvent } from "./statusPayloadLabel";
 import { isNavigationKey } from "../domain/terminal";
-import { paneMembership, paneMembershipKey } from "./paneMembership";
 import { createVerifiedPaneReports } from "./verifiedPaneReports";
 import type { HookReplies } from "./mail/hookReply";
 
@@ -25,7 +25,7 @@ export interface StatusDeclarationsPort {
  * change, whether one is dead — and whether it can speak at all. */
 export interface SessionLivenessPort {
   subscribe(listener: () => void): () => void;
-  state(paneId: string): { kind: string };
+  state(paneId: string): { kind: PaneSessionState["kind"] };
   /** Whether the pane's process was launched able to report: its plan armed
    * the bridge (`planReports`). A bare launch (task-572) was not, and says
    * nothing ever. */
@@ -54,7 +54,9 @@ export interface PaneKeyPort {
  *   requirement: activity is a claim about a running process, and a hook
  *   envelope that outlives its process (a Stop racing a crash) must not
  *   paint "finished" over the crash;
- * - tracker hygiene as panes close — and as PROCESSES die or come up.
+ * - tracker hygiene as PROCESSES die or come up. A pane that leaves the
+ *   deck is the machine's to retire, through the pane lifecycle — every way
+ *   a pane leaves retires it — so nothing here follows the deck's roster.
  *   "Activity describes a live process" is enforced here, at the store's
  *   edge, in both directions (ingest gate + death sweep), so no render
  *   surface has to re-derive liveness its own way. The registry flips to
@@ -64,7 +66,7 @@ export interface PaneKeyPort {
  *   said nothing yet reads as `started`.
  */
 export function createAgentStatusChannel(
-  deck: DeckWatch,
+  deck: Pick<DeckWatch, "getSnapshot">,
   agents: StatusDeclarationsPort,
   tracker: AgentStatusTracker,
   sessions: SessionLivenessPort,
@@ -139,19 +141,21 @@ export function createAgentStatusChannel(
     syncProcesses();
   });
 
-  const reports = createVerifiedPaneReports(deck, attribution, {
+  const reports = createVerifiedPaneReports(attribution, {
     label: "status report",
     subscribe: onAgentStatus,
-    requireLiveProcess: true,
-    apply: (paneId, payload) => {
+    processOf: (paneId) => sessions.state(paneId).kind,
+    apply: (paneId, payload, { stillUp }) => {
       // Handover reads a fresh preview, but observers see only the resolved
       // state: a delivered continuation is not a completed turn.
       const pending = tracker.prepare(paneId, payload);
       const answered = expectAsk(paneId, payload);
       const finish = (reply?: string) => {
         try {
-          const kind = sessions.state(paneId).kind;
-          if (!disposed && (kind === "live" || kind === "starting")) pending.finish(reply);
+          // The lane's own rule, asked again: the process can end inside an
+          // awaited reply, and a late fold would put activity back on a pane
+          // its exit already cleared.
+          if (!disposed && stillUp()) pending.finish(reply);
         } finally {
           answered();
         }
@@ -165,16 +169,6 @@ export function createAgentStatusChannel(
       }
     },
   });
-
-  let membershipKey: string | null = null;
-  const retainLivePanes = () => {
-    const nextKey = paneMembershipKey(deck.getSnapshot());
-    if (nextKey === membershipKey) return;
-    membershipKey = nextKey;
-    tracker.retain(paneMembership(nextKey));
-  };
-  const unsubscribeDeck = deck.subscribe(retainLivePanes);
-  retainLivePanes();
 
   // What a pane's process tells the tracker, in both directions.
   //
@@ -245,7 +239,6 @@ export function createAgentStatusChannel(
       if (disposed) return;
       disposed = true;
       unsubscribeAgents();
-      unsubscribeDeck();
       unsubscribeSessions();
       unsubscribeKeys();
       reports.dispose();

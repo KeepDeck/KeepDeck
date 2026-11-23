@@ -32,7 +32,7 @@ pub fn content_point(
 /// another app's window — `Some(Some(point))` on it, in the content's own
 /// space (`content_point`).
 #[cfg(target_os = "macos")]
-fn pointer_on_content(window: &tauri::WebviewWindow) -> Option<Option<(f64, f64)>> {
+fn pointer_on_content<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) -> Option<Option<(f64, f64)>> {
     use objc2::runtime::AnyObject;
     use objc2::{class, msg_send};
     use objc2_foundation::{NSInteger, NSPoint, NSRect};
@@ -67,7 +67,7 @@ fn pointer_on_content(window: &tauri::WebviewWindow) -> Option<Option<(f64, f64)
 }
 
 #[cfg(not(target_os = "macos"))]
-fn pointer_on_content(window: &tauri::WebviewWindow) -> Option<Option<(f64, f64)>> {
+fn pointer_on_content<R: tauri::Runtime>(window: &tauri::WebviewWindow<R>) -> Option<Option<(f64, f64)>> {
     let _ = window;
     None
 }
@@ -80,7 +80,7 @@ fn pointer_on_content(window: &tauri::WebviewWindow) -> Option<Option<(f64, f64)
 /// AppKit (NSWindow's frame, the window list) is main-thread only. Made
 /// `async`, it would move to a worker thread and these calls with it.
 #[tauri::command]
-pub fn pointer_in_window(window: tauri::WebviewWindow) -> Option<bool> {
+pub fn pointer_in_window<R: tauri::Runtime>(window: tauri::WebviewWindow<R>) -> Option<bool> {
     pointer_on_content(&window).map(|on| on.is_some())
 }
 
@@ -117,7 +117,7 @@ fn buttons_held() -> bool {
 ///
 /// SYNC ON PURPOSE, as `pointer_in_window`.
 #[tauri::command]
-pub fn pointer_on_window(window: tauri::WebviewWindow) -> Option<PointerOnWindow> {
+pub fn pointer_on_window<R: tauri::Runtime>(window: tauri::WebviewWindow<R>) -> Option<PointerOnWindow> {
     let (x, y) = pointer_on_content(&window).flatten()?;
     Some(PointerOnWindow {
         x,

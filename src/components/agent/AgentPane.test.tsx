@@ -44,6 +44,7 @@ vi.mock("../../app/usePaneSessionState", async () => {
 
 import type { AgentStatusEvent } from "@keepdeck/plugin-api";
 import type { PaneIdle } from "../../domain/deck";
+import type { IntentOutcome } from "../../domain/lifecycle";
 import { TerminalPane } from "../terminal/TerminalPane";
 import {
   createUsageManager,
@@ -674,6 +675,16 @@ describe("AgentPane — plan-error tile", () => {
     expect(document.body.textContent).not.toContain("Couldn't start this agent");
     expect(document.body.textContent).toContain("Waking up");
   });
+
+  it("mounts no terminal while its plan is still building — mounting is what spawns", () => {
+    // A resume's plan lands before its process starts: until then the pane
+    // shows the waiting card, and nothing it could spawn exists.
+    vi.mocked(TerminalPane).mockClear();
+    act(() => root.render(createElement(PaneUnderTest, { ...baseProps, body: "waiting" as PaneBody })));
+    expect(TerminalPane).not.toHaveBeenCalled();
+    act(() => root.render(createElement(PaneUnderTest, { ...baseProps, body: "terminal" as PaneBody })));
+    expect(TerminalPane).toHaveBeenCalled();
+  });
 });
 
 describe("AgentPane — the unavailable-agent card", () => {
@@ -809,6 +820,10 @@ describe("AgentPane — minimize control", () => {
   });
 });
 
+/** The machine took the restart: the card keeps its spinner until the
+ * remount. A fake that answers nothing would hand the hook `undefined`. */
+const RESTART_ACCEPTED: IntentOutcome = { kind: "accepted", op: 1, minted: { workspace: null, team: null, panes: [] } };
+
 describe("AgentPane — manual restart after exit", () => {
   let host: HTMLElement;
   let root: Root;
@@ -942,7 +957,7 @@ describe("AgentPane — manual restart after exit", () => {
   });
 
   it("starts fresh from the primary action when no session can be resumed", () => {
-    const onRestart = vi.fn();
+    const onRestart = vi.fn(async (): Promise<IntentOutcome> => RESTART_ACCEPTED);
     mount({ onRestart });
     reportExit(0);
 
@@ -957,7 +972,7 @@ describe("AgentPane — manual restart after exit", () => {
   });
 
   it("resumes from the primary action and offers an explicit fresh alternative", () => {
-    const onRestart = vi.fn();
+    const onRestart = vi.fn(async (): Promise<IntentOutcome> => RESTART_ACCEPTED);
     mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(2);
 
@@ -973,7 +988,7 @@ describe("AgentPane — manual restart after exit", () => {
   });
 
   it("uses fresh mode from the secondary action", () => {
-    const onRestart = vi.fn();
+    const onRestart = vi.fn(async (): Promise<IntentOutcome> => RESTART_ACCEPTED);
     mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(2);
 
@@ -984,7 +999,7 @@ describe("AgentPane — manual restart after exit", () => {
   });
 
   it("guards an in-flight restart from repeated clicks", () => {
-    const pending = new Promise<void>(() => {});
+    const pending = new Promise<IntentOutcome>(() => {});
     const onRestart = vi.fn(() => pending);
     mount({ resumeSessionId: "sess-abc", onRestart });
     reportExit(0);
@@ -1002,7 +1017,7 @@ describe("AgentPane — manual restart after exit", () => {
 
   it("restores both choices when restart planning rejects", async () => {
     let rejectRestart: (reason: Error) => void = () => {};
-    const pending = new Promise<void>((_resolve, reject) => {
+    const pending = new Promise<IntentOutcome>((_resolve, reject) => {
       rejectRestart = reject;
     });
     const onRestart = vi.fn(() => pending);

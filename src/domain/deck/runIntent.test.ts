@@ -17,6 +17,7 @@ const env = (over: Partial<PaneRunEnv> = {}): PaneRunEnv => ({
   workspaceActive: true,
   parkOnLaunch: false,
   startOwed: false,
+  phase: "live",
   ...over,
 });
 
@@ -37,6 +38,25 @@ const creating = {
   ],
 };
 const member = { team: { teamId: "team-1", role: "lead" } };
+
+/**
+ * The machine's phase is part of the decision (integration row B10): a pane
+ * it is taking down, stopping or restarting starts nothing, whatever the
+ * deck's own marker says — one funnel asks, and it asks the snapshot.
+ */
+describe("paneRunIntent — the lifecycle's phase", () => {
+  it("holds a pane the machine is taking down, suspending, restarting or has suspended", () => {
+    for (const phase of ["leaving", "suspending", "restarting", "suspended"] as const) {
+      expect(paneRunIntent({}, pane(), env({ phase })).kind, phase).toBe("hold");
+      expect(paneRunIntent({}, pane({ idle: waking }), env({ phase, startOwed: true })).kind, phase).toBe("hold");
+    }
+  });
+
+  it("runs a live pane as before, and one the snapshot does not name yet", () => {
+    expect(paneRunIntent({}, pane(), env({ phase: "live" }))).toEqual({ kind: "run", resume: null });
+    expect(paneRunIntent({}, pane(), env({ phase: null }))).toEqual({ kind: "run", resume: null });
+  });
+});
 
 describe("paneRunIntent — a process belongs here", () => {
   it("runs a pane with no marker: the deck's record says it is up", () => {

@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import type { AgentStatusReportEvent } from "./status";
+import type { BridgeReport } from "./bridgeReport";
 
 /**
  * Companion hellos: an in-process reporter (a mod, a CLI plugin) announcing
@@ -18,18 +18,18 @@ export const COMPANION_DECLINED_EVENT = "deck://companion/declined";
 
 /** Subscribe to companion hellos; resolves to the unlisten function. */
 export function onCompanionHello(
-  handler: (report: AgentStatusReportEvent) => void,
+  handler: (report: BridgeReport) => void,
 ): Promise<() => void> {
-  return listen<AgentStatusReportEvent>(COMPANION_HELLO_EVENT, (event) =>
+  return listen<BridgeReport>(COMPANION_HELLO_EVENT, (event) =>
     handler(event.payload),
   );
 }
 
 /** Subscribe to declined wakes; resolves to the unlisten function. */
 export function onCompanionDeclined(
-  handler: (report: AgentStatusReportEvent) => void,
+  handler: (report: BridgeReport) => void,
 ): Promise<() => void> {
-  return listen<AgentStatusReportEvent>(COMPANION_DECLINED_EVENT, (event) =>
+  return listen<BridgeReport>(COMPANION_DECLINED_EVENT, (event) =>
     handler(event.payload),
   );
 }

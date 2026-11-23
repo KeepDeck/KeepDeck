@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { createArmRefusalStore } from "./armRefusals";
-import { createCwdArming } from "./cwdArming";
 
 describe("createArmRefusalStore", () => {
   it("replaces what it said about one agent in one folder, and keeps the rest", () => {
@@ -16,12 +15,17 @@ describe("createArmRefusalStore", () => {
     ]);
   });
 
-  it("forgets every refusal of a folder taken back whole", () => {
+  it("keeps only the refusals of folders panes still run in", () => {
     const store = createArmRefusalStore();
     store.record("kimi", "/a", [{ path: "p", reason: "r" }]);
     store.record("codex", "/b", [{ path: "q", reason: "r" }]);
-    store.forget(["/a"]);
+    const listener = vi.fn();
+    store.subscribe(listener);
+    store.retain(new Set(["/b", "/c"]));
     expect(store.get().map((r) => r.cwd)).toEqual(["/b"]);
+    // Nothing more to drop: nobody is told twice.
+    store.retain(new Set(["/b"]));
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 
   it("tells listeners only when what it says changed — by content", () => {
@@ -33,17 +37,5 @@ describe("createArmRefusalStore", () => {
     expect(listener).toHaveBeenCalledTimes(1);
     store.record("kimi", "/a", [{ path: "p", reason: "another" }]);
     expect(listener).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("createCwdArming", () => {
-  it("plants through the worktree owner and records what was refused under the agent", async () => {
-    const armCwd = vi.fn(async () => ({ armed: ["a"], refused: [{ path: "b", reason: "yours" }] }));
-    const record = vi.fn();
-    const arm = createCwdArming({ worktrees: { armCwd }, refusals: { record } });
-    const request = { pluginId: "p", workspaceId: "ws-1", cwd: "/repo", arms: [], skillsDir: null };
-    await arm("kimi", request);
-    expect(armCwd).toHaveBeenCalledWith(request);
-    expect(record).toHaveBeenCalledWith("kimi", "/repo", [{ path: "b", reason: "yours" }]);
   });
 });

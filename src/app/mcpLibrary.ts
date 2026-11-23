@@ -26,6 +26,7 @@ import {
   type McpServerDraft,
   type McpServerVerdict,
 } from "../domain/mcp";
+import type { WriteSource } from "../domain/lifecycle";
 import { log } from "../ipc/log";
 import { createLibraryNotifier } from "./libraryNotifier";
 import { injectableOf } from "./mcp/injectable";
@@ -40,13 +41,14 @@ export interface LibraryMcpServer {
 
 /** The stored library itself. Injected so the owner can be driven without
  * IPC, and so the one adapter that knows the Rust command names stays below. */
+/** The library's files. Every write names its writer — the agent writing,
+ * as the app knows it, or null for the person at the UI — for the store's
+ * gate to refuse one the lifecycle has forgotten. */
 export interface McpStorage {
   fetch(): Promise<LibraryMcpServer[]>;
-  save(scope: McpScope, name: string, content: string, expectNew: boolean): Promise<void>;
-  rename(scope: McpScope, from: string, to: string): Promise<void>;
-  remove(scope: McpScope, name: string): Promise<void>;
-  /** Drop a whole workspace scope. Idempotent on absence. */
-  forgetWorkspace(wsId: string): Promise<void>;
+  save(scope: McpScope, name: string, content: string, expectNew: boolean, writer: WriteSource | null): Promise<void>;
+  rename(scope: McpScope, from: string, to: string, writer: WriteSource | null): Promise<void>;
+  remove(scope: McpScope, name: string, writer: WriteSource | null): Promise<void>;
 }
 
 export interface McpLibraryPorts {
@@ -77,23 +79,16 @@ export interface McpLibrary extends McpServerSource {
   /** Write a new server. Refused if the name is taken — by the STORAGE, the
    * one precondition this owner does not answer itself: the check has to
    * hold when the library could not be read at all. */
-  create(scope: McpScope, draft: McpServerDraft): Promise<void>;
+  create(scope: McpScope, draft: McpServerDraft, writer: WriteSource | null): Promise<void>;
   /** Overwrite an existing server — refused if there is none by that name,
    * so an update can never turn into a create. */
-  update(scope: McpScope, draft: McpServerDraft): Promise<void>;
+  update(scope: McpScope, draft: McpServerDraft, writer: WriteSource | null): Promise<void>;
   /** Rename by moving the file. Refused if `to` is taken, or reserved. */
-  rename(scope: McpScope, from: string, to: string): Promise<void>;
+  rename(scope: McpScope, from: string, to: string, writer: WriteSource | null): Promise<void>;
   /** Remove a server. Refused if there is none by that name: the storage
    * calls a missing file a success, which would answer "done" to a caller
    * that named the wrong server. */
-  remove(scope: McpScope, name: string): Promise<void>;
-  /**
-   * Forget a closing workspace's whole scope. Workspace ids are REUSED slots,
-   * so a scope left behind would be inherited — servers, tokens and all — by
-   * the next workspace to take the id. Not a refusal on absence: closing a
-   * workspace that never had servers is the common case.
-   */
-  forgetWorkspace(wsId: string): Promise<void>;
+  remove(scope: McpScope, name: string, writer: WriteSource | null): Promise<void>;
   /** Be told when the library changed, whoever changed it. */
   subscribe(listener: () => void): () => void;
 }
@@ -199,32 +194,30 @@ export function createMcpLibrary(ports: McpLibraryPorts): McpLibrary {
 
     read: async (scope, name) => draftOf((await library(scope)).existing(name)),
 
-    create: async (scope, draft) => {
+    create: async (scope, draft, writer) => {
       requireAuthorable(draft.name);
       const content = authoredFile(draft);
-      await writeThenNotify(() => ports.storage.save(scope, draft.name, content, true));
+      await writeThenNotify(() => ports.storage.save(scope, draft.name, content, true, writer));
     },
 
-    update: async (scope, draft) => {
+    update: async (scope, draft, writer) => {
       (await library(scope)).existing(draft.name);
       const content = authoredFile(draft);
-      await writeThenNotify(() => ports.storage.save(scope, draft.name, content, false));
+      await writeThenNotify(() => ports.storage.save(scope, draft.name, content, false, writer));
     },
 
-    rename: async (scope, from, to) => {
+    rename: async (scope, from, to, writer) => {
       requireAuthorable(to);
       const scoped = await library(scope);
       scoped.existing(from);
       scoped.requireFree(to);
-      await writeThenNotify(() => ports.storage.rename(scope, from, to));
+      await writeThenNotify(() => ports.storage.rename(scope, from, to, writer));
     },
 
-    remove: async (scope, name) => {
+    remove: async (scope, name, writer) => {
       (await library(scope)).existing(name);
-      await writeThenNotify(() => ports.storage.remove(scope, name));
+      await writeThenNotify(() => ports.storage.remove(scope, name, writer));
     },
-
-    forgetWorkspace: (wsId) => writeThenNotify(() => ports.storage.forgetWorkspace(wsId)),
 
     subscribe: notifier.subscribe,
 

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
-import type { WorktreeTeardownFailure } from "../domain/deck";
-import {
-  closeMessageFor,
-  teardownFailureText,
-  worktreesNotDeletedText,
-  type CloseWordsTarget,
-} from "./closeWords";
+import { closeMessageFor, worktreeNotDeletedNotice, type CloseWordsTarget } from "./closeWords";
+
+describe("worktreeNotDeletedNotice", () => {
+  it("says the folder and the reason the cleanup was given, under the close's own heading", () => {
+    expect(worktreeNotDeletedNotice("/wt/1", "could not remove /wt/1: busy")).toEqual({
+      title: "Failed to delete worktree",
+      body: "/wt/1: could not remove /wt/1: busy",
+    });
+  });
+});
 
 describe("closeMessageFor", () => {
   type AgentFacts = Extract<CloseWordsTarget, { kind: "agent" }>["pane"];
@@ -20,7 +23,7 @@ describe("closeMessageFor", () => {
     },
     // A last member exactly when there is a worktree to offer: the offer
     // is the team's, and only the last member's dialog carries it.
-    last: targets > 0 ? { name: "wt", targets: Array.from({ length: targets }, (_, i) => `/wt/${i}`) } : null,
+    last: targets > 0 ? { name: "wt", folders: Array.from({ length: targets }, (_, i) => `/wt/${i}`) } : null,
   });
   const team = (count: number): CloseWordsTarget => ({ kind: "team", count });
   const whole = (count: number): CloseWordsTarget => ({ kind: "workspace", count });
@@ -111,41 +114,6 @@ describe("closeMessageFor", () => {
     // carried like a workspace's.
     expect(closeMessageFor(team(2), 2, { kind: "background" })).toContain(
       "At least one conversation is carried",
-    );
-  });
-});
-
-describe("teardownFailureText", () => {
-  const named = { repo: "/r", path: "/wt/1", branch: "kd/ws/1" };
-  const nameless = { repo: "/r", path: "/wt/2" };
-
-  it("names the branch when it is known, the folder when not", () => {
-    expect(teardownFailureText({ kind: "held-elsewhere", target: named })).toBe(
-      "kd/ws/1: another workspace still works in this folder",
-    );
-    expect(teardownFailureText({ kind: "held-elsewhere", target: nameless })).toBe(
-      "/wt/2: another workspace still works in this folder",
-    );
-  });
-
-  it("says git's own reason when git refused", () => {
-    expect(teardownFailureText({ kind: "git-refused", target: named, reason: "Error: dirty" })).toBe(
-      "kd/ws/1: Error: dirty",
-    );
-  });
-});
-
-describe("worktreesNotDeletedText", () => {
-  const failure = (path: string): WorktreeTeardownFailure => ({
-    kind: "git-refused",
-    target: { repo: "/r", path },
-    reason: "Error: dirty",
-  });
-
-  it("heads one line per worktree left in place, singular for one", () => {
-    expect(worktreesNotDeletedText([failure("/wt/1")])).toBe("Failed to delete worktree:\n/wt/1: Error: dirty");
-    expect(worktreesNotDeletedText([failure("/wt/1"), failure("/wt/2")])).toBe(
-      "Failed to delete worktrees:\n/wt/1: Error: dirty\n/wt/2: Error: dirty",
     );
   });
 });

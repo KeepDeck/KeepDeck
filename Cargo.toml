@@ -3,6 +3,9 @@ resolver = "2"
 members = [
     "src-tauri",
     "crates/keepdeck-env",
+    "crates/keepdeck-fsm",
+    "crates/keepdeck-fsm-runtime",
+    "crates/keepdeck-lifecycle",
     "crates/keepdeck-pty",
     "crates/keepdeck-git",
     "crates/keepdeck-index",

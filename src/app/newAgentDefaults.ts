@@ -3,8 +3,7 @@ import {
   type AgentInfo,
   type AgentType,
 } from "../domain/agents";
-import { firstFreeTeamWorktree, type Workspace } from "../domain/deck";
-import { probeWorktree, suggestWorktree } from "../ipc/worktree";
+import type { Workspace } from "../domain/deck";
 import { getSettings } from "./settingsManager";
 
 /**
@@ -14,7 +13,9 @@ import { getSettings } from "./settingsManager";
  * The rules are the product's, not any one surface's: the agent dialog
  * prefills them, `agent.spawn` (voice/MCP) applies them unattended, and both
  * had spelled them out character-for-character. A rule with two homes is a
- * rule that changes in one of them.
+ * rule that changes in one of them. Where a new team's worktree goes is not
+ * among them: that place is the lifecycle machine's to suggest
+ * (`lifecycle_location`).
  */
 
 /**
@@ -39,34 +40,5 @@ export function nextAgentType(agents: AgentInfo[], ws: Workspace): AgentType | n
   return defaultAgentType(
     agents,
     ws.panes[ws.panes.length - 1]?.agentType ?? getSettings()?.defaultAgent ?? null,
-  );
-}
-
-/** The position a new pane takes — the input to its auto branch name. */
-export function nextAgentIndex(ws: Workspace): number {
-  return ws.panes.length + 1;
-}
-
-/**
- * The first worktree location a new pane could take: never one an open pane
- * already runs in, never one blocked on disk. Null when the workspace has no
- * base folder, or when nothing usable could be suggested.
- *
- * Both IPC failures flatten to null deliberately — a suggestion that cannot
- * be made is not an error, it just means no prefill. The create itself is
- * guarded elsewhere.
- */
-export function firstFreeTeamWorktreeFor(
-  workspaces: Workspace[],
-  ws: Workspace,
-  index: number,
-): Promise<{ path: string; branch: string } | null> {
-  if (!ws.worktreeBaseDir) return Promise.resolve(null);
-  return firstFreeTeamWorktree(
-    workspaces,
-    ws.worktreeBaseDir,
-    (i) => suggestWorktree(ws.name, i).catch(() => null),
-    index,
-    (path) => probeWorktree(path).catch(() => null),
   );
 }
