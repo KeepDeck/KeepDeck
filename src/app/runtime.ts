@@ -758,6 +758,7 @@ export function createAppRuntime(
       stopStanding();
       stopStandingWords();
       lifecycleConnection.dispose();
+      lifecycleSnapshot.dispose();
       savedDeck.dispose();
       mail.dispose();
       disposeArtifactCommands?.();
