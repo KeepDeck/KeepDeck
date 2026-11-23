@@ -7,12 +7,13 @@ queue: every intent, every result of work and every timer goes through it one
 at a time, so the rules need no locks.
 
 Its layers are two modules. `domain` holds the rules and is pure: no I/O, no
-clock, no threads, nothing from `infrastructure`. `infrastructure` holds the
-journal's file and format and the port of its store. The crate does no I/O
-itself: the app (`src-tauri/src/lifecycle`) runs the machine on
-`keepdeck-fsm-runtime`, and its handler is the only one that touches git, the
-journal on disk, plantings and the stores. Processes are stopped by the
-sessions machine, a feature of its own.
+clock, no threads, nothing from `infrastructure` — a test reads its source and
+holds it to that. `infrastructure` runs the machine on `keepdeck-fsm-runtime`:
+its handler is the only one that touches the world for it — the journal on
+disk itself, and git, plantings, the stores and the sessions through the
+`Doors` port the domain declares. The app (`src-tauri/src/lifecycle`) holds
+the journal folder's claim, implements `Doors`, and starts the machine.
+Processes are stopped by the sessions machine, a feature of its own.
 
 ## What lives here
 
@@ -20,6 +21,7 @@ sessions machine, a feature of its own.
 |---|---|
 | `domain::ids` | The names the lifecycle gives: workspace and team tokens drawn by the door; pane, operation, permit and attempt counters that only grow within a launch; the exact id of a command |
 | `domain::dir` | A directory's key — trailing slashes and surrounding space make no other folder |
+| `domain::doors` | The port to what the lifecycle needs beyond its journal: git, the stores, the sessions machine, the start boundary |
 | `domain::model` | The closed set of intents, how each meets another (exclusive, additive, gated), which keep a journal entry, the consent a Close carries, the refusals and the answer, and the strategy of each teardown |
 | `domain::command` | The commands to the data owners that stay in TS — deck, boards, mail, launch state, notices, the fork step — and their answers |
 | `domain::journal` | What the entry of an unfinished operation holds |
@@ -27,6 +29,10 @@ sessions machine, a feature of its own.
 | `domain::world` | The living part of the deck as the machine keeps it: workspaces, teams and where they run, panes |
 | `domain::machine` | The machine itself — `State`, `Event`, `Effect`, `update`, `work` — and the snapshot TS reads |
 | `infrastructure::journal` | An entry's file and format, the port of its store, and how boot reads the files back |
+| `infrastructure::store` | The journal on disk: one file per entry, written atomically |
+| `infrastructure::handler` | The machine's effects carried out: the journal, the doors, the answers to the waiting door |
+| `infrastructure::door` | The waiting door: an ask and its one answer, or the machine's end |
+| `infrastructure::machine` | The machine started on the journal in a folder, behind its door |
 
 ## The machine
 

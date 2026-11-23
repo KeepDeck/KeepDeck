@@ -2,17 +2,17 @@
 
 Runs a machine written against `keepdeck-fsm` (`crates/keepdeck-fsm`): on a
 tokio task of its own, with the feature's handler, its timers and the stream
-of its states. A feature's rules do not depend on this crate. The app that
-starts the machine depends on it, and so does a feature's timing tests, as a
-dev-dependency.
+of its states. A feature's rules — its crate's `domain` — never name this
+crate. Its `infrastructure` does: the handler is there, and it runs the
+machine here; the feature's timing tests use it too.
 
 What a machine is, and how to write `update` and `work`, is in the README of
 `keepdeck-fsm`.
 
 ## When not to use it
 
-- In a feature's own build. The feature's rules depend on `keepdeck-fsm`
-  only; the runtime is a dev-dependency there, for timing tests.
+- In a feature's `domain`. The rules depend on `keepdeck-fsm` only; the
+  runtime is for the `infrastructure` that runs them.
 - To test rules. `update` and `work` are plain functions, tested with no
   runtime.
 - Where no tokio runtime is entered. `start` spawns the machine's task, so it
@@ -258,12 +258,14 @@ once, in order, and the test is exact. A race between a timer and an event is
 this runtime's own rule, held by its tests: a feature has none of its own to
 test.
 
-The feature crate takes the runtime as a dev-dependency only, so it stays out
-of the feature's own build:
+The feature crate depends on the runtime for its `infrastructure`, and its
+timing tests need tokio's test utilities:
 
 ```toml
-[dev-dependencies]
+[dependencies]
 keepdeck-fsm-runtime = { path = "../keepdeck-fsm-runtime" }
+
+[dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "test-util"] }
 ```
 

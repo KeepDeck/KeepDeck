@@ -11,3 +11,13 @@ serde_json = "1"
 # The TS side of the types that cross IPC, written into the webview's source
 # by `cargo test` (TS_RS_EXPORT_DIR, .cargo/config.toml), as keepdeck-tasks does.
 ts-rs = "12"
+# The infrastructure only — the domain names none of these, and a test holds
+# it to that: the machine run with its handler, the handler's log, and the
+# waiting door's answers (sync, macros) and a store step's clock (time).
+keepdeck-fsm-runtime = { path = "../keepdeck-fsm-runtime" }
+log = "0.4"
+tokio = { version = "1", features = ["sync", "time", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "test-util"] }

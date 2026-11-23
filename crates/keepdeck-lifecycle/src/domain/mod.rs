@@ -4,6 +4,7 @@
 
 pub mod command;
 pub mod dir;
+pub mod doors;
 pub mod ids;
 pub mod journal;
 pub mod machine;

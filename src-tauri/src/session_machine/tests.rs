@@ -4,7 +4,8 @@
 //! session appearing and ending.
 
 use super::{OpenError, SessionMachine, Stopped};
-use crate::lifecycle::{AppDoors, Door, Lifecycle};
+use crate::lifecycle::{AppDoors, Lifecycle};
+use keepdeck_lifecycle::infrastructure::door::Door;
 use crate::session::SpawnSpec;
 use keepdeck_lifecycle::domain::dir::Dir;
 use keepdeck_lifecycle::domain::ids::{PaneId, PermitId, SessionId, TeamId, WorkspaceId};

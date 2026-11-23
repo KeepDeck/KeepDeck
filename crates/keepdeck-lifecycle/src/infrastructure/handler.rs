@@ -4,38 +4,13 @@
 //! its own attempt, because the framework recovers nothing.
 
 use super::door::Waiters;
+use super::journal::{self, JournalStore};
 use super::store::DiskJournal;
+use crate::domain::doors::Doors;
+use crate::domain::machine::{Clean, Effect, Event};
 use keepdeck_fsm_runtime::{supervised, Effects, Events};
-use keepdeck_lifecycle::domain::dir::Dir;
-use keepdeck_lifecycle::domain::ids::{AttemptId, SessionId};
-use keepdeck_lifecycle::domain::journal::Ticket;
-use keepdeck_lifecycle::domain::machine::{Clean, Effect, Event};
-use keepdeck_lifecycle::infrastructure::journal::{self, JournalStore};
 use std::sync::Arc;
 use std::time::Duration;
-
-/// What the handler asks of the rest of the app: git, the stores, the
-/// sessions machine, the spawn door's start boundary.
-pub trait Doors: Send + Sync + 'static {
-    /// Whether anything is on disk at a candidate place: the folder, or a
-    /// branch of that name in the repository.
-    fn probe(&self, repo: &Dir, path: &Dir, branch: &str) -> bool;
-    /// `git worktree add` by the ticket; a checkout already at the ticket's
-    /// path is this ticket's and is picked up.
-    fn create_worktree(&self, ticket: &Ticket) -> Result<(), String>;
-    /// Whether the ticket's checkout stands at its path on its branch;
-    /// nothing is made. An error only when git could not read the
-    /// repository.
-    fn find_worktree(&self, ticket: &Ticket) -> Result<bool, String>;
-    /// The branches born in a checkout, from its reflog.
-    fn read_branches(&self, repo: &Dir, path: &Dir) -> Result<Vec<String>, String>;
-    fn clean(&self, how: &Clean) -> Result<(), String>;
-    /// Ask the sessions machine to stop this exact session.
-    fn stop(&self, session: SessionId);
-    /// Cancel admitted launches at the start boundary; answers those whose
-    /// process already exists.
-    fn cancel(&self, attempts: &[AttemptId]) -> Vec<AttemptId>;
-}
 
 pub struct Handler {
     doors: Arc<dyn Doors>,
@@ -155,7 +130,8 @@ impl Effects<Effect, Event> for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keepdeck_lifecycle::domain::ids::WorkspaceId;
+    use crate::domain::dir::Dir;
+    use crate::domain::ids::WorkspaceId;
 
     #[tokio::test(start_paused = true)]
     async fn a_store_cleanup_past_its_limit_is_left_owed_and_a_git_step_has_no_clock() {

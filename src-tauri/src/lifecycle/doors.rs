@@ -3,10 +3,11 @@
 //! under the repository locks the rest of the app takes; the stores' are
 //! their own port, each store forgetting under its own lock.
 
-use super::{Doors, StoreDoors};
+use super::StoreDoors;
 use crate::session_machine::SessionMachine;
 use crate::worktree::{self, RepoLocks};
 use keepdeck_lifecycle::domain::dir::Dir;
+use keepdeck_lifecycle::domain::doors::Doors;
 use keepdeck_lifecycle::domain::ids::{AttemptId, SessionId};
 use keepdeck_lifecycle::domain::journal::Ticket;
 use keepdeck_lifecycle::domain::machine::Clean;

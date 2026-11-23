@@ -31,9 +31,9 @@ A feature has levels, and each owns its own part:
 
 | Level | Owns | Lives in |
 |---|---|---|
-| A machine | The rules of one unit of logic. It hands over codes — enum variants and their data — never wording | A Rust crate, written against this one |
-| The runtime and the machine's handler | IO: processes, files, the network, the answer to whoever asked, and the events it sends other machines | The app (`src-tauri`) |
-| A link between machines | A fact in one machine's state, sent as another machine's event | The app (`src-tauri`) |
+| A machine | The rules of one unit of logic. It hands over codes — enum variants and their data — never wording | The `domain` module of the feature's crate, written against this one |
+| The runtime and the machine's handler | IO: processes, files, the network, the answer to whoever asked, and the events it sends other machines | The `infrastructure` module of the feature's crate, on `keepdeck-fsm-runtime` |
+| A link between machines | A fact in one machine's state, sent as another machine's event | The feature crate's `infrastructure` for its own machines; the app (`src-tauri`) across features |
 | A UI object | UI decisions: what to show, in what order, with what words | TypeScript presentation |
 | Components | Rendering | TypeScript components |
 
@@ -268,8 +268,8 @@ example does. Each rule gets a test that goes red when the rule is broken.
 
 Timing — a timer, a result that arrives late, the order of a step — is tested
 on the runtime under tokio's paused time; the README of
-`keepdeck-fsm-runtime` says how. A feature takes the runtime as a
-dev-dependency only, so the runtime stays out of the feature's own build.
+`keepdeck-fsm-runtime` says how. A feature's `domain` never names the
+runtime; its `infrastructure` runs the machine on it.
 
 ```sh
 cargo test -p keepdeck-fsm

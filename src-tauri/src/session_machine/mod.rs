@@ -60,7 +60,7 @@ struct Watching {
 
 impl Watching {
     /// The door of the lifecycle machine in place now.
-    fn door(&self) -> crate::lifecycle::Door {
+    fn door(&self) -> keepdeck_lifecycle::infrastructure::door::Door {
         self.lifecycle.door()
     }
 }
@@ -223,7 +223,7 @@ impl SessionMachine {
     /// this machine. Output goes to `on_event` until the session ends.
     pub async fn open(
         &self,
-        lifecycle: &crate::lifecycle::Door,
+        lifecycle: &keepdeck_lifecycle::infrastructure::door::Door,
         permit: PermitId,
         owner: LaunchOwner,
         spec: SpawnSpec,

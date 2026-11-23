@@ -1,13 +1,12 @@
-//! The running machine on its real runtime, journal and waiting door, with
-//! fake doors for git, the stores and the sessions machine.
+//! The running machine on its real runtime, journal and waiting door, as the
+//! app holds it — with the journal folder's claim — and with fake doors for
+//! git, the stores and the sessions machine.
 
-use super::door::{Door, Waiters};
-use super::{Doors, Lifecycle};
-use keepdeck_fsm::{stay, Next, Owed};
-use keepdeck_fsm_runtime::{Effects, Events, Runtime};
+use super::Lifecycle;
 use keepdeck_lifecycle::domain::command::{Cmd, Outcome, Revision};
 use keepdeck_lifecycle::domain::dir::Dir;
-use keepdeck_lifecycle::domain::ids::{AskId, AttemptId, PaneId, SessionId, TeamId, WorkspaceId};
+use keepdeck_lifecycle::domain::doors::Doors;
+use keepdeck_lifecycle::domain::ids::{AttemptId, PaneId, SessionId, TeamId, WorkspaceId};
 use keepdeck_lifecycle::domain::journal::Ticket;
 use keepdeck_lifecycle::domain::machine::snapshot::snapshot;
 use keepdeck_lifecycle::domain::machine::{Clean, Event, Load};
@@ -230,88 +229,6 @@ async fn a_second_copy_without_the_claim_only_shows() {
     assert_eq!(reply, Reply::Answered { answer: Answer::refused(Refusal::BarrierUp) });
     let intent = second.door().ask(|ask| Event::Intent { ask, intent: close_agent(1) }).await;
     assert_eq!(intent, Reply::Answered { answer: Answer::refused(Refusal::BarrierUp) });
-}
-
-// ---------------------------------------------------------------- the waiting door
-
-/// A machine that answers `Answer` asks, never answers `Silent` ones, and
-/// dies on `Die` — on its own task, as a panic in a machine does.
-#[derive(Clone, Debug, PartialEq)]
-enum Probe {
-    Answer(AskId),
-    Silent(AskId),
-    AnswerThenDie(AskId),
-    Die,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-enum Said {
-    Answer(AskId),
-    Die,
-}
-
-fn probe_update(_: &u8, event: Probe) -> Next<u8, Said> {
-    match event {
-        Probe::Answer(ask) => stay().run(Said::Answer(ask)),
-        Probe::Silent(_) => stay(),
-        Probe::AnswerThenDie(ask) => stay().run(Said::Answer(ask)).run(Said::Die),
-        Probe::Die => stay().run(Said::Die),
-    }
-}
-
-fn probe_work(_: &u8) -> Owed<Said, Probe> {
-    Owed::nothing()
-}
-
-struct ProbeHandler(Waiters);
-
-impl Effects<Said, Probe> for ProbeHandler {
-    fn run(&mut self, effect: Said, _: &Events<Probe>) {
-        match effect {
-            Said::Answer(ask) => self.0.deliver(ask, Answer::Booted { finishing: Vec::new() }),
-            Said::Die => panic!("the machine dies"),
-        }
-    }
-}
-
-fn probe_door() -> Door<u8, Probe> {
-    let waiters = Waiters::default();
-    let machine = Runtime::start(0, probe_update, probe_work, ProbeHandler(waiters.clone()));
-    Door::new(machine, waiters)
-}
-
-async fn dead(door: &Door<u8, Probe>) {
-    let mut states = door.machine().state();
-    door.tell(Probe::Die);
-    while states.changed().await.is_ok() {}
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn the_door_answers_with_the_machines_answer() {
-    let door = probe_door();
-    assert_eq!(door.ask(Probe::Answer).await, Reply::Answered { answer: Answer::Booted { finishing: Vec::new() } });
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_machine_gone_before_the_ask_is_unavailable() {
-    let door = probe_door();
-    dead(&door).await;
-    assert_eq!(door.ask(Probe::Answer).await, Reply::Unavailable);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn a_machine_gone_after_the_ask_unanswered_is_unknown() {
-    let door = probe_door();
-    let asking = { let door = door.clone(); tokio::spawn(async move { door.ask(Probe::Silent).await }) };
-    tokio::time::sleep(Duration::from_millis(20)).await;
-    door.tell(Probe::Die);
-    assert_eq!(asking.await.unwrap(), Reply::Unknown);
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn an_answer_ready_with_the_end_is_still_the_answer() {
-    let door = probe_door();
-    assert_eq!(door.ask(Probe::AnswerThenDie).await, Reply::Answered { answer: Answer::Booted { finishing: Vec::new() } });
 }
 
 /// The page hears each state as a snapshot. When the machine's stream ends,
