@@ -1649,6 +1649,41 @@ fn a_session_that_shows_up_after_its_close_is_stopped_at_once() {
     assert!(sim.owed().contains(&Effect::Stop { session }));
 }
 
+/// A launch whose process started but whose session never registers: once a
+/// restart's wait for it runs out, the launch goes with that decision. The
+/// pane launches again, and the session, should it register after all, is a
+/// late one and is stopped.
+#[test]
+fn a_launch_whose_session_never_registered_leaves_its_pane_free_once_the_wait_runs_out() {
+    let mut sim = Sim::booted();
+    let Answer::Leased { permit } = lease(&mut sim, 2, "/wt/kd-app-1") else { panic!() };
+    let Answer::Admitted { attempt } = admit(&mut sim, permit, 2, "/wt/kd-app-1") else { panic!() };
+    let restart = sim.intent(Intent::Restart { workspace: ws(), pane: PaneId(2) });
+    let op = *sim.state.ops.keys().next().unwrap();
+    let cancel = Effect::Cancel { op, attempts: vec![attempt] };
+    for _ in 0..3 {
+        if sim.owed().contains(&cancel) {
+            break;
+        }
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    assert!(sim.owed().contains(&cancel), "{:?}", sim.owed());
+    sim.send(Event::Cancelled { op, started: vec![attempt] });
+    assert!(sim.timers().contains(&Event::Timer(Timer::Registration { op })));
+    sim.send(Event::Timer(Timer::Registration { op }));
+    sim.drive();
+    assert!(matches!(sim.answer(restart), Some(Answer::Accepted { .. })));
+    assert!(sim.state.ops.is_empty(), "{:#?}", sim.state.ops);
+
+    let Answer::Leased { permit } = lease(&mut sim, 2, "/wt/kd-app-1") else { panic!("the pane launches again") };
+    let late = sim.appear(LaunchOwner::Pane { pane: PaneId(2) }, Some(attempt), Some("/wt/kd-app-1"));
+    assert!(sim.owed().contains(&Effect::Stop { session: late }), "the late session is stopped: {:?}", sim.owed());
+    sim.send(Event::SessionEnded { session: late });
+    assert!(matches!(admit(&mut sim, permit, 2, "/wt/kd-app-1"), Answer::Admitted { .. }));
+}
+
 #[test]
 fn a_checkout_with_a_launch_admitted_into_it_is_not_unheld() {
     let mut sim = Sim::booted();

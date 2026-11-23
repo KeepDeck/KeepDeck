@@ -2,7 +2,9 @@
 //! admitted into what it takes away: a teardown's panes and folders, a fork
 //! being taken back's checkout. Each launch it takes is cancelled at the
 //! boundary if its process does not exist yet, and awaited — for at most
-//! [`REGISTRATION_WAIT`] — if it does, so its session is stopped by id.
+//! [`REGISTRATION_WAIT`] — if it does, so its session is stopped by id. A
+//! launch whose session has not registered when the wait runs out is given
+//! up: it holds its pane no longer, and its session is late if it comes.
 //! One flow for every operation that needs it.
 
 use super::launch::Attempt;
@@ -31,10 +33,17 @@ pub fn cancelled(state: &mut State, op: OpId, started: Vec<AttemptId>) {
     }
 }
 
-/// The wait for `op`'s started launches to register ran out.
+/// The wait for `op`'s started launches to register ran out: the ones still
+/// unregistered are given up, so the boundary settles and their panes are
+/// free.
 pub fn waited(state: &mut State, op: OpId) {
-    if let Some(boundary) = state.ops.get_mut(&op).and_then(Op::boundary_mut) {
-        boundary.waited = true;
+    let State { ops, attempts, late, .. } = state;
+    if let Some(boundary) = ops.get_mut(&op).and_then(Op::boundary_mut) {
+        for attempt in std::mem::take(&mut boundary.started) {
+            if attempts.remove(&attempt).is_some() {
+                late.insert(attempt);
+            }
+        }
     }
 }
 
@@ -44,8 +53,6 @@ pub struct Boundary {
     pub taken: BTreeSet<AttemptId>,
     /// Of those, the ones whose process exists: their sessions are awaited.
     pub started: BTreeSet<AttemptId>,
-    /// The wait for the started ones to register ran out.
-    pub waited: bool,
 }
 
 impl Boundary {
@@ -86,9 +93,9 @@ impl Boundary {
     }
 
     /// Settled: nothing taken still waits for the boundary's word, and every
-    /// started one has registered — or the wait for it ran out.
+    /// started one has registered — or was given up when the wait ran out.
     pub fn settled(&self, attempts: &BTreeMap<AttemptId, Attempt>) -> bool {
-        self.taken.is_empty() && (self.waited || self.started.iter().all(|attempt| !attempts.contains_key(attempt)))
+        self.taken.is_empty() && self.started.iter().all(|attempt| !attempts.contains_key(attempt))
     }
 
     /// What it owes while it is not settled: the cancel at the boundary,
@@ -97,7 +104,7 @@ impl Boundary {
         if !self.taken.is_empty() {
             owed = owed.run(Effect::Cancel { op, attempts: self.taken.iter().copied().collect() });
         }
-        if !self.started.is_empty() && !self.waited {
+        if !self.started.is_empty() {
             owed = owed.after(REGISTRATION_WAIT, Event::Timer(Timer::Registration { op }));
         }
         owed

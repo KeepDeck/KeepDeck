@@ -218,6 +218,10 @@ pub struct State {
     pub forgotten: Forgotten,
     pub permits: BTreeMap<PermitId, Permit>,
     pub attempts: BTreeMap<AttemptId, Attempt>,
+    /// Launches given up when the wait for their session ran out: a session
+    /// of one that registers after all is late, and is stopped. Kept, as the
+    /// sessions' own rows are: few, and one may yet show up.
+    pub late: BTreeSet<AttemptId>,
     pub sessions: BTreeMap<SessionId, Session>,
     /// The highest deck revision reported saved.
     pub saved: Option<Revision>,
@@ -345,6 +349,7 @@ impl State {
             forgotten,
             permits: BTreeMap::new(),
             attempts: BTreeMap::new(),
+            late: BTreeSet::new(),
             sessions: BTreeMap::new(),
             saved: None,
             next,

@@ -170,8 +170,9 @@ pub fn appeared(state: &mut State, session: SessionId, attempt: Option<AttemptId
 }
 
 /// What launches need while the machine is in this state: each permit's
-/// revocation, and the stop of a live session whose target is forgotten
-/// and that no teardown has taken — a late session after a Close.
+/// revocation, and the stop of a live session no teardown has taken that is
+/// late — its target forgotten (after a Close), or its launch given up at the
+/// start boundary.
 pub fn work(state: &State, mut owed: Owed<Effect, Event>) -> Owed<Effect, Event> {
     for &permit in state.permits.keys() {
         owed = owed.after(PERMIT_LIFE, Event::Timer(Timer::Permit { permit }));
@@ -184,7 +185,8 @@ pub fn work(state: &State, mut owed: Owed<Effect, Event>) -> Owed<Effect, Event>
             LaunchOwner::Pane { pane } | LaunchOwner::Remote { pane } => state.forgotten.pane(&state.world, pane),
             LaunchOwner::Plugin { workspace, .. } => state.forgotten.workspaces.contains(workspace),
         };
-        if forgotten {
+        let given_up = row.attempt.is_some_and(|attempt| state.late.contains(&attempt));
+        if forgotten || given_up {
             owed = owed.run(Effect::Stop { session });
         }
     }
