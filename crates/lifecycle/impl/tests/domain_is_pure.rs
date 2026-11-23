@@ -278,7 +278,9 @@ fn breaches(file: &Path, code: &str, dependencies: &BTreeSet<String>) -> Vec<Str
         // `return ::std::…`).
         let named_before = match tokens.get(i.wrapping_sub(2)) {
             Some((_, Token::Ident(before))) => !KEYWORDS.contains(&before.as_str()),
-            Some((_, Token::Other('>'))) => true,
+            // The end of a generic, `Vec::<u8>::new` — but not a return
+            // type's arrow, `-> ::std::…`.
+            Some((_, Token::Other('>'))) => !matches!(tokens.get(i.wrapping_sub(3)), Some((_, Token::Other('-')))),
             _ => false,
         };
         let leads = i < 2 || !named_before;
