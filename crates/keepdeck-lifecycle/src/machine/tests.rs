@@ -723,6 +723,24 @@ fn a_workspace_close_joins_a_disband_under_way_and_leaves_its_consent_alone() {
     assert!(sim.state.world.workspaces.is_empty());
 }
 
+/// A restored close that joined an operation whose entry did not load is not
+/// held by it: an operation that is not there is done.
+#[test]
+fn a_restored_close_is_not_held_by_a_joined_operation_that_did_not_load() {
+    let close = Entry {
+        op: OpId(10),
+        workspace: ws(),
+        work: Work::Close { target: Target::Workspace, teams: vec![], panes: vec![], consent: Consent::default(), removals: vec![], space: None },
+        joined: vec![OpId(5)],
+        commands: vec![],
+        done: vec![],
+    };
+    let mut sim = Sim::booted_with(deck(), vec![close]);
+    sim.drive();
+    assert!(!sim.state.ops.contains_key(&OpId(10)), "the close finished: {:?}", sim.state.ops);
+    assert!(sim.state.world.workspaces.is_empty());
+}
+
 #[test]
 fn a_close_takes_over_a_creation_and_waits_for_its_git_step() {
     let mut sim = Sim::booted();

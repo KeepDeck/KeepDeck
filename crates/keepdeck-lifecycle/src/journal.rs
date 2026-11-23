@@ -244,19 +244,6 @@ pub struct Loaded {
     pub dropped: Vec<Dropped>,
 }
 
-impl Loaded {
-    /// Joins that name an operation with no readable entry: its parent counts
-    /// it done once the deck shows its target gone, and never takes its
-    /// folders or its consent.
-    pub fn dangling_joins(&self) -> Vec<(OpId, OpId)> {
-        let known: std::collections::BTreeSet<OpId> = self.entries.iter().map(|entry| entry.op).collect();
-        self.entries
-            .iter()
-            .flat_map(|entry| entry.joined.iter().filter(|child| !known.contains(child)).map(|&child| (entry.op, child)))
-            .collect()
-    }
-}
-
 /// Read the journal: every readable entry, in operation order; every other
 /// file dropped and removed.
 pub fn load<S: JournalStore>(store: &mut S) -> Result<Loaded, S::Error> {
@@ -479,25 +466,5 @@ mod tests {
         }
         let ops: Vec<_> = load(&mut store).unwrap().entries.iter().map(|entry| entry.op).collect();
         assert_eq!(ops, [OpId(3), OpId(7), OpId(12)]);
-    }
-
-    #[test]
-    fn a_join_naming_an_entry_that_did_not_load_is_dangling() {
-        let mut store = Memory::default();
-        let mut workspace_close = disband(10);
-        workspace_close.work = Work::Close {
-            target: Target::Workspace,
-            teams: vec![],
-            panes: vec![],
-            consent: Consent::default(),
-            removals: vec![],
-            space: None,
-        };
-        workspace_close.joined = vec![OpId(4), OpId(5)];
-        save(&mut store, &workspace_close);
-        save(&mut store, &disband(4));
-        store.files.insert("op-5.json".into(), b"broken".to_vec());
-        let loaded = load(&mut store).unwrap();
-        assert_eq!(loaded.dangling_joins(), [(OpId(10), OpId(5))], "the readable child is no dangling join");
     }
 }
