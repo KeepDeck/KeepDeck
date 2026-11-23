@@ -371,3 +371,26 @@ fn an_add_that_fails_takes_back_the_branch_it_made_and_never_one_that_was_there(
     fs::remove_dir_all(&parent).ok();
     fs::remove_dir_all(&repo_dir).ok();
 }
+
+#[test]
+fn an_add_that_fails_after_its_checkout_stands_keeps_the_branch_the_checkout_is_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo_dir = init_repo();
+    let base = repo::resolve_commit(&repo_dir, "HEAD").unwrap();
+    // The checkout is made and registered; then the post-checkout hook fails,
+    // and with it the add.
+    let hook = repo_dir.join(".git/hooks/post-checkout");
+    fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    let parent = unique_dir("hooked");
+    let path = parent.join("wt");
+
+    assert!(worktree::add(&repo_dir, &path, "kd/test/hooked", &base).is_err(), "the hook's failure is the add's");
+    let row = worktree::list(&repo_dir).unwrap().into_iter().find(|row| worktree::paths_match(&row.path, &path));
+    assert_eq!(row.and_then(|row| row.branch), Some("kd/test/hooked".into()), "the checkout stands, registered on its branch");
+    assert!(repo::branch_exists(&repo_dir, "kd/test/hooked").unwrap(), "the branch it stands on is kept");
+    assert_eq!(repo::resolve_commit(&path, "HEAD").unwrap(), base, "and its HEAD resolves");
+    fs::remove_dir_all(&parent).ok();
+    fs::remove_dir_all(&repo_dir).ok();
+}

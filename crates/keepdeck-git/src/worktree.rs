@@ -135,12 +135,21 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<
     // git makes the branch before it checks the tree out, and leaves it when
     // the checkout cannot be made — and then the same add, retried, is
     // refused for a branch that "already exists". A failed add takes back
-    // the branch it made: only one that was not there before, and only while
-    // it still stands where it was made, so nothing anyone wrote goes.
-    if added.is_err() && !there_before {
+    // the branch it made: only one that was not there before, that no
+    // checkout stands on — a failure after the checkout was made (its
+    // post-checkout hook) leaves a checkout on it, which keeps it — and only
+    // while it still stands where it was made, so nothing anyone wrote goes.
+    if added.is_err() && !there_before && !checked_out(repo, branch) {
         let _ = run_git(repo, ["update-ref", "-d", &format!("refs/heads/{branch}"), base_commit]);
     }
     added.map(drop)
+}
+
+/// Whether a checkout of the repository stands on `branch` — or git could
+/// not say, which counts as one: a branch is never taken from under a
+/// checkout on a guess.
+fn checked_out(repo: &Path, branch: &str) -> bool {
+    list(repo).map(|rows| rows.iter().any(|row| row.branch.as_deref() == Some(branch))).unwrap_or(true)
 }
 
 /// List the repository's worktrees.
