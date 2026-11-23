@@ -28,8 +28,9 @@ function rig(outcome?: (due: Due) => Promise<Outcome>) {
   const answers: [CommandId, Outcome][] = [];
   const answer = vi.fn((id: CommandId, given: Outcome) => (answers.push([id, given]), Promise.resolve()));
   const warn = vi.fn();
-  const store = createLifecycleSnapshot({ owners: every, answer, backoff: BACKOFF, warn });
-  return { store, carried, answers, answer, warn };
+  const hookEnded = vi.fn((_op: number) => Promise.resolve());
+  const store = createLifecycleSnapshot({ owners: every, answer, hookEnded, backoff: BACKOFF, warn });
+  return { store, carried, answers, answer, hookEnded, warn };
 }
 
 const removePane = dues.find((due) => due.cmd.kind === "removePane");
@@ -139,5 +140,17 @@ describe("the lifecycle snapshot", () => {
     expect(answer).not.toHaveBeenCalled();
     store.receive(at(2, [removePane, forgetMail]));
     expect(carried.map((due) => due.cmd.kind)).toEqual(["removePane"]);
+  });
+
+  it("tells the machine a fork hook ended while it lives — a failed report to the log — and nothing once disposed", async () => {
+    const { store, hookEnded, warn } = rig();
+    hookEnded.mockImplementationOnce(() => Promise.reject(new Error("ipc down")));
+    store.hookEnded(4);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("ipc down"));
+    store.hookEnded(5);
+    store.dispose();
+    store.hookEnded(6);
+    expect(hookEnded.mock.calls.map(([op]) => op)).toEqual([4, 5]);
   });
 });
