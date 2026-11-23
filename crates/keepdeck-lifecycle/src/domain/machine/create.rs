@@ -9,13 +9,13 @@
 
 use super::boundary::Boundary;
 use super::{answer_op, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer, HOOK_DEADLINE};
-use crate::command::{Cmd, Member, Outcome, Revision, TeamPlace};
-use crate::dir::Dir;
-use crate::ids::{AttemptId, OpId, PaneId, SessionId, TeamId, WorkspaceId};
-use crate::journal::{Discard, Step, Ticket, Work};
-use crate::model::{Answer, Draft, Folder, Minted, Refusal, SessionKey, Site};
-use crate::places::{self, Held};
-use crate::world::{Pane, Team, TeamAt};
+use crate::domain::command::{Cmd, Member, Outcome, Revision, TeamPlace};
+use crate::domain::dir::Dir;
+use crate::domain::ids::{AttemptId, OpId, PaneId, SessionId, TeamId, WorkspaceId};
+use crate::domain::journal::{Discard, Step, Ticket, Work};
+use crate::domain::model::{Answer, Draft, Folder, Minted, Refusal, SessionKey, Site};
+use crate::domain::places::{self, Held};
+use crate::domain::world::{Pane, Team, TeamAt};
 use keepdeck_fsm::Owed;
 use serde::{Deserialize, Serialize};
 

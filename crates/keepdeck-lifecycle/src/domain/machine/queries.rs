@@ -2,11 +2,11 @@
 //! Close or archive dialog, a place for a new team, who holds a folder.
 
 use super::{capture, create, Kind, State};
-use crate::dir::Dir;
-use crate::ids::{AttemptId, OpId, PaneId, SessionId, TeamId, WorkspaceId};
-use crate::model::{Consent, Folder, Intent, Place, Refusal};
-use crate::places;
-use crate::world::TeamAt;
+use crate::domain::dir::Dir;
+use crate::domain::ids::{AttemptId, OpId, PaneId, SessionId, TeamId, WorkspaceId};
+use crate::domain::model::{Consent, Folder, Intent, Place, Refusal};
+use crate::domain::places;
+use crate::domain::world::TeamAt;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -295,8 +295,8 @@ pub fn claims(state: &State, dir: &Dir) -> Vec<Claim> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::machine::{update, Event, Load};
-    use crate::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
+    use crate::domain::machine::{update, Event, Load};
+    use crate::domain::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
 
     fn ws() -> WorkspaceId {
         WorkspaceId("ws-a".into())
@@ -329,8 +329,8 @@ mod tests {
                 panes: vec![pane(1, "1"), pane(2, "2"), pane(3, "3"), pane(4, "r")],
             }],
         };
-        let state = crate::machine::State::start(Some(Vec::new()));
-        let next = update(&state, Event::Handshake { ask: crate::ids::AskId(1), deck, load: Load::Loaded });
+        let state = crate::domain::machine::State::start(Some(Vec::new()));
+        let next = update(&state, Event::Handshake { ask: crate::domain::ids::AskId(1), deck, load: Load::Loaded });
         next.state.expect("booted")
     }
 

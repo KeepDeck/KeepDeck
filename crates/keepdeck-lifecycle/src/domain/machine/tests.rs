@@ -4,10 +4,10 @@
 
 use super::snapshot::{snapshot, Due, TeamGates, TeamPhase};
 use super::*;
-use crate::command::{Cmd, Outcome, Revision, Why};
-use crate::journal::{Discard, Entry, Step, Target, Work};
-use crate::model::{self, Answer, Consent, Continuation, Draft, Folder, Intent, Landing, Place, Refusal, SessionKey, Site};
-use crate::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
+use crate::domain::command::{Cmd, Outcome, Revision, Why};
+use crate::domain::journal::{Discard, Entry, Step, Target, Work};
+use crate::domain::model::{self, Answer, Consent, Continuation, Draft, Folder, Intent, Landing, Place, Refusal, SessionKey, Site};
+use crate::domain::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
 use keepdeck_fsm::Work as Owe;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -211,7 +211,7 @@ impl Sim {
     fn outcome_for(&mut self, cmd: &Cmd) -> Outcome {
         match cmd {
             Cmd::Fork { .. } => Outcome::Forked { discard: Discard { plugin: "claude".into(), once_started: vec!["/c/scratch".into()], if_never_started: vec!["/c/copy".into()] } },
-            cmd if cmd.owner() == crate::command::Owner::Deck => {
+            cmd if cmd.owner() == crate::domain::command::Owner::Deck => {
                 self.revision += 1;
                 Outcome::Applied { revision: Some(Revision(self.revision)) }
             }
@@ -1174,7 +1174,7 @@ fn settle_with_a_hung_hook(sim: &mut Sim) {
 
 /// A fork onto a team made for it in a new worktree, its hook hung past its
 /// deadline: the fork's op, and the ticket of its checkout.
-fn a_worktree_fork_with_a_hung_hook() -> (Sim, OpId, crate::journal::Ticket) {
+fn a_worktree_fork_with_a_hung_hook() -> (Sim, OpId, crate::domain::journal::Ticket) {
     let mut sim = Sim::booted();
     sim.intent(Intent::Continue {
         workspace: ws(),
@@ -1196,13 +1196,13 @@ fn a_worktree_fork_with_a_hung_hook() -> (Sim, OpId, crate::journal::Ticket) {
     (sim, op, ticket)
 }
 
-fn removed(sim: &Sim, ticket: &crate::journal::Ticket) -> bool {
+fn removed(sim: &Sim, ticket: &crate::domain::journal::Ticket) -> bool {
     sim.cleaned.contains(&Clean::Checkout { repo: ticket.repo.clone(), path: ticket.path.clone(), discard: true })
 }
 
 /// `close` with the consent its dialog sends: everything it offers to
 /// delete, ticked — the fork's checkout among it — or nothing.
-fn consented(sim: &Sim, mut close: Intent, ticket: &crate::journal::Ticket, ticked: bool) -> Intent {
+fn consented(sim: &Sim, mut close: Intent, ticket: &crate::domain::journal::Ticket, ticked: bool) -> Intent {
     let consent = if ticked {
         let offer = super::queries::preview(&sim.state, &close);
         assert!(offer.folders.iter().any(|folder| folder.path == ticket.path), "the fork's checkout is not offered: {:?}", offer.folders);
@@ -1374,7 +1374,7 @@ impl Away {
     /// The workspace is where this says: a setup that drifted would refuse
     /// everything for a workspace that is simply gone.
     fn stands_in(self, sim: &Sim) -> bool {
-        let archive = sim.state.ops.values().any(|op| matches!(&op.kind, Kind::Teardown(teardown) if teardown.kind == crate::model::Teardown::Archive));
+        let archive = sim.state.ops.values().any(|op| matches!(&op.kind, Kind::Teardown(teardown) if teardown.kind == crate::domain::model::Teardown::Archive));
         match self {
             Away::Archived => sim.state.world.workspaces.get(&ws()).is_some_and(|row| row.archived) && sim.state.ops.is_empty(),
             Away::Archiving => archive,
@@ -2020,7 +2020,7 @@ fn a_restored_close_holds_its_branches_by_the_repository_its_entry_keeps() {
             teams: vec![team("1")],
             panes: vec![],
             consent: consent_for_team_1(),
-            removals: vec![crate::journal::Removal { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1"), branches: vec!["feature".into()] }],
+            removals: vec![crate::domain::journal::Removal { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-1"), branches: vec!["feature".into()] }],
             space: Some(Dir::new("/repo/.git")),
         },
         joined: vec![],
@@ -2282,7 +2282,7 @@ fn an_open_fork_at_boot_is_rolled_back_by_both_discard_lists() {
 #[test]
 fn a_build_asked_in_a_launch_that_ended_is_never_asked_again() {
     let source = SessionKey { agent: "claude".into(), session: "s".into() };
-    let unanswered = |index: u32, cmd: Cmd| crate::journal::Sent { command: crate::command::Command { id: CommandId { op: OpId(6), index }, cmd }, settled: false, rejected: None };
+    let unanswered = |index: u32, cmd: Cmd| crate::domain::journal::Sent { command: crate::domain::command::Command { id: CommandId { op: OpId(6), index }, cmd }, settled: false, rejected: None };
     let entry = Entry {
         op: OpId(6),
         workspace: ws(),
@@ -2314,11 +2314,11 @@ fn a_lapsed_build_owes_no_deadline() {
         workspace: ws(),
         work: Work::Create {
             team: team("lost"),
-            ticket: crate::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
+            ticket: crate::domain::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
         },
         joined: vec![],
-        commands: vec![crate::journal::Sent {
-            command: crate::command::Command { id: CommandId { op: OpId(3), index: 0 }, cmd: Cmd::PrepareResume { workspace: ws(), pane: PaneId(9), source, draft: draft() } },
+        commands: vec![crate::domain::journal::Sent {
+            command: crate::domain::command::Command { id: CommandId { op: OpId(3), index: 0 }, cmd: Cmd::PrepareResume { workspace: ws(), pane: PaneId(9), source, draft: draft() } },
             settled: false,
             rejected: None,
         }],
@@ -2396,8 +2396,8 @@ fn a_quarantined_deck_holds_a_restored_close_whole_its_forgetting_included() {
         joined: vec![],
         // A launch that loaded the deck had already sent the forgetting, and
         // died before the owner carried it.
-        commands: vec![crate::journal::Sent {
-            command: crate::command::Command { id: CommandId { op: OpId(7), index: 0 }, cmd: Cmd::ForgetBoards { workspace: ws() } },
+        commands: vec![crate::domain::journal::Sent {
+            command: crate::domain::command::Command { id: CommandId { op: OpId(7), index: 0 }, cmd: Cmd::ForgetBoards { workspace: ws() } },
             settled: false,
             rejected: None,
         }],
@@ -2422,7 +2422,7 @@ fn a_creation_entry_whose_team_never_reached_the_deck_takes_back_its_checkout() 
         workspace: ws(),
         work: Work::Create {
             team: team("lost"),
-            ticket: crate::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
+            ticket: crate::domain::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
         },
         joined: vec![],
         commands: vec![],
@@ -3287,7 +3287,7 @@ fn an_archive_names_the_agents_it_leaves_suspended_and_its_preview_says_the_same
     facts.workspaces[0].teams.push(TeamFacts { id: team("f"), at: TeamAtFacts::Provisioning { path: Dir::new("/wt/kd-app-9"), branch: Some("kd/app/9".into()) } });
     facts.workspaces[0].panes.push(pane_facts(4, Some("f")));
     let mut sim = Sim::booted_with(facts, Vec::new());
-    assert_eq!(sim.state.world.teams[&team("f")].at, crate::world::TeamAt::Failed { ticket: crate::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-9"), branch: "kd/app/9".into(), base: None } });
+    assert_eq!(sim.state.world.teams[&team("f")].at, crate::domain::world::TeamAt::Failed { ticket: crate::domain::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-9"), branch: "kd/app/9".into(), base: None } });
 
     let intent = Intent::Archive { workspace: ws() };
     assert_eq!(super::queries::preview(&sim.state, &intent).stops, vec![PaneId(3)]);
@@ -3759,8 +3759,8 @@ fn every_due() -> Vec<Due> {
             workspace: w(),
             team: team("n"),
             draft: draft(),
-            place: crate::command::TeamPlace::Attached { cwd: Dir::new("/repo"), branch: None },
-            members: vec![crate::command::Member { pane: p(4), draft: draft() }],
+            place: crate::domain::command::TeamPlace::Attached { cwd: Dir::new("/repo"), branch: None },
+            members: vec![crate::domain::command::Member { pane: p(4), draft: draft() }],
         },
         Cmd::RetryTeam { workspace: w(), team: team("n") },
         Cmd::SettleTeam { workspace: w(), team: team("n"), cwd: Dir::new("/wt/kd-app-2"), branch: Some("kd/app/2".into()) },
@@ -3822,7 +3822,7 @@ fn every_due() -> Vec<Due> {
     every
         .into_iter()
         .enumerate()
-        .map(|(index, cmd)| Due { id: crate::ids::CommandId { op: OpId(1), index: index as u32 }, owner: cmd.owner(), cmd })
+        .map(|(index, cmd)| Due { id: crate::domain::ids::CommandId { op: OpId(1), index: index as u32 }, owner: cmd.owner(), cmd })
         .collect()
 }
 
@@ -3838,8 +3838,8 @@ fn the_wire_examples_are_written_beside_the_exported_types() {
     assert!(!versioned.snapshot.commands.is_empty(), "the example carries commands owed");
     let answers = vec![
         Answer::Accepted { op: OpId(9), minted: model::Minted { workspace: None, team: Some(team("n")), panes: vec![PaneId(4)] } },
-        Answer::Leased { permit: crate::ids::PermitId(2) },
-        Answer::Admitted { attempt: crate::ids::AttemptId(3) },
+        Answer::Leased { permit: crate::domain::ids::PermitId(2) },
+        Answer::Admitted { attempt: crate::domain::ids::AttemptId(3) },
         Answer::Booted { finishing: vec![OpId(1)] },
     ];
     let mut replies: Vec<model::Reply> = answers.into_iter().map(|answer| model::Reply::Answered { answer }).collect();

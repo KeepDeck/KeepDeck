@@ -2,7 +2,7 @@
 //! atomically — a temporary file, fsync, rename, fsync of the folder — so a
 //! file is the old entry or the new one, never half of either.
 
-use keepdeck_lifecycle::journal::JournalStore;
+use keepdeck_lifecycle::infrastructure::journal::JournalStore;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -80,9 +80,10 @@ impl JournalStore for DiskJournal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keepdeck_lifecycle::journal::{self, Entry, Work};
-    use keepdeck_lifecycle::ids::{OpId, WorkspaceId};
-    use keepdeck_lifecycle::dir::Dir;
+    use keepdeck_lifecycle::domain::dir::Dir;
+    use keepdeck_lifecycle::domain::ids::{OpId, WorkspaceId};
+    use keepdeck_lifecycle::domain::journal::{Entry, Work};
+    use keepdeck_lifecycle::infrastructure::journal;
 
     fn entry(op: u64) -> Entry {
         Entry {

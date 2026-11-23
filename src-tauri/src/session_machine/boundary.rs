@@ -7,7 +7,7 @@
 //! comes before the door has its admission leaves a tombstone, and the late
 //! admission cannot revive it.
 
-use keepdeck_lifecycle::ids::{AttemptId, SessionId};
+use keepdeck_lifecycle::domain::ids::{AttemptId, SessionId};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 

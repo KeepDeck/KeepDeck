@@ -12,12 +12,12 @@ use super::boundary::Boundary;
 use super::launch::{LaunchOwner, Session};
 use super::{answer_op, capture, durable, finish, Clean, Effect, Event, Fx, Kind, Op, State, StepResult, Timer};
 use super::{LEASE_WAIT, RETIRE_WAIT};
-use crate::command::Cmd;
-use crate::dir::Dir;
-use crate::ids::{OpId, PaneId, TeamId, WorkspaceId};
-use crate::journal::{Removal, Step, Target, Work};
-use crate::model::{self, Answer, Consent, Forget, Minted, Rows};
-use crate::world::{TeamAt, World};
+use crate::domain::command::Cmd;
+use crate::domain::dir::Dir;
+use crate::domain::ids::{OpId, PaneId, TeamId, WorkspaceId};
+use crate::domain::journal::{Removal, Step, Target, Work};
+use crate::domain::model::{self, Answer, Consent, Forget, Minted, Rows};
+use crate::domain::world::{TeamAt, World};
 use keepdeck_fsm::Owed;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -621,7 +621,7 @@ fn runnable(teardown: &Teardown) -> Vec<Step> {
 fn clean(state: &mut State, id: OpId, fx: &mut Fx) {
     let saved = state.saved;
     let op = &state.ops[&id];
-    let rows_settled = op.sent.iter().filter(|sent| sent.cmd.owner() == crate::command::Owner::Deck).all(|sent| sent.settled(saved));
+    let rows_settled = op.sent.iter().filter(|sent| sent.cmd.owner() == crate::domain::command::Owner::Deck).all(|sent| sent.settled(saved));
     if rows_settled {
         apply_world(state, id);
     }

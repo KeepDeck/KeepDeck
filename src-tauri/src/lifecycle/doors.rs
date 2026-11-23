@@ -6,10 +6,10 @@
 use super::{Doors, StoreDoors};
 use crate::session_machine::SessionMachine;
 use crate::worktree::{self, RepoLocks};
-use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{AttemptId, SessionId};
-use keepdeck_lifecycle::journal::Ticket;
-use keepdeck_lifecycle::machine::Clean;
+use keepdeck_lifecycle::domain::dir::Dir;
+use keepdeck_lifecycle::domain::ids::{AttemptId, SessionId};
+use keepdeck_lifecycle::domain::journal::Ticket;
+use keepdeck_lifecycle::domain::machine::Clean;
 use std::path::Path;
 use std::sync::Arc;
 

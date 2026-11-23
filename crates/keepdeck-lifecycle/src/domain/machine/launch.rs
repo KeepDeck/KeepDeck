@@ -8,9 +8,9 @@
 //! and under Close like any other.
 
 use super::{capture, Effect, Event, Fx, State, Timer, PERMIT_LIFE};
-use crate::dir::Dir;
-use crate::ids::{AskId, AttemptId, OpId, PaneId, PermitId, SessionId, WorkspaceId};
-use crate::model::{Answer, Refusal};
+use crate::domain::dir::Dir;
+use crate::domain::ids::{AskId, AttemptId, OpId, PaneId, PermitId, SessionId, WorkspaceId};
+use crate::domain::model::{Answer, Refusal};
 use keepdeck_fsm::Owed;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;

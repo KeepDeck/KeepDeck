@@ -5,7 +5,7 @@
 
 use super::Door;
 use crate::forgotten::{Forgetting, Source};
-use keepdeck_lifecycle::ids::{PaneId, TeamId, WorkspaceId};
+use keepdeck_lifecycle::domain::ids::{PaneId, TeamId, WorkspaceId};
 
 /// The machine to ask, fetched for each question: a copy that got the
 /// journal root late runs a new machine.

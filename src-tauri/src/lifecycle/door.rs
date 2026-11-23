@@ -9,9 +9,9 @@
 //! still the answer.
 
 use keepdeck_fsm_runtime::Runtime;
-use keepdeck_lifecycle::ids::AskId;
-use keepdeck_lifecycle::machine::{Event, State};
-use keepdeck_lifecycle::model::{Answer, Reply};
+use keepdeck_lifecycle::domain::ids::AskId;
+use keepdeck_lifecycle::domain::machine::{Event, State};
+use keepdeck_lifecycle::domain::model::{Answer, Reply};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};

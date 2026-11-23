@@ -5,14 +5,14 @@ use super::door::{Door, Waiters};
 use super::{Doors, Lifecycle};
 use keepdeck_fsm::{stay, Next, Owed};
 use keepdeck_fsm_runtime::{Effects, Events, Runtime};
-use keepdeck_lifecycle::command::{Cmd, Outcome, Revision};
-use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{AskId, AttemptId, PaneId, SessionId, TeamId, WorkspaceId};
-use keepdeck_lifecycle::journal::Ticket;
-use keepdeck_lifecycle::machine::snapshot::snapshot;
-use keepdeck_lifecycle::machine::{Clean, Event, Load};
-use keepdeck_lifecycle::model::{Answer, Consent, Intent, Refusal, Reply};
-use keepdeck_lifecycle::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
+use keepdeck_lifecycle::domain::command::{Cmd, Outcome, Revision};
+use keepdeck_lifecycle::domain::dir::Dir;
+use keepdeck_lifecycle::domain::ids::{AskId, AttemptId, PaneId, SessionId, TeamId, WorkspaceId};
+use keepdeck_lifecycle::domain::journal::Ticket;
+use keepdeck_lifecycle::domain::machine::snapshot::snapshot;
+use keepdeck_lifecycle::domain::machine::{Clean, Event, Load};
+use keepdeck_lifecycle::domain::model::{Answer, Consent, Intent, Refusal, Reply};
+use keepdeck_lifecycle::domain::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -89,7 +89,7 @@ async fn owners_until_idle(lifecycle: &Lifecycle) {
             return;
         }
         for command in snapshot(&state).commands {
-            let outcome = if command.cmd.owner() == keepdeck_lifecycle::command::Owner::Deck {
+            let outcome = if command.cmd.owner() == keepdeck_lifecycle::domain::command::Owner::Deck {
                 revision += 1;
                 Outcome::Applied { revision: Some(Revision(revision)) }
             } else {
@@ -320,8 +320,8 @@ async fn an_answer_ready_with_the_end_is_still_the_answer() {
 #[tokio::test(flavor = "multi_thread")]
 async fn the_page_hears_its_machine_stop_and_not_a_machine_that_was_replaced() {
     use keepdeck_fsm_runtime::At;
-    use keepdeck_lifecycle::machine::snapshot::Heard;
-    use keepdeck_lifecycle::machine::State;
+    use keepdeck_lifecycle::domain::machine::snapshot::Heard;
+    use keepdeck_lifecycle::domain::machine::State;
     let heard_until_the_end = |running_now: bool| async move {
         let (publish, states) = tokio::sync::watch::channel(At { version: 0, value: State::start(Some(Vec::new())) });
         let heard = Arc::new(Mutex::new(Vec::new()));

@@ -1,5 +1,5 @@
 //! Branch-list helpers — pure string logic, no git calls. Naming KeepDeck's
-//! own branches is the lifecycle's (`keepdeck_lifecycle::places`).
+//! own branches is the lifecycle's (`keepdeck_lifecycle::domain::places`).
 
 /// `branches` with `pin` moved to the front, the rest keeping their order —
 /// the base-branch picker leads with the most likely base (the repo's default

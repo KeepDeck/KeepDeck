@@ -7,10 +7,11 @@ use super::door::Waiters;
 use super::store::DiskJournal;
 use crate::supervised::supervised;
 use keepdeck_fsm_runtime::{Effects, Events};
-use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{AttemptId, SessionId};
-use keepdeck_lifecycle::journal::{self, JournalStore, Ticket};
-use keepdeck_lifecycle::machine::{Clean, Effect, Event};
+use keepdeck_lifecycle::domain::dir::Dir;
+use keepdeck_lifecycle::domain::ids::{AttemptId, SessionId};
+use keepdeck_lifecycle::domain::journal::Ticket;
+use keepdeck_lifecycle::domain::machine::{Clean, Effect, Event};
+use keepdeck_lifecycle::infrastructure::journal::{self, JournalStore};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -155,7 +156,7 @@ impl Effects<Effect, Event> for Handler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use keepdeck_lifecycle::ids::WorkspaceId;
+    use keepdeck_lifecycle::domain::ids::WorkspaceId;
 
     #[tokio::test(start_paused = true)]
     async fn a_store_cleanup_past_its_limit_is_left_owed_and_a_git_step_has_no_clock() {

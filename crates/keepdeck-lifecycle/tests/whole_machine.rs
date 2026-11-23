@@ -13,15 +13,15 @@
 //! not outlive its workspace.
 
 use keepdeck_fsm::Work as Owe;
-use keepdeck_lifecycle::command::{Cmd, Outcome, Owner, Revision, Why};
-use keepdeck_lifecycle::dir::Dir;
-use keepdeck_lifecycle::ids::{AskId, AttemptId, CommandId, OpId, PaneId, PermitId, SessionId, TeamId, WorkspaceId};
-use keepdeck_lifecycle::journal::{Discard, Step};
-use keepdeck_lifecycle::machine::queries::close_workspace_offer;
-use keepdeck_lifecycle::machine::snapshot::snapshot;
-use keepdeck_lifecycle::machine::{update, work, Effect, Event, Kind, LaunchOwner, LeaseAsk, Load, State, TearPhase, Timer};
-use keepdeck_lifecycle::model::{Answer, Consent, Continuation, Draft, Intent, Landing, Place, Refusal, SessionKey, Site};
-use keepdeck_lifecycle::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
+use keepdeck_lifecycle::domain::command::{Cmd, Outcome, Owner, Revision, Why};
+use keepdeck_lifecycle::domain::dir::Dir;
+use keepdeck_lifecycle::domain::ids::{AskId, AttemptId, CommandId, OpId, PaneId, PermitId, SessionId, TeamId, WorkspaceId};
+use keepdeck_lifecycle::domain::journal::{Discard, Step};
+use keepdeck_lifecycle::domain::machine::queries::close_workspace_offer;
+use keepdeck_lifecycle::domain::machine::snapshot::snapshot;
+use keepdeck_lifecycle::domain::machine::{update, work, Effect, Event, Kind, LaunchOwner, LeaseAsk, Load, State, TearPhase, Timer};
+use keepdeck_lifecycle::domain::model::{Answer, Consent, Continuation, Draft, Intent, Landing, Place, Refusal, SessionKey, Site};
+use keepdeck_lifecycle::domain::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
 use std::cell::RefCell;
 use std::collections::{BTreeSet, VecDeque};
 

@@ -16,12 +16,12 @@ pub mod queries;
 pub mod snapshot;
 mod teardown;
 
-use crate::command::{Cmd, Command, Outcome, Owner, Revision, Why};
-use crate::dir::Dir;
-use crate::ids::{AskId, AttemptId, CommandId, Counter, OpId, PaneId, PermitId, SessionId, TeamId, WorkspaceId};
-use crate::journal::{Entry, Step, Ticket};
-use crate::model::{Answer, Intent, Refusal};
-use crate::world::{DeckFacts, World};
+use crate::domain::command::{Cmd, Command, Outcome, Owner, Revision, Why};
+use crate::domain::dir::Dir;
+use crate::domain::ids::{AskId, AttemptId, CommandId, Counter, OpId, PaneId, PermitId, SessionId, TeamId, WorkspaceId};
+use crate::domain::journal::{Entry, Step, Ticket};
+use crate::domain::model::{Answer, Intent, Refusal};
+use crate::domain::world::{DeckFacts, World};
 use keepdeck_fsm::{stay, to, Next, Owed, Work as Owe};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -206,7 +206,7 @@ impl Op {
             .sent
             .iter()
             .enumerate()
-            .map(|(index, sent)| crate::journal::Sent {
+            .map(|(index, sent)| crate::domain::journal::Sent {
                 command: Command { id: CommandId { op: id, index: index as u32 }, cmd: sent.cmd.clone() },
                 settled: sent.settled(saved),
                 rejected: sent.rejected().cloned(),

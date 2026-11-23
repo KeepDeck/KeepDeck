@@ -3,9 +3,9 @@
 //! it from the deck's facts and the journal; after that only the machine's
 //! operations change it, as their deck commands become durable.
 
-use crate::dir::Dir;
-use crate::ids::{OpId, PaneId, TeamId, WorkspaceId};
-use crate::journal::Ticket;
+use crate::domain::dir::Dir;
+use crate::domain::ids::{OpId, PaneId, TeamId, WorkspaceId};
+use crate::domain::journal::Ticket;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use ts_rs::TS;
