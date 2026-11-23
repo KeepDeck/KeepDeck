@@ -48,6 +48,25 @@ struct Handler {
     table: Arc<Table>,
 }
 
+/// The sessions' watcher's hold on the lifecycle machine. However the watcher
+/// ends — this machine gone, or a panic in it — letting go of it tells the
+/// lifecycle the sessions are gone: a lifecycle that went on unaware would
+/// admit launches it never hears of, and wait on their sessions for nothing.
+/// The app's exit does not drop it: the process ends around it.
+struct Watching<F: Fn() -> crate::lifecycle::Door>(F);
+
+impl<F: Fn() -> crate::lifecycle::Door> Watching<F> {
+    fn door(&self) -> crate::lifecycle::Door {
+        (self.0)()
+    }
+}
+
+impl<F: Fn() -> crate::lifecycle::Door> Drop for Watching<F> {
+    fn drop(&mut self) {
+        self.door().tell(LifecycleEvent::SessionsGone);
+    }
+}
+
 impl Effects<Effect, Event<Tag>> for Handler {
     fn run(&mut self, effect: Effect, events: &Events<Event<Tag>>) {
         match effect {
@@ -160,18 +179,19 @@ impl SessionMachine {
     }
 
     /// Tell the lifecycle machine about every session appearing and ending,
-    /// and about the end of this machine. `lifecycle` hands the door of the
+    /// and about the end of this watcher. `lifecycle` hands the door of the
     /// lifecycle machine as it is now.
     pub fn link(&self, lifecycle: impl Fn() -> crate::lifecycle::Door + Send + 'static) {
         let mut states = self.machine.state();
         tauri::async_runtime::spawn(async move {
+            let lifecycle = Watching(lifecycle);
             let mut seen: HashMap<u64, bool> = HashMap::new();
             loop {
                 let rows: Vec<(u64, Tag, bool)> = {
                     let at = states.borrow_and_update();
                     at.value.rows.iter().map(|(&id, row)| (id, row.tag.clone(), row.over())).collect()
                 };
-                let door = lifecycle();
+                let door = lifecycle.door();
                 for (id, tag, over) in rows {
                     let ended = seen.entry(id).or_insert_with(|| {
                         door.tell(LifecycleEvent::SessionAppeared {
@@ -188,7 +208,6 @@ impl SessionMachine {
                     }
                 }
                 if states.changed().await.is_err() {
-                    lifecycle().tell(LifecycleEvent::SessionsGone);
                     return;
                 }
             }

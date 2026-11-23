@@ -141,6 +141,30 @@ impl Rig {
 }
 
 #[cfg(unix)]
+/// However the sessions' watcher ends — a panic in it included — the
+/// lifecycle machine hears that the sessions are gone, rather than go on
+/// admitting launches it would never hear of.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_watcher_that_dies_tells_the_lifecycle_the_sessions_are_gone() {
+    let journal = tempfile::tempdir().unwrap();
+    let sessions = SessionMachine::start();
+    let doors = AppDoors::new(sessions.clone(), crate::worktree::RepoLocks::default(), Arc::new(NoStores));
+    let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(doors));
+    let door = lifecycle.door();
+    let first = std::sync::atomic::AtomicBool::new(true);
+    sessions.link(move || {
+        assert!(!first.swap(false, std::sync::atomic::Ordering::SeqCst), "the watcher's first look fails");
+        door.clone()
+    });
+    for _ in 0..200 {
+        if lifecycle.door().machine().state().borrow().value.sessions_down {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the lifecycle machine never heard that the sessions are gone");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_launch_with_its_permit_runs_and_its_stop_answers_once_it_is_over() {
     let rig = rig().await;

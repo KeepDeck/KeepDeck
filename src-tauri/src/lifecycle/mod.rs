@@ -48,9 +48,12 @@ struct Live {
     claim: Option<ClaimedRoot>,
 }
 
-/// The running machine, in the app's managed state.
+/// The running machine, in the app's managed state. A clone is a hold on the
+/// same machine — the one in place now, whichever that is after a claim won
+/// late — for what needs it before, or apart from, the managed state.
+#[derive(Clone)]
 pub struct Lifecycle {
-    live: Mutex<Live>,
+    live: Arc<Mutex<Live>>,
     doors: Arc<dyn Doors>,
     root: PathBuf,
 }
@@ -101,7 +104,7 @@ impl Lifecycle {
             }
         };
         let door = start_machine(&root, claim.is_some(), doors.clone());
-        Lifecycle { live: Mutex::new(Live { door, claim }), doors, root }
+        Lifecycle { live: Arc::new(Mutex::new(Live { door, claim })), doors, root }
     }
 
     pub fn door(&self) -> Door {
