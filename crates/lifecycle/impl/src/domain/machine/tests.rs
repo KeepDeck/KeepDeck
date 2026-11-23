@@ -2520,6 +2520,50 @@ fn boot_says_when_the_stores_kept_what_the_deck_no_longer_holds() {
     assert!(warnings.iter().any(|warning| matches!(warning, Warning::StoresKept { reason, .. } if reason == "refused")), "{warnings:?}");
 }
 
+/// A step of a creation's undo that fails is said, with its reason — a
+/// creation the deck no longer holds, restored from its entry.
+#[test]
+fn a_creations_undo_step_that_fails_is_said() {
+    let ticket = Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-5"), branch: "kd/app/5".into(), base: None };
+    let entry = Entry { op: OpId(5), workspace: ws(), work: Work::Create { team: team("gone"), ticket }, joined: vec![], commands: vec![], done: vec![] };
+    let mut sim = Sim::booted_with(deck(), vec![entry]);
+    sim.drive_with(&failing(|how| matches!(how, Clean::Checkout { .. })));
+    let warnings = sim.warnings();
+    assert!(
+        warnings.iter().any(|warning| matches!(warning, Warning::StepFailed { op: OpId(5), step: Step::Checkout { .. }, reason } if reason == "refused")),
+        "{warnings:?}"
+    );
+}
+
+/// A step of a fork's rollback that fails is said, with its reason.
+#[test]
+fn a_forks_rollback_step_that_fails_is_said() {
+    let (mut sim, op, _ticket) = a_worktree_fork_with_a_hung_hook();
+    sim.send(Event::HookEnded { op });
+    sim.drive_with(&failing(|how| matches!(how, Clean::Checkout { .. })));
+    let warnings = sim.warnings();
+    assert!(
+        warnings.iter().any(|warning| matches!(warning, Warning::StepFailed { op: failed, step: Step::Checkout { .. }, reason } if *failed == op && reason == "refused")),
+        "{warnings:?}"
+    );
+}
+
+/// An owner's answer that comes after the workspace it adds to has left the
+/// machine's world — out of order — adds nothing: it is said, and the
+/// operation is refused and owed.
+#[test]
+fn a_creation_whose_workspace_went_before_its_answer_is_said_and_owed() {
+    let mut sim = Sim::booted();
+    let ask = sim.intent(Intent::CreateTeam { workspace: ws(), team: team("n"), site: Site::Root, draft: draft(), members: vec![] });
+    sim.write_journals();
+    let op = *sim.state.ops.keys().next().expect("the creation");
+    sim.state.world.workspaces.remove(&ws());
+    sim.apply(|cmd| matches!(cmd, Cmd::AddTeam { .. }));
+    assert!(sim.warnings().contains(&Warning::WorkspaceGone { op }), "{:?}", sim.warnings());
+    assert_eq!(sim.refusal(ask), Some(Refusal::NotFound));
+    assert!(sim.state.ops[&op].owed, "neither running on nor ending");
+}
+
 // ---------------------------------------------------------------- the fork
 
 fn fork_into(name: &str) -> Intent {
