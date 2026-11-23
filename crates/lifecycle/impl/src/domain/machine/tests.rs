@@ -2548,9 +2548,11 @@ fn a_forks_rollback_step_that_fails_is_said() {
     );
 }
 
-/// An owner's answer that comes after the workspace it adds to has left the
-/// machine's world — out of order — adds nothing: it is said, and the
-/// operation is refused and owed.
+/// The guard of a creation whose workspace is gone. The capture queues a
+/// workspace's close behind the additions begun before it, so no ordinary
+/// run of events gets here; the test takes the workspace's row away by hand
+/// to stand for one that did. Such a creation adds nothing: it is said, and
+/// the operation is refused and owed.
 #[test]
 fn a_creation_whose_workspace_went_before_its_answer_is_said_and_owed() {
     let mut sim = Sim::booted();
