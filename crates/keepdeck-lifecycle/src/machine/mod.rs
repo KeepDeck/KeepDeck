@@ -100,6 +100,12 @@ impl Sent {
         Sent { cmd, outcome: None, lapsed: false }
     }
 
+    /// No answer is awaited for it any more: its owner's came, or it is a
+    /// plan's build that lapsed with its launch and none will come.
+    pub fn answered(&self) -> bool {
+        self.outcome.is_some() || self.lapsed
+    }
+
     /// Settled: answered — and a deck command applied, also on disk — or a
     /// plan's build that lapsed with its launch.
     pub fn settled(&self, saved: Option<Revision>) -> bool {

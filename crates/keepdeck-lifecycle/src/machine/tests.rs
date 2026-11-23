@@ -2285,6 +2285,31 @@ fn a_build_asked_in_a_launch_that_ended_is_never_asked_again() {
     assert!(sim.disk.is_empty());
 }
 
+/// A lapsed build is no build still out: a creation restored with the plan
+/// of its resume lapsed owes that plan no deadline, and drops no build
+/// nobody runs.
+#[test]
+fn a_lapsed_build_owes_no_deadline() {
+    let source = SessionKey { agent: "claude".into(), session: "s".into() };
+    let entry = Entry {
+        op: OpId(3),
+        workspace: ws(),
+        work: Work::Create {
+            team: team("lost"),
+            ticket: crate::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
+        },
+        joined: vec![],
+        commands: vec![crate::journal::Sent {
+            command: crate::command::Command { id: CommandId { op: OpId(3), index: 0 }, cmd: Cmd::PrepareResume { workspace: ws(), pane: PaneId(9), source, draft: draft() } },
+            settled: false,
+            rejected: None,
+        }],
+        done: vec![],
+    };
+    let sim = Sim::booted_with(deck(), vec![entry]);
+    assert!(!sim.timers().contains(&Event::Timer(Timer::Plan { op: OpId(3) })), "{:?}", sim.timers());
+}
+
 /// An open fork whose pane is gone from the deck, with no team of its own:
 /// it knows no team it landed on — none is made up — and is taken back.
 #[test]

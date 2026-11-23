@@ -278,7 +278,7 @@ pub fn advance(state: &mut State, id: OpId, fx: &mut Fx) {
         TearPhase::RollingBack => {}
         TearPhase::Retiring => {
             let op = &state.ops[&id];
-            let retired = op.sent.iter().all(|sent| !matches!(sent.cmd, Cmd::Retire { .. }) || sent.outcome.is_some());
+            let retired = op.sent.iter().all(|sent| !matches!(sent.cmd, Cmd::Retire { .. }) || sent.answered());
             if retired || teardown.waited.retire {
                 begin_stopping(state, id);
             }
@@ -878,7 +878,7 @@ pub fn advance_unheld(state: &mut State, id: OpId, fx: &mut Fx) {
     // and the person decides again. Kept owed, it would hold the folder
     // against that next ask and retry the same refusal at every launch.
     if unheld.failed {
-        if op.sent.iter().all(|sent| sent.outcome.is_some()) {
+        if op.sent.iter().all(|sent| sent.answered()) {
             finish(state, id);
         }
         return;

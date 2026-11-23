@@ -806,7 +806,7 @@ pub fn work(state: &State, id: OpId, op: &Op, create: &Create, owed: Owed<Effect
 /// Whether the operation's resume plan was asked of the page and has not
 /// come back.
 fn plan_outstanding(op: &Op) -> bool {
-    op.sent.iter().any(|sent| matches!(sent.cmd, Cmd::PrepareResume { .. }) && sent.outcome.is_none())
+    op.sent.iter().any(|sent| matches!(sent.cmd, Cmd::PrepareResume { .. }) && !sent.answered())
 }
 
 /// A resume's plan is a plugin's hook the machine waits on, like the fork
