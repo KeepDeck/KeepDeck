@@ -6,14 +6,14 @@ import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CommandResult } from "../../domain/commands";
 import { createFailed, type Workspace } from "../../domain/deck";
-import type { useCloseFlow as UseCloseFlow } from "../useCloseFlow";
+import type { useAppCloseFlow as UseAppCloseFlow } from "../useApplicationUi";
 import { useHost } from "../../testing/host/host";
 import { startDeck, type Deck } from "../../testing/host/deck";
 import { mountInPage } from "../../testing/host/page";
 import { STUB_AGENT, type StubAgentControl } from "../../testing/host/stubPlugin";
 
-/** What the close flow hook holds, as the app's controller hands it. */
-type CloseFlow = ReturnType<typeof UseCloseFlow>;
+/** What the app's close flow holds. */
+type CloseFlow = ReturnType<typeof UseAppCloseFlow>;
 
 /**
  * The commands an agent drives the deck's lifecycle with, end to end on the
@@ -69,49 +69,39 @@ describe("the agents' lifecycle commands, on the host", () => {
   };
   const branches = () => execFileSync("git", ["branch", "--list", "--format=%(refname:short)"], { cwd: host().work, encoding: "utf8" });
 
-  /** Mount the app's UI in the deck's page and bind it, as
-   * `useAppController` does: the agents the plugins declare, which a
-   * command names an agent type against, and the close flow — a close an
-   * agent asks for opens the person's dialog, and the row answers it as the
-   * person. */
+  /** Mount the app's UI in the deck's page through the hooks
+   * `useAppController` binds it with: the agents the plugins declare, which
+   * a command names an agent type against, and the app's close flow — a
+   * close an agent asks for opens the person's dialog, and the row answers
+   * it as the person. The windows a command could open are not this suite's,
+   * and open nothing. */
   async function uiOn(d: Deck) {
-    const { useCloseFlow } = await import("../useCloseFlow");
+    const { useAppCloseFlow, useApplicationUiBinding } = await import("../useApplicationUi");
     const { useDeck } = await import("../useDeck");
     const { useAgentsFrom } = await import("../useAgents");
     const { useAgentRunView } = await import("../useAgentRunView");
-    const { previewIntent } = await import("../../ipc/lifecycle");
-    const { askBackgroundCarriers } = await import("../liveSessions");
     const alerts: string[] = [];
+    const pushAlert = (title: string, message: string) => alerts.push(`${title}: ${message}`);
     const mounted = await mountInPage(d, () => {
       const shown = useDeck(d.runtime.deckStore);
       const { agents } = useAgentsFrom(d.runtime.plugins);
       const view = useAgentRunView(d.runtime.orchestrator);
-      const flow: CloseFlow = useCloseFlow(shown, {
-        onError: (message) => alerts.push(`close: ${message}`),
-        onSuspendRefused: (message) => alerts.push(`suspend: ${message}`),
-        preview: previewIntent,
-        blockedPanes: view.blocked,
-        suspendAgent: d.runtime.orchestrator.suspend,
-        closeAgents: d.runtime.orchestrator.close,
-        backgroundCarriers: (entries) => askBackgroundCarriers(d.runtime.spawnPlugins, entries),
+      const flow: CloseFlow = useAppCloseFlow(d.runtime, shown, view.blocked, pushAlert);
+      useApplicationUiBinding(d.runtime.application, {
+        agents,
+        openSettings: () => false,
+        openStats: () => false,
+        selectWeek: () => {},
+        openTasks: () => false,
+        pushAlert,
+        requestCloseAgent: flow.requestCloseAgent,
+        requestDisbandTeam: flow.requestDisbandTeam,
+        setCreating: () => {},
       });
-      return { flow, agents };
+      return flow;
     });
-    const unbind = d.runtime.application.bindUi({
-      agents: () => mounted.current().agents,
-      requestCloseAgent: (wsId, paneId, label) => mounted.current().flow.requestCloseAgent(wsId, paneId, label),
-      requestDisbandTeam: (wsId, teamId) => mounted.current().flow.requestDisbandTeam(wsId, teamId),
-      openSettings: () => false,
-      openUsage: () => false,
-      openTasks: () => false,
-      setCreating: () => {},
-      pushAlert: (title, message) => alerts.push(`${title}: ${message}`),
-    });
-    unmount = () => {
-      unbind();
-      mounted.unmount();
-    };
-    return { flow: () => mounted.current().flow, alerts };
+    unmount = mounted.unmount;
+    return { flow: mounted.current, alerts };
   }
 
   it("agent.spawn gives the agent a team of its own in a new worktree, and starts it there", async () => {
