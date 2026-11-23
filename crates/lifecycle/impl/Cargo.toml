@@ -2,7 +2,7 @@
 name = "keepdeck-lifecycle"
 version = "0.1.0"
 edition = "2021"
-description = "The lifecycle of KeepDeck's workspaces, teams and panes as pure rules on keepdeck-fsm: operations, the arbiter, the machine and its work journal."
+description = "The lifecycle of KeepDeck's workspaces, teams and panes: its machine on keepdeck-fsm — operations, the arbiter, the work journal — and the infrastructure that runs it."
 
 [dependencies]
 keepdeck-fsm = { path = "../../keepdeck-fsm" }

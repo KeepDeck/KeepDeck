@@ -3,6 +3,6 @@
 //! the machine started on them.
 
 pub mod door;
-pub mod handler;
-pub mod journal;
+mod handler;
+mod journal;
 pub mod machine;

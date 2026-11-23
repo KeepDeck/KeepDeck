@@ -5,7 +5,7 @@
 //! An entry is self-sufficient: the tail of its operation needs nothing else —
 //! not the deck, not the sessions of the launch that wrote it. This module
 //! holds what an entry says; its file, its format and how boot reads it back
-//! are the infrastructure's ([`crate::infrastructure::journal`]).
+//! are the infrastructure's (`infrastructure::journal`).
 
 use super::command::{Command, Why};
 use super::dir::Dir;

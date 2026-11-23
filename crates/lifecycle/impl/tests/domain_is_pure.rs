@@ -6,8 +6,9 @@
 //! Every path in the domain's code is read by its root — a `use` line and a
 //! path written inline alike, `::std` too:
 //! - `crate::` goes on into `domain`;
-//! - `super::super` is refused: from a domain file it climbs out of the
-//!   domain, and none needs it; nor does `domain/mod.rs` use `super`;
+//! - `super::super` is refused, `self::super::super` too: from a domain file
+//!   it climbs out of the domain, and none needs it; nor does
+//!   `domain/mod.rs` use `super`;
 //! - `std`, `core` and `alloc` only for collections, formatting, iterators,
 //!   `mem`, slices and `time::Duration`;
 //! - of the crate's own dependencies — any table of them, one target's
@@ -291,6 +292,10 @@ fn breaches(file: &Path, code: &str, dependencies: &BTreeSet<String>) -> Vec<Str
             "crate" if next != Some("domain") => found.push(format!("{at}: `{path}` leaves the domain")),
             "super" if next == Some("super") => found.push(format!("{at}: `super::super` climbs out of the domain")),
             "super" if is_domain_root => found.push(format!("{at}: `super` from the domain's root is the crate's root")),
+            // `self::super…` is the same climb, spelled from here.
+            "self" if next == Some("super") && (then == Some("super") || is_domain_root) => {
+                found.push(format!("{at}: `self::super` climbs out of the domain"))
+            }
             "std" | "core" | "alloc" => {
                 let allowed = next.is_some_and(|module| STD.contains(&module)) || (next == Some("time") && then == Some("Duration"));
                 if !allowed {
