@@ -56,7 +56,10 @@ export interface Host {
    * before the next; fail as "never: `label`" past `ms`. */
   until(label: string, ok: () => boolean | Promise<boolean>, ms?: number): Promise<void>;
   /** Whether the machine's journal holds no operation: nothing it began is
-   * still owed. */
+   * still owed. A row that ends on what an operation did on disk — a folder
+   * or a branch gone — ends here too: git runs in its own process group, so
+   * a command the operation still waits on outlives kd-host's quit and goes
+   * on writing into the repository the teardown removes. */
   journalEmpty(): boolean;
   /** End the app as `how` says, and launch it again on the same home and
    * folders — `meanwhile` run while it is down, as what changes on disk
@@ -124,6 +127,15 @@ export function repliedTo(host: Pick<Host, "tape">, cmd: string, mark = 0): unkn
 /** How long a quit has to end the app before it is killed — a little more
  * than its sessions' own stop. */
 const QUIT_WAIT_MS = 10_000;
+
+/** What a removal left in `folder`: the late writer's own files, named. */
+function leftIn(folder: string): string {
+  try {
+    return readdirSync(folder, { recursive: true }).slice(0, 20).join(", ") || "nothing";
+  } catch (error) {
+    return `unreadable (${String(error)})`;
+  }
+}
 
 /** Start the host on a fresh home and wait until the app's setup has run. */
 export async function startHost(): Promise<Host> {
@@ -333,10 +345,18 @@ export async function startHost(): Promise<Host> {
     async stop() {
       const ended = await end("quit");
       clearMocks();
-      rmSync(home, { recursive: true, force: true });
-      rmSync(work, { recursive: true, force: true });
-      rmSync(trees, { recursive: true, force: true });
-      if (!ended) throw new Error(`kd-host did not end within ${QUIT_WAIT_MS} ms of its pipe closing`);
+      const unremoved = [home, work, trees].flatMap((folder) => {
+        try {
+          rmSync(folder, { recursive: true, force: true });
+          return [];
+        } catch (error) {
+          return [`${String(error)}; still in it: ${leftIn(folder)}`];
+        }
+      });
+      // Whether the app had ended comes first: a folder written to under a
+      // live app is that, not a late writer.
+      if (!ended) throw new Error([`kd-host did not end within ${QUIT_WAIT_MS} ms of its pipe closing`, ...unremoved].join("\n"));
+      if (unremoved.length > 0) throw new Error(["something wrote into a test folder after kd-host had ended:", ...unremoved].join("\n"));
     },
   };
 }

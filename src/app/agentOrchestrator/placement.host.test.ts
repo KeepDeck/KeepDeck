@@ -57,7 +57,7 @@ describe("where a team runs, on the host", () => {
     const consent = await d.consentFor({ kind: "disband", workspace: ws.id, team: teamId, consent: { stops: [], folders: [], tickets: [] } }, true);
     expect(consent.folders.map((folder) => folder.path)).toEqual([cwd]);
     expect((await d.runtime.orchestrator.close({ kind: "team", workspace: ws, teamId, consent })).kind).toBe("accepted");
-    await host().until("the team, its folder and its branch are gone", () => d.workspace().panes.length === 0 && !existsSync(cwd) && git(host().work, "branch", "--list", branch) === "", 15_000);
+    await host().until("the team, its folder and its branch are gone, and the disband is over", () => d.workspace().panes.length === 0 && !existsSync(cwd) && git(host().work, "branch", "--list", branch) === "" && host().journalEmpty(), 15_000);
   });
 
   it("forks a conversation into a worktree of its own: the team is made there, and the fork runs in it", async () => {
@@ -182,7 +182,7 @@ describe("where a team runs, on the host", () => {
     expect(existsSync(work)).toBe(true);
     // With the person's leave to lose it, it goes.
     expect((await d.runtime.orchestrator.removeUnheld(ws, { path: orphan, discardDirty: true })).kind).toBe("accepted");
-    await host().until("it is gone", () => !existsSync(orphan), 15_000);
+    await host().until("it is gone, and its removal is over", () => !existsSync(orphan) && host().journalEmpty(), 15_000);
   });
 
   const onlyTheRepo = () =>
@@ -226,6 +226,6 @@ describe("where a team runs, on the host", () => {
     expect((await d.runtime.orchestrator.close({ kind: "workspace", workspace: ws, consent })).kind).toBe("accepted");
     settling.release();
     await asked;
-    await host().until("the workspace is gone, and no worktree or branch of its team is left", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0 && onlyTheRepo(), 15_000);
+    await host().until("the workspace is gone, no worktree or branch of its team is left, and the close is over", () => d.runtime.deckStore.getSnapshot().workspaces.length === 0 && onlyTheRepo() && host().journalEmpty(), 15_000);
   });
 });
