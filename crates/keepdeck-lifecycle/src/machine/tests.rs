@@ -1649,6 +1649,71 @@ fn a_session_that_shows_up_after_its_close_is_stopped_at_once() {
     assert!(sim.owed().contains(&Effect::Stop { session }));
 }
 
+/// A launch whose process started but whose session never registers: once a
+/// restart's wait for it runs out, the launch goes with that decision. The
+/// pane launches again, and the session, should it register after all, is a
+/// late one and is stopped.
+#[test]
+fn a_launch_whose_session_never_registered_leaves_its_pane_free_once_the_wait_runs_out() {
+    let mut sim = Sim::booted();
+    let Answer::Leased { permit } = lease(&mut sim, 2, "/wt/kd-app-1") else { panic!() };
+    let Answer::Admitted { attempt } = admit(&mut sim, permit, 2, "/wt/kd-app-1") else { panic!() };
+    let restart = sim.intent(Intent::Restart { workspace: ws(), pane: PaneId(2) });
+    let op = *sim.state.ops.keys().next().unwrap();
+    let cancel = Effect::Cancel { op, attempts: vec![attempt] };
+    for _ in 0..3 {
+        if sim.owed().contains(&cancel) {
+            break;
+        }
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    assert!(sim.owed().contains(&cancel), "{:?}", sim.owed());
+    sim.send(Event::Cancelled { op, started: vec![attempt] });
+    assert!(sim.timers().contains(&Event::Timer(Timer::Registration { op })));
+    sim.send(Event::Timer(Timer::Registration { op }));
+    sim.drive();
+    assert!(matches!(sim.answer(restart), Some(Answer::Accepted { .. })));
+    assert!(sim.state.ops.is_empty(), "{:#?}", sim.state.ops);
+
+    let Answer::Leased { permit } = lease(&mut sim, 2, "/wt/kd-app-1") else { panic!("the pane launches again") };
+    let late = sim.appear(LaunchOwner::Pane { pane: PaneId(2) }, Some(attempt), Some("/wt/kd-app-1"));
+    assert!(sim.owed().contains(&Effect::Stop { session: late }), "the late session is stopped: {:?}", sim.owed());
+    sim.send(Event::SessionEnded { session: late });
+    assert!(matches!(admit(&mut sim, permit, 2, "/wt/kd-app-1"), Answer::Admitted { .. }));
+}
+
+/// A launch given up at the start boundary is stopped when its session
+/// shows up, even while the teardown that gave it up is still finishing —
+/// past its own stops, removing the folder that session runs in.
+#[test]
+fn a_late_session_is_stopped_while_the_teardown_that_gave_it_up_still_cleans() {
+    let mut sim = Sim::booted();
+    let Answer::Leased { permit } = lease(&mut sim, 2, "/wt/kd-app-1") else { panic!() };
+    let Answer::Admitted { attempt } = admit(&mut sim, permit, 2, "/wt/kd-app-1") else { panic!() };
+    sim.close(disband("1", consent_for_team_1()));
+    let op = *sim.state.ops.keys().next().unwrap();
+    let cancel = Effect::Cancel { op, attempts: vec![attempt] };
+    for _ in 0..3 {
+        if sim.owed().contains(&cancel) {
+            break;
+        }
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    sim.send(Event::Cancelled { op, started: vec![attempt] });
+    sim.send(Event::Timer(Timer::Registration { op }));
+    // The checkout goes; the teardown is not over until its pane is let go.
+    sim.drive_leaving(&|cmd| matches!(cmd, Cmd::Release { .. }));
+    assert!(sim.cleaned.iter().any(|how| matches!(how, Clean::Checkout { .. })), "{:?}", sim.cleaned);
+    assert!(sim.state.ops.contains_key(&op), "the teardown still stands");
+
+    let late = sim.appear(LaunchOwner::Pane { pane: PaneId(2) }, Some(attempt), Some("/wt/kd-app-1"));
+    assert!(sim.owed().contains(&Effect::Stop { session: late }), "the late session is stopped: {:?}", sim.owed());
+}
+
 #[test]
 fn a_checkout_with_a_launch_admitted_into_it_is_not_unheld() {
     let mut sim = Sim::booted();
@@ -2190,6 +2255,59 @@ fn an_open_fork_at_boot_is_rolled_back_by_both_discard_lists() {
     sim.drive();
     assert!(!sim.state.world.panes.contains_key(&PaneId(1)), "its pane leaves the deck");
     assert!(sim.disk.is_empty());
+}
+
+/// A plan is built for the launch that asked for it. A fork whose hook was
+/// asked and never answered before the launch ended is taken back at boot
+/// without asking the hook again: its plan was for a run that is gone, and
+/// whatever the page now holds of the conversation is another ask's.
+#[test]
+fn a_build_asked_in_a_launch_that_ended_is_never_asked_again() {
+    let source = SessionKey { agent: "claude".into(), session: "s".into() };
+    let unanswered = |index: u32, cmd: Cmd| crate::journal::Sent { command: crate::command::Command { id: CommandId { op: OpId(6), index }, cmd }, settled: false, rejected: None };
+    let entry = Entry {
+        op: OpId(6),
+        workspace: ws(),
+        work: Work::Fork { pane: PaneId(1), source: source.clone(), team: None, ticket: None, discard: None },
+        joined: vec![],
+        commands: vec![
+            unanswered(0, Cmd::Fork { workspace: ws(), pane: PaneId(1), source: source.clone(), cwd: Dir::new("/repo"), draft: draft() }),
+            unanswered(1, Cmd::PrepareResume { workspace: ws(), pane: PaneId(1), source, draft: draft() }),
+        ],
+        done: vec![],
+    };
+    let mut sim = Sim::booted_with(deck(), vec![entry]);
+    let builds = |cmd: &Cmd| matches!(cmd, Cmd::Fork { .. } | Cmd::PrepareResume { .. });
+    assert_eq!(sim.pending_matching(builds), vec![], "no build is asked again");
+    sim.drive();
+    assert!(!sim.carried.iter().any(builds));
+    assert!(!sim.state.world.panes.contains_key(&PaneId(1)), "the fork is taken back");
+    assert!(sim.disk.is_empty());
+}
+
+/// A lapsed build is no build still out: a creation restored with the plan
+/// of its resume lapsed owes that plan no deadline, and drops no build
+/// nobody runs.
+#[test]
+fn a_lapsed_build_owes_no_deadline() {
+    let source = SessionKey { agent: "claude".into(), session: "s".into() };
+    let entry = Entry {
+        op: OpId(3),
+        workspace: ws(),
+        work: Work::Create {
+            team: team("lost"),
+            ticket: crate::journal::Ticket { repo: Dir::new("/repo"), path: Dir::new("/wt/kd-app-7"), branch: "kd/app/7".into(), base: None },
+        },
+        joined: vec![],
+        commands: vec![crate::journal::Sent {
+            command: crate::command::Command { id: CommandId { op: OpId(3), index: 0 }, cmd: Cmd::PrepareResume { workspace: ws(), pane: PaneId(9), source, draft: draft() } },
+            settled: false,
+            rejected: None,
+        }],
+        done: vec![],
+    };
+    let sim = Sim::booted_with(deck(), vec![entry]);
+    assert!(!sim.timers().contains(&Event::Timer(Timer::Plan { op: OpId(3) })), "{:?}", sim.timers());
 }
 
 /// An open fork whose pane is gone from the deck, with no team of its own:
@@ -3016,6 +3134,46 @@ fn one_conversation_resumed_twice_is_taken_once() {
     assert_eq!(sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::AddPane { .. })).count(), 1, "one pane holds it");
 }
 
+/// Each continuation's plan is built from its own ask. Two forks and a
+/// resume of one conversation, and a resume onto a team made for it, each
+/// with its own draft: every command that asks the page to build a plan — the
+/// resume onto a team, the resume onto a new team, each fork — hands back the
+/// draft its own intent carried, and no other.
+#[test]
+fn every_continuation_hands_its_own_draft_to_the_build_of_its_plan() {
+    let mut sim = Sim::booted();
+    let asks = [
+        ("s9", Landing::Team { team: team("r") }, Continuation::Resume, "resume onto r"),
+        ("s9", Landing::Team { team: team("r") }, Continuation::Fork, "first fork"),
+        ("s9", Landing::Team { team: team("r") }, Continuation::Fork, "second fork"),
+        ("s8", Landing::NewTeam { team: team("n"), site: Site::Existing { cwd: Dir::new("/repo/tools") }, draft: draft() }, Continuation::Resume, "resume onto a new team"),
+    ];
+    for (session, landing, how, name) in asks {
+        let source = SessionKey { agent: "claude".into(), session: session.into() };
+        let member = Draft(json!({ "agentType": "cli-a", "name": name }));
+        let ask = sim.intent(Intent::Continue { workspace: ws(), landing, source, how, member });
+        assert_eq!(sim.refusal(ask), None, "{name}");
+    }
+    let builds = |cmd: &Cmd| matches!(cmd, Cmd::Fork { .. } | Cmd::PrepareResume { .. });
+    for _ in 0..6 {
+        sim.flush_journals();
+        sim.apply(|cmd| !builds(cmd));
+        sim.save();
+    }
+    // The ops are minted in the order of their asks.
+    let mut built: Vec<(OpId, String)> = sim
+        .pending_matching(builds)
+        .into_iter()
+        .map(|due| match &due.cmd {
+            Cmd::Fork { draft, .. } | Cmd::PrepareResume { draft, .. } => (due.id.op, draft.0["name"].as_str().unwrap_or("no draft").to_string()),
+            _ => unreachable!(),
+        })
+        .collect();
+    built.sort();
+    let names: Vec<&str> = built.iter().map(|(_, name)| name.as_str()).collect();
+    assert_eq!(names, ["resume onto r", "first fork", "second fork", "resume onto a new team"]);
+}
+
 #[test]
 fn a_write_from_a_disbanded_team_is_refused_while_its_workspace_lives() {
     let mut sim = Sim::booted();
@@ -3606,11 +3764,11 @@ fn every_due() -> Vec<Due> {
         Cmd::RetainPanes { panes: vec![p(1), p(2)] },
         Cmd::Retire { workspace: w(), pane: p(2) },
         Cmd::Release { workspace: w(), pane: p(2), in_place: true },
-        Cmd::PrepareResume { workspace: w(), pane: p(2), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() } },
+        Cmd::PrepareResume { workspace: w(), pane: p(2), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() }, draft: draft() },
         Cmd::DropBuild { op: OpId(3) },
         Cmd::ReportBinding { workspace: w(), pane: p(6), op: OpId(3) },
         Cmd::WorktreeNotDeleted { workspace: w(), path: Dir::new("/wt/kd-app-1"), reason: "busy".into() },
-        Cmd::Fork { workspace: w(), pane: p(1), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() }, cwd: Dir::new("/repo") },
+        Cmd::Fork { workspace: w(), pane: p(1), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() }, cwd: Dir::new("/repo"), draft: draft() },
     ];
     for cmd in &every {
         match cmd {

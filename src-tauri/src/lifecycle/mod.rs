@@ -48,9 +48,12 @@ struct Live {
     claim: Option<ClaimedRoot>,
 }
 
-/// The running machine, in the app's managed state.
+/// The running machine, in the app's managed state. A clone is a hold on the
+/// same machine — the one in place now, whichever that is after a claim won
+/// late — for what needs it before, or apart from, the managed state.
+#[derive(Clone)]
 pub struct Lifecycle {
-    live: Mutex<Live>,
+    live: Arc<Mutex<Live>>,
     doors: Arc<dyn Doors>,
     root: PathBuf,
 }
@@ -101,11 +104,14 @@ impl Lifecycle {
             }
         };
         let door = start_machine(&root, claim.is_some(), doors.clone());
-        Lifecycle { live: Mutex::new(Live { door, claim }), doors, root }
+        Lifecycle { live: Arc::new(Mutex::new(Live { door, claim })), doors, root }
     }
 
+    /// The door of the machine in place now. Had without fail — a poisoned
+    /// lock still holds a whole door — since the sessions' watcher asks for
+    /// it as its own panic unwinds, where a second panic aborts the app.
     pub fn door(&self) -> Door {
-        self.live.lock().expect("lifecycle").door.clone()
+        self.live.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).door.clone()
     }
 
     pub fn doors(&self) -> Arc<dyn Doors> {

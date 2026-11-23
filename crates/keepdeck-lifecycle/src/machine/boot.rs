@@ -207,7 +207,9 @@ impl Closing {
 }
 
 /// An operation from its entry. Its restored phase asks for its work again;
-/// its commands not settled are asked again under the same ids.
+/// its commands not settled are asked again under the same ids — but a
+/// plan's build, which only the launch that asked for it could hold, lapsed
+/// with that launch and is never asked again.
 fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &Closing) -> Option<Op> {
     let sent = entry
         .commands
@@ -218,7 +220,8 @@ fn restore(state: &mut State, entry: &Entry, journal: &[Entry], closing: &Closin
                 (None, true) => Some(Outcome::Unchanged { revision: None }),
                 (None, false) => None,
             };
-            Sent { cmd: sent.command.cmd.clone(), outcome }
+            let lapsed = outcome.is_none() && sent.command.cmd.builds_a_plan();
+            Sent { cmd: sent.command.cmd.clone(), outcome, lapsed }
         })
         .collect();
     let book = Some(Book { written: Some(entry.clone()), ..Book::default() });

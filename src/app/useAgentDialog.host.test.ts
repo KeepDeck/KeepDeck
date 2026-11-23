@@ -373,21 +373,26 @@ describe("the agent dialog, on the host", () => {
       });
     });
 
-    it("forks into the team's own directory, whatever location was left in the form, with the YOLO picked", async () => {
+    it("forks into the team's own directory, whatever location was left in the form, each with the YOLO picked for it", async () => {
       const d = await open({ yolo: true });
       await d.agentUp();
       const teamId = teamOf(d);
-      const { flow } = await dialogOn(d);
+      const { flow, failures } = await dialogOn(d);
       const from = d.intents().length;
       const leftovers = [
         { kind: "main" as const },
         { kind: "existing" as const, path: "/wt/x", branch: "kd/x" },
         { kind: "new" as const, path: join(host().trees, "kd-x-1"), branch: "kd/x/1", baseBranch: "develop" },
       ];
+      // The machine's fork steps wait until all three are asked: what each
+      // fork is built from is noted before the first of them is built.
+      const forking = host().hold({ heard: '"kind":"fork"' });
       for (const [n, location] of leftovers.entries()) {
         await startFrom(d, flow, "fork", { yolo: n === 0, role: `impl-${n + 1}`, location });
       }
       await until("each is asked for", () => continued(d, from).length === 3);
+      await forking.caught;
+      forking.release();
       // Each fork looks its transcript up before it is asked for, so the
       // three go out in no set order: each is told by the role it took.
       const byRole = Object.fromEntries(
@@ -400,6 +405,24 @@ describe("the agent dialog, on the host", () => {
         "impl-2": { how: "fork", landing: { kind: "team", team: teamId }, yolo: false },
         "impl-3": { how: "fork", landing: { kind: "team", team: teamId }, yolo: false },
       });
+
+      // Each pane up, launched as its own ask said — its card, and the plan
+      // its fork was built with — and no fork refused.
+      const forked = () => d.workspace().panes.filter((pane) => /^impl-/.test(pane.team?.role ?? ""));
+      await until("the three forks are up", () => forked().length === 3);
+      for (const pane of forked()) await d.upAndBound(pane.id);
+      const launched = Object.fromEntries(
+        forked().map((pane) => {
+          const plan = d.stub.plans.find((asked) => asked.hook === "fork" && asked.input.paneId === pane.id);
+          return [pane.team?.role, { card: pane.yolo === true, plan: plan?.input.yolo === true }];
+        }),
+      );
+      expect(launched).toEqual({
+        "impl-1": { card: true, plan: true },
+        "impl-2": { card: false, plan: false },
+        "impl-3": { card: false, plan: false },
+      });
+      expect(failures).toEqual([]);
     });
 
     it("says a refused resume through the resume's notice, and a refused fork through the fork's own", async () => {

@@ -170,14 +170,25 @@ pub fn appeared(state: &mut State, session: SessionId, attempt: Option<AttemptId
 }
 
 /// What launches need while the machine is in this state: each permit's
-/// revocation, and the stop of a live session whose target is forgotten
-/// and that no teardown has taken — a late session after a Close.
+/// revocation, and the stop of a live session that is late — its launch
+/// given up at the start boundary, whatever holds it; or its target
+/// forgotten (after a Close) and no teardown taking it.
 pub fn work(state: &State, mut owed: Owed<Effect, Event>) -> Owed<Effect, Event> {
     for &permit in state.permits.keys() {
         owed = owed.after(PERMIT_LIFE, Event::Timer(Timer::Permit { permit }));
     }
     for (&session, row) in &state.sessions {
-        if row.ended || capture::session_in_teardown(state, row) {
+        if row.ended {
+            continue;
+        }
+        // Before the teardown's claim on it: the teardown that gave the
+        // launch up may be past its own stops, removing the folder the
+        // session runs in.
+        if row.attempt.is_some_and(|attempt| state.late.contains(&attempt)) {
+            owed = owed.run(Effect::Stop { session });
+            continue;
+        }
+        if capture::session_in_teardown(state, row) {
             continue;
         }
         let forgotten = match &row.owner {

@@ -70,8 +70,7 @@ async fn rig() -> Rig {
     let sessions = SessionMachine::start();
     let doors = AppDoors::new(sessions.clone(), crate::worktree::RepoLocks::default(), Arc::new(NoStores));
     let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(doors));
-    let door = lifecycle.door();
-    sessions.link(move || door.clone());
+    sessions.link(lifecycle.clone());
     let reply = lifecycle.door().ask(|ask| Event::Handshake { ask, deck: deck(&cwd), load: Load::Loaded }).await;
     assert!(matches!(reply, Reply::Answered { answer: Answer::Booted { .. } }), "{reply:?}");
     Rig { sessions, lifecycle, cwd, _journal: journal, _work: work }
@@ -138,6 +137,28 @@ impl Rig {
         }
         panic!("the lifecycle machine never saw {session:?} with ended={ended}");
     }
+}
+
+/// However the sessions' watcher ends, the lifecycle machine hears that the
+/// sessions are gone, rather than go on admitting launches it would never
+/// hear of. Here the sessions machine it watches ends under it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_watcher_that_ends_tells_the_lifecycle_the_sessions_are_gone() {
+    let journal = tempfile::tempdir().unwrap();
+    // The lifecycle's doors stop another machine's sessions: the watched one
+    // can end alone.
+    let doors = AppDoors::new(SessionMachine::start(), crate::worktree::RepoLocks::default(), Arc::new(NoStores));
+    let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(doors));
+    let watched = SessionMachine::start();
+    watched.link(lifecycle.clone());
+    drop(watched);
+    for _ in 0..200 {
+        if lifecycle.door().machine().state().borrow().value.sessions_down {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the lifecycle machine never heard that the sessions are gone");
 }
 
 #[cfg(unix)]

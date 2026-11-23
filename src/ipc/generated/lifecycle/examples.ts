@@ -639,6 +639,9 @@ export const dues: Due[] = [
   },
   {
     "cmd": {
+      "draft": {
+        "agentType": "cli-a"
+      },
       "kind": "prepareResume",
       "pane": "pane-2",
       "source": {
@@ -693,6 +696,9 @@ export const dues: Due[] = [
   {
     "cmd": {
       "cwd": "/repo",
+      "draft": {
+        "agentType": "cli-a"
+      },
       "kind": "fork",
       "pane": "pane-1",
       "source": {

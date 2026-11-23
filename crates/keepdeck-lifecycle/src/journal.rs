@@ -289,7 +289,7 @@ mod tests {
     use super::*;
     use crate::command::Cmd;
     use crate::ids::CommandId;
-    use crate::model::Folder;
+    use crate::model::{Draft, Folder};
     use std::collections::BTreeMap;
 
     /// A store in memory, as the app's adapter behaves: a write replaces the
@@ -389,6 +389,32 @@ mod tests {
             done: vec![],
         };
         assert_eq!(decode("op-2.json", &encode(&entry)), Ok(entry));
+    }
+
+    /// A fork interrupted before the update keeps its rollback: an entry a
+    /// build wrote before the continuation commands carried their ask's
+    /// draft reads back, each with none.
+    #[test]
+    fn an_entry_written_before_the_continuation_commands_carried_a_draft_reads_back() {
+        let source = SessionKey { agent: "claude".into(), session: "s".into() };
+        let sent = |index: u32, cmd: Cmd| Sent { command: Command { id: CommandId { op: OpId(4), index }, cmd }, settled: false, rejected: None };
+        let entry = Entry {
+            op: OpId(4),
+            workspace: ws(),
+            work: Work::Fork { pane: PaneId(8), source: source.clone(), team: None, ticket: None, discard: None },
+            joined: vec![],
+            commands: vec![
+                sent(0, Cmd::Fork { workspace: ws(), pane: PaneId(8), source: source.clone(), cwd: Dir::new("/repo"), draft: Draft::default() }),
+                sent(1, Cmd::PrepareResume { workspace: ws(), pane: PaneId(9), source, draft: Draft::default() }),
+            ],
+            done: vec![],
+        };
+        let mut written: serde_json::Value = serde_json::from_slice(&encode(&entry)).unwrap();
+        for sent in written["commands"].as_array_mut().unwrap() {
+            let cmd = sent["command"]["cmd"].as_object_mut().unwrap();
+            assert!(cmd.remove("draft").is_some(), "the field this pin is about is written today");
+        }
+        assert_eq!(decode("op-4.json", &serde_json::to_vec(&written).unwrap()), Ok(entry));
     }
 
     #[test]

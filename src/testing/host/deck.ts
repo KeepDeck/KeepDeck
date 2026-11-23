@@ -6,6 +6,7 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { inject, vi } from "vitest";
+import type { CommandResult, RawArgs } from "../../domain/commands";
 import type { Pane, Workspace } from "../../domain/deck";
 import type { Site } from "../../domain/lifecycle";
 import type { Settings } from "../../domain/settings/types";
@@ -137,6 +138,10 @@ export interface Deck {
   /** The stub program as a plain process, in no folder: it says `stub:
    * ready` at start — or nothing, `silent` — then what its typed cues ask. */
   stubProcess(silent?: boolean): PaneSpawnSpec;
+  /** An agent's command as its MCP call arrives — through the page's own
+   * command registry, the one its controller registered the core commands
+   * in — from a client tied to no pane. */
+  execute(id: string, args: RawArgs): Promise<CommandResult>;
   dispose(): void;
 }
 
@@ -321,7 +326,8 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     liveDir: join(host.home, "stub-live"),
     ...told,
   };
-  const runtime = createAppRuntime(undefined, createCommandRegistry(), () => Promise.resolve([stubPlugin(stub)]));
+  const registry = createCommandRegistry();
+  const runtime = createAppRuntime(undefined, registry, () => Promise.resolve([stubPlugin(stub)]));
   runtime.start();
   if (waitForOpen) await host.until("the machine opened its barrier", () => heardOpen(host), 15_000);
   // A page is up once its plugins are: a plan asked before the stub's
@@ -411,7 +417,10 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
   async function workspaceUp(): Promise<WorkspaceRef> {
     if (runtime.deckStore.getSnapshot().workspaces.length === 0) {
       const made = await runtime.orchestrator.createWorkspace({ name: "ws", cwd: host.work, worktreeBaseDir: host.trees });
-      if (made.kind !== "accepted") throw new Error(`no workspace: ${JSON.stringify(made)}`);
+      const id = made.kind === "accepted" ? made.minted.workspace : null;
+      if (!id) throw new Error(`no workspace: ${JSON.stringify(made)}`);
+      // Accepted is the machine's word; the deck has it once its command lands.
+      await host.until("the workspace is on the deck", () => runtime.deckStore.getSnapshot().workspaces.some((ws) => ws.id === id));
     }
     const ws = workspace();
     return { id: ws.id, instance: ws.instance };
@@ -539,6 +548,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
       rows: 24,
     }),
     updateSettings: (patch) => settings.updateSettings(patch),
+    execute: (id, args) => registry.execute(id, args, { kind: "external", client: "mcp" }),
     gitRepo() {
       const git = (...args: string[]) => execFileSync("git", args, { cwd: host.work, stdio: "pipe" });
       git("init", "-q", "-b", "main");

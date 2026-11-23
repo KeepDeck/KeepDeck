@@ -345,3 +345,52 @@ fn roots_from_the_common_git_dir_are_every_live_working_tree() {
     assert_eq!(roots, expected, "the deleted worktree is not a root");
     let _ = fs::remove_dir_all(&base);
 }
+
+#[test]
+fn an_add_that_fails_takes_back_the_branch_it_made_and_never_one_that_was_there() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo_dir = init_repo();
+    let base = repo::resolve_commit(&repo_dir, "HEAD").unwrap();
+    let parent = unique_dir("locked-parent");
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o555)).unwrap();
+
+    // git makes the branch before it checks the tree out, and leaves it when
+    // the checkout cannot be made.
+    let failed = worktree::add(&repo_dir, &parent.join("wt"), "kd/test/failed", &base);
+    assert!(failed.is_err(), "nothing can be made under a folder that takes no entry");
+    assert!(!repo::branch_exists(&repo_dir, "kd/test/failed").unwrap(), "the branch went with the failed add");
+
+    // A branch that was there before the add is someone's: a failed add
+    // leaves it as it found it.
+    git(&repo_dir, &["branch", "kd/test/theirs"]);
+    assert!(worktree::add(&repo_dir, &parent.join("wt2"), "kd/test/theirs", &base).is_err());
+    assert!(repo::branch_exists(&repo_dir, "kd/test/theirs").unwrap());
+
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+    worktree::add(&repo_dir, &parent.join("wt"), "kd/test/failed", &base).expect("the same add goes once it can");
+    fs::remove_dir_all(&parent).ok();
+    fs::remove_dir_all(&repo_dir).ok();
+}
+
+#[test]
+fn an_add_that_fails_after_its_checkout_stands_keeps_the_branch_the_checkout_is_on() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo_dir = init_repo();
+    let base = repo::resolve_commit(&repo_dir, "HEAD").unwrap();
+    // The checkout is made and registered; then the post-checkout hook fails,
+    // and with it the add.
+    let hook = repo_dir.join(".git/hooks/post-checkout");
+    fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    let parent = unique_dir("hooked");
+    let path = parent.join("wt");
+
+    assert!(worktree::add(&repo_dir, &path, "kd/test/hooked", &base).is_err(), "the hook's failure is the add's");
+    let row = worktree::list(&repo_dir).unwrap().into_iter().find(|row| worktree::paths_match(&row.path, &path));
+    assert_eq!(row.and_then(|row| row.branch), Some("kd/test/hooked".into()), "the checkout stands, registered on its branch");
+    assert!(repo::branch_exists(&repo_dir, "kd/test/hooked").unwrap(), "the branch it stands on is kept");
+    assert_eq!(repo::resolve_commit(&path, "HEAD").unwrap(), base, "and its HEAD resolves");
+    fs::remove_dir_all(&parent).ok();
+    fs::remove_dir_all(&repo_dir).ok();
+}

@@ -118,7 +118,8 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<
     // so a non-UTF-8 path isn't corrupted.
     // No clock: the checkout runs smudge filters and the post-checkout hook,
     // and a large tree takes as long as it takes (see `run_git_provisioning`).
-    run_git_provisioning(
+    let there_before = crate::repo::branch_exists(repo, branch)?;
+    let added = run_git_provisioning(
         repo,
         [
             OsStr::new("worktree"),
@@ -130,8 +131,26 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<
             path.as_os_str(),
             OsStr::new(base_commit),
         ],
-    )
-    .map(drop)
+    );
+    // git makes the branch before it checks the tree out, and leaves it when
+    // the checkout cannot be made — and then the same add, retried, is
+    // refused for a branch that "already exists". A failed add takes back
+    // the branch it made: only one that was not there before, that no
+    // checkout stands on — a failure after the checkout was made (its
+    // post-checkout hook) leaves a checkout on it, which keeps it — and only
+    // while it still stands where it was made, so nothing anyone wrote goes.
+    // When git cannot say whether a checkout stands on it, one does: a
+    // branch is never taken from under a checkout on a guess.
+    if added.is_err() && !there_before && !branch_checked_out(repo, branch).unwrap_or(true) {
+        let _ = run_git(repo, ["update-ref", "-d", &format!("refs/heads/{branch}"), base_commit]);
+    }
+    added.map(drop)
+}
+
+/// Whether a checkout of the repository stands on `branch`. What a caller
+/// does when git cannot say is its own policy.
+pub fn branch_checked_out(repo: &Path, branch: &str) -> Result<bool, GitError> {
+    Ok(list(repo)?.iter().any(|row| row.branch.as_deref() == Some(branch)))
 }
 
 /// List the repository's worktrees.

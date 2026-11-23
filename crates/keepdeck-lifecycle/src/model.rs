@@ -10,7 +10,7 @@ use ts_rs::TS;
 /// A row the deck owns — a workspace, a team or a pane as the deck spells it —
 /// carried verbatim. The lifecycle never reads it: the deck's applicator
 /// builds its row from it, with the ids the machine gave.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "lifecycle/", type = "unknown")]
 pub struct Draft(pub serde_json::Value);
 

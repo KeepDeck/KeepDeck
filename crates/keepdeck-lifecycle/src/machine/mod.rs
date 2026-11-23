@@ -88,15 +88,30 @@ pub struct Counters {
 pub struct Sent {
     pub cmd: Cmd,
     pub outcome: Option<Outcome>,
+    /// A plan's build asked in a launch that ended before it was answered.
+    /// Nobody in this launch asked for that plan, so it is not asked again:
+    /// it is settled, with no answer.
+    #[serde(default)]
+    pub lapsed: bool,
 }
 
 impl Sent {
     pub fn new(cmd: Cmd) -> Sent {
-        Sent { cmd, outcome: None }
+        Sent { cmd, outcome: None, lapsed: false }
     }
 
-    /// Settled: answered — and a deck command applied, also on disk.
+    /// No answer is awaited for it any more: its owner's came, or it is a
+    /// plan's build that lapsed with its launch and none will come.
+    pub fn answered(&self) -> bool {
+        self.outcome.is_some() || self.lapsed
+    }
+
+    /// Settled: answered — and a deck command applied, also on disk — or a
+    /// plan's build that lapsed with its launch.
     pub fn settled(&self, saved: Option<Revision>) -> bool {
+        if self.lapsed {
+            return true;
+        }
         match (&self.outcome, self.cmd.owner()) {
             (None, _) => false,
             (Some(Outcome::Rejected { .. }), _) => true,
@@ -218,6 +233,10 @@ pub struct State {
     pub forgotten: Forgotten,
     pub permits: BTreeMap<PermitId, Permit>,
     pub attempts: BTreeMap<AttemptId, Attempt>,
+    /// Launches given up when the wait for their session ran out: a session
+    /// of one that registers after all is late, and is stopped. Kept, as the
+    /// sessions' own rows are: few, and one may yet show up.
+    pub late: BTreeSet<AttemptId>,
     pub sessions: BTreeMap<SessionId, Session>,
     /// The highest deck revision reported saved.
     pub saved: Option<Revision>,
@@ -345,6 +364,7 @@ impl State {
             forgotten,
             permits: BTreeMap::new(),
             attempts: BTreeMap::new(),
+            late: BTreeSet::new(),
             sessions: BTreeMap::new(),
             saved: None,
             next,

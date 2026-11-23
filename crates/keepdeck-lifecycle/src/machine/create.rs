@@ -709,7 +709,7 @@ fn add_team(state: &mut State, id: OpId, fx: &mut Fx) {
         }
         match outcome_of(op, |cmd| matches!(cmd, Cmd::PrepareResume { .. })) {
             None => {
-                op.send(Cmd::PrepareResume { workspace, pane: first.pane, source: source.clone() });
+                op.send(Cmd::PrepareResume { workspace, pane: first.pane, source: source.clone(), draft: first.draft.clone() });
                 return;
             }
             Some(None) => return,
@@ -806,7 +806,7 @@ pub fn work(state: &State, id: OpId, op: &Op, create: &Create, owed: Owed<Effect
 /// Whether the operation's resume plan was asked of the page and has not
 /// come back.
 fn plan_outstanding(op: &Op) -> bool {
-    op.sent.iter().any(|sent| matches!(sent.cmd, Cmd::PrepareResume { .. }) && sent.outcome.is_none())
+    op.sent.iter().any(|sent| matches!(sent.cmd, Cmd::PrepareResume { .. }) && !sent.answered())
 }
 
 /// A resume's plan is a plugin's hook the machine waits on, like the fork
@@ -897,7 +897,7 @@ pub fn advance_seat(state: &mut State, id: OpId, fx: &mut Fx) {
         }
         match outcome_of(op, |cmd| matches!(cmd, Cmd::PrepareResume { .. })) {
             None => {
-                op.send(Cmd::PrepareResume { workspace, pane: seat.pane, source: source.clone() });
+                op.send(Cmd::PrepareResume { workspace, pane: seat.pane, source: source.clone(), draft: seat.draft.clone() });
                 return;
             }
             Some(None) => return,
@@ -1124,8 +1124,8 @@ pub fn advance_fork(state: &mut State, id: OpId, fx: &mut Fx) {
                 None => {
                     let Some(cwd) = cwd else { return };
                     fork.hook_sent = true;
-                    let (pane, source) = (fork.pane, fork.source.clone());
-                    op.send(Cmd::Fork { workspace, pane, source, cwd });
+                    let (pane, source, draft) = (fork.pane, fork.source.clone(), fork.draft.clone());
+                    op.send(Cmd::Fork { workspace, pane, source, cwd, draft });
                 }
                 Some(None) => {}
                 Some(Some(Outcome::Forked { discard })) => {
