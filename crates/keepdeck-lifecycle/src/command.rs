@@ -107,8 +107,17 @@ pub enum Cmd {
     /// the slot a next launch of the pane would otherwise find taken.
     /// `in_place`: the pane stays and its process is replaced (a restart).
     Release { workspace: WorkspaceId, pane: PaneId, in_place: bool },
-    /// Build the plan that resumes `source` in the pane about to be added.
-    PrepareResume { workspace: WorkspaceId, pane: PaneId, source: SessionKey },
+    /// Build the plan that resumes `source` in the pane about to be added,
+    /// as its own ask's `draft` says — two continuations of one conversation
+    /// are each built from their own. An entry journaled before the draft
+    /// rode here reads with none.
+    PrepareResume {
+        workspace: WorkspaceId,
+        pane: PaneId,
+        source: SessionKey,
+        #[serde(default)]
+        draft: Draft,
+    },
     /// Drop what the fork attempt of `op` built; a late build of it is refused.
     DropBuild { op: OpId },
     /// Say whether the pane's launch is bound to its fork conversation — the
@@ -117,8 +126,17 @@ pub enum Cmd {
     // ------------------------------------------------------------ notices
     WorktreeNotDeleted { workspace: WorkspaceId, path: Dir, reason: String },
     // ------------------------------------------------------------ the fork step
-    /// Carry `source` into `cwd` for `pane`, by the agent plugin's hook.
-    Fork { workspace: WorkspaceId, pane: PaneId, source: SessionKey, cwd: Dir },
+    /// Carry `source` into `cwd` for `pane`, by the agent plugin's hook, as
+    /// its own ask's `draft` says. An entry journaled before the draft rode
+    /// here reads with none.
+    Fork {
+        workspace: WorkspaceId,
+        pane: PaneId,
+        source: SessionKey,
+        cwd: Dir,
+        #[serde(default)]
+        draft: Draft,
+    },
 }
 
 impl Cmd {
@@ -234,7 +252,7 @@ mod tests {
         let path = Dir::new("/repo/wt");
         assert_eq!(Cmd::WorktreeNotDeleted { workspace: ws(), path: path.clone(), reason: "busy".into() }.owner(), Owner::Notices);
         let source = SessionKey { agent: "claude".into(), session: "s".into() };
-        assert_eq!(Cmd::Fork { workspace: ws(), pane, source, cwd: path }.owner(), Owner::ForkStep);
+        assert_eq!(Cmd::Fork { workspace: ws(), pane, source, cwd: path, draft: crate::model::Draft::default() }.owner(), Owner::ForkStep);
     }
 
     #[test]

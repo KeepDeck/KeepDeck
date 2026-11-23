@@ -3051,6 +3051,46 @@ fn one_conversation_resumed_twice_is_taken_once() {
     assert_eq!(sim.carried.iter().filter(|cmd| matches!(cmd, Cmd::AddPane { .. })).count(), 1, "one pane holds it");
 }
 
+/// Each continuation's plan is built from its own ask. Two forks and a
+/// resume of one conversation, and a resume onto a team made for it, each
+/// with its own draft: every command that asks the page to build a plan — the
+/// resume onto a team, the resume onto a new team, each fork — hands back the
+/// draft its own intent carried, and no other.
+#[test]
+fn every_continuation_hands_its_own_draft_to_the_build_of_its_plan() {
+    let mut sim = Sim::booted();
+    let asks = [
+        ("s9", Landing::Team { team: team("r") }, Continuation::Resume, "resume onto r"),
+        ("s9", Landing::Team { team: team("r") }, Continuation::Fork, "first fork"),
+        ("s9", Landing::Team { team: team("r") }, Continuation::Fork, "second fork"),
+        ("s8", Landing::NewTeam { team: team("n"), site: Site::Existing { cwd: Dir::new("/repo/tools") }, draft: draft() }, Continuation::Resume, "resume onto a new team"),
+    ];
+    for (session, landing, how, name) in asks {
+        let source = SessionKey { agent: "claude".into(), session: session.into() };
+        let member = Draft(json!({ "agentType": "cli-a", "name": name }));
+        let ask = sim.intent(Intent::Continue { workspace: ws(), landing, source, how, member });
+        assert_eq!(sim.refusal(ask), None, "{name}");
+    }
+    let builds = |cmd: &Cmd| matches!(cmd, Cmd::Fork { .. } | Cmd::PrepareResume { .. });
+    for _ in 0..6 {
+        sim.flush_journals();
+        sim.apply(|cmd| !builds(cmd));
+        sim.save();
+    }
+    // The ops are minted in the order of their asks.
+    let mut built: Vec<(OpId, String)> = sim
+        .pending_matching(builds)
+        .into_iter()
+        .map(|due| match &due.cmd {
+            Cmd::Fork { draft, .. } | Cmd::PrepareResume { draft, .. } => (due.id.op, draft.0["name"].as_str().unwrap_or("no draft").to_string()),
+            _ => unreachable!(),
+        })
+        .collect();
+    built.sort();
+    let names: Vec<&str> = built.iter().map(|(_, name)| name.as_str()).collect();
+    assert_eq!(names, ["resume onto r", "first fork", "second fork", "resume onto a new team"]);
+}
+
 #[test]
 fn a_write_from_a_disbanded_team_is_refused_while_its_workspace_lives() {
     let mut sim = Sim::booted();
@@ -3641,11 +3681,11 @@ fn every_due() -> Vec<Due> {
         Cmd::RetainPanes { panes: vec![p(1), p(2)] },
         Cmd::Retire { workspace: w(), pane: p(2) },
         Cmd::Release { workspace: w(), pane: p(2), in_place: true },
-        Cmd::PrepareResume { workspace: w(), pane: p(2), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() } },
+        Cmd::PrepareResume { workspace: w(), pane: p(2), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() }, draft: draft() },
         Cmd::DropBuild { op: OpId(3) },
         Cmd::ReportBinding { workspace: w(), pane: p(6), op: OpId(3) },
         Cmd::WorktreeNotDeleted { workspace: w(), path: Dir::new("/wt/kd-app-1"), reason: "busy".into() },
-        Cmd::Fork { workspace: w(), pane: p(1), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() }, cwd: Dir::new("/repo") },
+        Cmd::Fork { workspace: w(), pane: p(1), source: SessionKey { agent: "cli-a".into(), session: "s-1".into() }, cwd: Dir::new("/repo"), draft: draft() },
     ];
     for cmd in &every {
         match cmd {
