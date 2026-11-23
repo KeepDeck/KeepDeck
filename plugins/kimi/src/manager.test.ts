@@ -28,6 +28,32 @@ function pluginSummary(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** The same plugin as kimi 2.7.0 and newer serve it: the three two-word
+ * fields in snake_case, beside the fields this installer never reads — the
+ * shape of a recorded kimi 2.7.2 install answer. */
+function snakePluginSummary(overrides: Record<string, unknown> = {}) {
+  return {
+    id: COMPANION_ID,
+    display_name: COMPANION_DESCRIPTOR.displayName,
+    description: "Reports Kimi Code session identity and turn lifecycle to the KeepDeck pane that launched it.",
+    short_description: "Keeps Kimi Code sessions attached to their KeepDeck panes.",
+    version: COMPANION_VERSION,
+    enabled: true,
+    state: "ok",
+    skill_count: 0,
+    mcp_server_count: 0,
+    enabled_mcp_server_count: 0,
+    hook_count: 8,
+    command_count: 0,
+    has_errors: false,
+    source: "local-path",
+    origin: "custom",
+    installed_at: "2026-11-23T19:10:01.112Z",
+    original_source: SOURCE_DIRECTORY,
+    ...overrides,
+  };
+}
+
 function harness(
   responses: unknown[] = [{ code: 0, msg: "", data: null }],
   scriptsState: Parameters<typeof scriptsPort>[0] = {},
@@ -273,6 +299,65 @@ describe("Kimi companion manager", () => {
       "Kimi returned an unexpected plugin after installation",
     );
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  describe("on kimi 2.7.0 and newer, whose plugin API is snake_case", () => {
+    it("inspects a listed companion as ours, enabled and healthy", async () => {
+      const { manager } = harness([{ code: 0, msg: "", data: { plugins: [snakePluginSummary()] } }]);
+      await expect(manager.inspect()).resolves.toEqual({
+        version: COMPANION_VERSION,
+        enabled: true,
+        healthy: true,
+        owned: true,
+        scriptsCurrent: true,
+      });
+    });
+
+    it("reads its errors flag: a companion with errors is not healthy", async () => {
+      const { manager } = harness([{ code: 0, msg: "", data: { plugins: [snakePluginSummary({ has_errors: true })] } }]);
+      await expect(manager.inspect()).resolves.toMatchObject({ healthy: false, owned: true });
+    });
+
+    it("configures through a snake_case install answer, enables it and verifies it", async () => {
+      const { manager, fetcher } = harness([
+        { code: 0, msg: "", data: { plugins: [] } },
+        { code: 0, msg: "", data: snakePluginSummary({ enabled: false }) },
+        { code: 0, msg: "", data: null },
+        { code: 0, msg: "", data: { plugins: [snakePluginSummary()] } },
+      ]);
+      await expect(manager.configure(SOURCE_DIRECTORY)).resolves.toMatchObject({ owned: true, enabled: true, healthy: true });
+      expect(fetcher).toHaveBeenCalledWith(
+        `${ACCESS.origin}/api/v1/plugins/${COMPANION_ID}:enable`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("refuses an install answer of someone else's plugin — its source names another directory", async () => {
+      const { manager, fetcher } = harness([
+        { code: 0, msg: "", data: { plugins: [] } },
+        { code: 0, msg: "", data: snakePluginSummary({ original_source: "/elsewhere/keepdeck-session-reporter" }) },
+      ]);
+      await expect(manager.configure(SOURCE_DIRECTORY)).rejects.toThrow("Kimi returned an unexpected plugin after installation");
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    });
+
+    it("removes over a snake_case list", async () => {
+      const { manager, fetcher } = harness([
+        { code: 0, msg: "", data: { plugins: [snakePluginSummary()] } },
+        { code: 0, msg: "", data: null },
+        { code: 0, msg: "", data: { plugins: [] } },
+      ]);
+      await expect(manager.remove()).resolves.toBeNull();
+      expect(fetcher).toHaveBeenCalledWith(
+        `${ACCESS.origin}/api/v1/plugins/${COMPANION_ID}:remove`,
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("refuses a snake_case entry it cannot judge with the same setup error", async () => {
+      const { manager } = harness([{ code: 0, msg: "", data: { plugins: [snakePluginSummary({ has_errors: "no" })] } }]);
+      await expect(manager.inspect()).rejects.toThrow("in a shape this installer does not understand");
+    });
   });
 
   it("surfaces Kimi's API error", async () => {

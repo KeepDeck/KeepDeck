@@ -103,18 +103,42 @@ interface PluginSummary {
   originalSource?: string;
 }
 
-function isPluginSummary(value: unknown): value is PluginSummary {
-  return (
-    isJsonRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.displayName === "string" &&
-    (value.version === undefined || typeof value.version === "string") &&
-    typeof value.enabled === "boolean" &&
-    typeof value.state === "string" &&
-    typeof value.hasErrors === "boolean" &&
-    typeof value.source === "string" &&
-    (value.originalSource === undefined || typeof value.originalSource === "string")
-  );
+/** A plugin as kimi's API sent it, read into a [`PluginSummary`] — or null
+ * for a shape this installer does not understand. The ONE reader of that
+ * shape: a list entry and an install answer both go through it.
+ *
+ * kimi 2.7.0 renamed the three two-word fields to snake_case
+ * (`display_name`, `has_errors`, `original_source`); before it they were
+ * camelCase. Both spellings are read, by the one that names the display
+ * name; the rest of the fields kept their names. */
+function pluginSummaryOf(value: unknown): PluginSummary | null {
+  if (!isJsonRecord(value)) return null;
+  const snake = typeof value.display_name === "string";
+  const displayName = snake ? value.display_name : value.displayName;
+  const hasErrors = snake ? value.has_errors : value.hasErrors;
+  const originalSource = snake ? value.original_source : value.originalSource;
+  if (
+    typeof value.id !== "string" ||
+    typeof displayName !== "string" ||
+    (value.version !== undefined && typeof value.version !== "string") ||
+    typeof value.enabled !== "boolean" ||
+    typeof value.state !== "string" ||
+    typeof hasErrors !== "boolean" ||
+    typeof value.source !== "string" ||
+    (originalSource !== undefined && typeof originalSource !== "string")
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    displayName,
+    ...(value.version !== undefined && { version: value.version }),
+    enabled: value.enabled,
+    state: value.state,
+    hasErrors,
+    source: value.source,
+    ...(originalSource !== undefined && { originalSource }),
+  };
 }
 
 /** Performs reporter transactions on the one server owned by
@@ -180,14 +204,16 @@ export function createKimiCompanionManager(
           throw ownershipError(companion.id);
         }
 
-        const installed = await callApi(
-          fetcher,
-          access,
-          pluginApi.install(sourceDirectory),
-          signal,
+        const installed = pluginSummaryOf(
+          await callApi(
+            fetcher,
+            access,
+            pluginApi.install(sourceDirectory),
+            signal,
+          ),
         );
         if (
-          !isPluginSummary(installed) ||
+          installed === null ||
           !isOwnedCompanion(installed, companion) ||
           installed.version !== companion.version ||
           installed.originalSource !== sourceDirectory
@@ -288,10 +314,11 @@ async function findCompanion(
   if (entry === undefined) return null;
   // Ours by id, but not in a shape this installer can judge: the same
   // setup error as a missing list, never a guess either way.
-  if (!isPluginSummary(entry)) {
+  const plugin = pluginSummaryOf(entry);
+  if (plugin === null) {
     throw new Error(`Kimi listed ${pluginId} in a shape this installer does not understand. Update Kimi Code and try again.`);
   }
-  return entry;
+  return plugin;
 }
 
 /** One call on kimi's plugin API: the envelope's `data` when it says
