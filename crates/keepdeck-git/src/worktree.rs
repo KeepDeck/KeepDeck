@@ -118,7 +118,8 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<
     // so a non-UTF-8 path isn't corrupted.
     // No clock: the checkout runs smudge filters and the post-checkout hook,
     // and a large tree takes as long as it takes (see `run_git_provisioning`).
-    run_git_provisioning(
+    let there_before = crate::repo::branch_exists(repo, branch)?;
+    let added = run_git_provisioning(
         repo,
         [
             OsStr::new("worktree"),
@@ -130,8 +131,16 @@ pub fn add(repo: &Path, path: &Path, branch: &str, base_commit: &str) -> Result<
             path.as_os_str(),
             OsStr::new(base_commit),
         ],
-    )
-    .map(drop)
+    );
+    // git makes the branch before it checks the tree out, and leaves it when
+    // the checkout cannot be made — and then the same add, retried, is
+    // refused for a branch that "already exists". A failed add takes back
+    // the branch it made: only one that was not there before, and only while
+    // it still stands where it was made, so nothing anyone wrote goes.
+    if added.is_err() && !there_before {
+        let _ = run_git(repo, ["update-ref", "-d", &format!("refs/heads/{branch}"), base_commit]);
+    }
+    added.map(drop)
 }
 
 /// List the repository's worktrees.

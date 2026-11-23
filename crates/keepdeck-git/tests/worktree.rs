@@ -345,3 +345,29 @@ fn roots_from_the_common_git_dir_are_every_live_working_tree() {
     assert_eq!(roots, expected, "the deleted worktree is not a root");
     let _ = fs::remove_dir_all(&base);
 }
+
+#[test]
+fn an_add_that_fails_takes_back_the_branch_it_made_and_never_one_that_was_there() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo_dir = init_repo();
+    let base = repo::resolve_commit(&repo_dir, "HEAD").unwrap();
+    let parent = unique_dir("locked-parent");
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o555)).unwrap();
+
+    // git makes the branch before it checks the tree out, and leaves it when
+    // the checkout cannot be made.
+    let failed = worktree::add(&repo_dir, &parent.join("wt"), "kd/test/failed", &base);
+    assert!(failed.is_err(), "nothing can be made under a folder that takes no entry");
+    assert!(!repo::branch_exists(&repo_dir, "kd/test/failed").unwrap(), "the branch went with the failed add");
+
+    // A branch that was there before the add is someone's: a failed add
+    // leaves it as it found it.
+    git(&repo_dir, &["branch", "kd/test/theirs"]);
+    assert!(worktree::add(&repo_dir, &parent.join("wt2"), "kd/test/theirs", &base).is_err());
+    assert!(repo::branch_exists(&repo_dir, "kd/test/theirs").unwrap());
+
+    fs::set_permissions(&parent, fs::Permissions::from_mode(0o755)).unwrap();
+    worktree::add(&repo_dir, &parent.join("wt"), "kd/test/failed", &base).expect("the same add goes once it can");
+    fs::remove_dir_all(&parent).ok();
+    fs::remove_dir_all(&repo_dir).ok();
+}
