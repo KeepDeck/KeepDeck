@@ -46,8 +46,9 @@ const TEAM = "This team";
 
 /** Why a team's Suspend has nobody to take, in one sentence — the reason
  * that holds for the team (which one wins is the menu's call). A reason
- * one pane shares with the team is said in the single sentence. */
-export function teamSuspendRefusalText(reason: TeamSuspendSkip): string {
+ * one pane shares with the team is said in the single sentence; a team not
+ * settled yet is the menu's own line for both acts. */
+export function teamSuspendRefusalText(reason: Exclude<TeamSuspendSkip, "settling">): string {
   switch (reason) {
     case "provisioning":
     case "in-flight":

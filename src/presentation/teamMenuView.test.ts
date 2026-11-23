@@ -127,6 +127,23 @@ describe("teamMenuView — one line-set for the card's ⋯ and the crumb's", () 
     });
   });
 
+  it("refuses both act lines, in one sentence, while an agent is still starting or stopping", () => {
+    const waiting = acts({ skip: ["settling", "settling"] }, { skip: ["settling", "settling"] });
+    for (const surface of ["card", "crumb"] as const) {
+      const items = teamMenuView(ws(), attached, waiting, surface);
+      expect(line(items, "resume")).toEqual({
+        action: "resume",
+        label: "Resume team",
+        refusal: "An agent on this team is still starting or stopping.",
+      });
+      expect(line(items, "suspend")).toEqual({
+        action: "suspend",
+        label: "Suspend team",
+        refusal: "An agent on this team is still starting or stopping.",
+      });
+    }
+  });
+
   it("offers nothing for a team the orchestrator no longer holds", () => {
     expect(teamMenuView(ws(), attached, null, "card")).toEqual([]);
   });

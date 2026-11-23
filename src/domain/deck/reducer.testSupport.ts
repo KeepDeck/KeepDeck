@@ -43,8 +43,9 @@ export const deckState = (partial: Partial<DeckState>): DeckState => ({
 });
 
 /** A stage's `teamActsOf` over `workspaces` — the orchestrator's answer
- * with every folder present, every agent installed, no suspend reaping and
- * no word from the machine yet, unless `facts` says otherwise. */
+ * with every folder present, every agent installed, no suspend reaping,
+ * nothing known of any agent's process and no word from the machine yet,
+ * unless `facts` says otherwise. */
 export const teamActsIn =
   (workspaces: readonly Workspace[], facts: Partial<TeamActFacts> = {}) =>
   (wsId: string, teamId: string): TeamActs | null => {
@@ -54,6 +55,7 @@ export const teamActsIn =
           blocked: () => false,
           agentAvailable: () => true,
           suspending: () => false,
+          reach: () => null,
           gates: () => null,
           ...facts,
         })

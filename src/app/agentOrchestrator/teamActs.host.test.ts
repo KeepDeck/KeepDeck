@@ -58,6 +58,18 @@ describe("a team's Suspend and Resume, on the host", () => {
     return { ws, team, m1, m2, m3, other, sessions: [m1, m2, m3].map((paneId) => d.pane(paneId).session?.id ?? "") };
   }
 
+  /** A team of two up: its lead, and a member slow to stop — only the kill
+   * ends it. */
+  async function slowToStop() {
+    const d = await open();
+    const { ws, paneId: m1 } = await d.agentUp();
+    const team = d.pane(m1).team?.teamId ?? "";
+    d.stub.deaf = true;
+    const m2 = await d.memberUp(team, "impl-1");
+    d.stub.deaf = false;
+    return { d, ws, team, m1, m2 };
+  }
+
   /** The same teams, quit with the launch policy on: the next launch parks
    * every one of them. */
   const parkedAtLaunch = async () => {
@@ -107,20 +119,14 @@ describe("a team's Suspend and Resume, on the host", () => {
       expect(suspendsSince(d, mark)).toEqual([m1]);
     });
 
-    it("leaves a member the machine is still suspending — the menu offers what the door takes", async () => {
-      const d = await open();
-      const { ws, paneId: m1 } = await d.agentUp();
-      const team = d.pane(m1).team?.teamId ?? "";
-      // A member slow to stop: only the kill ends it.
-      d.stub.deaf = true;
-      const m2 = await d.memberUp(team, "impl-1");
-      d.stub.deaf = false;
+    it("takes nobody while the machine is still suspending a member — the menu offers what the door takes", async () => {
+      const { d, ws, team, m1, m2 } = await slowToStop();
       await d.runtime.orchestrator.suspend(ws.id, m2);
       await host().until("still being suspended", () => d.phase(m2) === "suspending");
-      expect(d.runtime.orchestrator.teamActs(ws.id, team)?.suspend).toEqual({ take: [m1], skip: ["in-flight"] });
+      expect(d.runtime.orchestrator.teamActs(ws.id, team)?.suspend).toEqual({ take: [], skip: ["settling", "settling"] });
       const mark = d.intents().length;
       await d.runtime.orchestrator.suspendTeam(ws.id, team, [m1, m2]);
-      expect(suspendsSince(d, mark)).toEqual([m1]);
+      expect(suspendsSince(d, mark)).toEqual([]);
     });
   });
 
@@ -201,6 +207,55 @@ describe("a team's Suspend and Resume, on the host", () => {
       await d.runtime.orchestrator.resumeTeam(ws.id, team);
       await host().until("both back, off the tray", () => d.slot(m1) === "live" && d.slot(m2) === "live" && view()?.suspendedTray === undefined, 15_000);
       expect(view()?.minimized).toEqual([m2]);
+    });
+
+    // A team suspended and asked back at once: the member last to stop was
+    // still being suspended, and the machine refused it as busy.
+    it("asks nobody back while a member's stop has not ended, and every one once it has — saying so to whoever renders it", async () => {
+      const { d, ws, team, m1, m2 } = await slowToStop();
+      await suspendOne(d, ws, m1);
+      const told: (string | null)[] = [];
+      const stop = d.runtime.orchestrator.subscribe(() => told.push(d.phase(m2)));
+      await d.runtime.orchestrator.suspend(ws.id, m2);
+      await host().until("still being suspended", () => d.phase(m2) === "suspending");
+      expect(d.runtime.orchestrator.teamActs(ws.id, team)?.resume).toEqual({ take: [], skip: ["settling", "settling"] });
+      const mark = d.intents().length;
+      expect(await d.runtime.orchestrator.resumeTeam(ws.id, team)).toEqual([]);
+      expect(d.intents().slice(mark)).toEqual([]);
+      await host().until(`${m2} suspended`, () => d.phase(m2) === "suspended" && d.settled() && d.slot(m2) === "none", 15_000);
+      // The last word its subscribers had is from after the stop ended: a
+      // menu that rendered it offers the Resume now.
+      expect(told[told.length - 1]).toBe("suspended");
+      stop();
+      expect(d.runtime.orchestrator.teamActs(ws.id, team)?.resume.take).toEqual([m1, m2]);
+    });
+
+    it("waits while a member it asked back is starting, and tells whoever renders it the moment that one is up", async () => {
+      const d = await open();
+      const { subscribeSessions } = await import("../ptyManager");
+      const { ws, team, m1 } = await teams(d);
+      await suspendOne(d, ws, m1);
+      // The spawn's answer held: the process is still starting.
+      const spawned = host().hold({ reply: "pty_open" });
+      expect(await d.runtime.orchestrator.resumeTeam(ws.id, team)).toEqual([{ paneId: m1, outcome: { kind: "resuming" } }]);
+      await spawned.caught;
+      expect(d.slot(m1)).toBe("starting");
+      expect(d.runtime.orchestrator.teamActs(ws.id, team)?.suspend.skip).toEqual(["settling", "settling", "settling"]);
+      const told: string[] = [];
+      const stopTelling = d.runtime.orchestrator.subscribe(() => told.push(d.slot(m1)));
+      // Heard after the orchestrator hears the same change: whoever renders
+      // the team's acts has been told by then, not at some later word from
+      // the machine.
+      let toldWhenUp: string[] | null = null;
+      const stopWatching = subscribeSessions(() => {
+        if (toldWhenUp === null && d.slot(m1) === "live") toldWhenUp = [...told];
+      });
+      spawned.release();
+      await host().until(`${m1} up`, () => d.slot(m1) === "live", 15_000);
+      stopWatching();
+      stopTelling();
+      expect(toldWhenUp).toContain("live");
+      expect(d.runtime.orchestrator.teamActs(ws.id, team)?.suspend).toEqual({ take: expect.arrayContaining([m1]), skip: [] });
     });
 
     it("changes nothing on a team with nobody down", async () => {
