@@ -1684,6 +1684,36 @@ fn a_launch_whose_session_never_registered_leaves_its_pane_free_once_the_wait_ru
     assert!(matches!(admit(&mut sim, permit, 2, "/wt/kd-app-1"), Answer::Admitted { .. }));
 }
 
+/// A launch given up at the start boundary is stopped when its session
+/// shows up, even while the teardown that gave it up is still finishing —
+/// past its own stops, removing the folder that session runs in.
+#[test]
+fn a_late_session_is_stopped_while_the_teardown_that_gave_it_up_still_cleans() {
+    let mut sim = Sim::booted();
+    let Answer::Leased { permit } = lease(&mut sim, 2, "/wt/kd-app-1") else { panic!() };
+    let Answer::Admitted { attempt } = admit(&mut sim, permit, 2, "/wt/kd-app-1") else { panic!() };
+    sim.close(disband("1", consent_for_team_1()));
+    let op = *sim.state.ops.keys().next().unwrap();
+    let cancel = Effect::Cancel { op, attempts: vec![attempt] };
+    for _ in 0..3 {
+        if sim.owed().contains(&cancel) {
+            break;
+        }
+        sim.write_journals();
+        sim.apply(|_| true);
+        sim.save();
+    }
+    sim.send(Event::Cancelled { op, started: vec![attempt] });
+    sim.send(Event::Timer(Timer::Registration { op }));
+    // The checkout goes; the teardown is not over until its pane is let go.
+    sim.drive_leaving(&|cmd| matches!(cmd, Cmd::Release { .. }));
+    assert!(sim.cleaned.iter().any(|how| matches!(how, Clean::Checkout { .. })), "{:?}", sim.cleaned);
+    assert!(sim.state.ops.contains_key(&op), "the teardown still stands");
+
+    let late = sim.appear(LaunchOwner::Pane { pane: PaneId(2) }, Some(attempt), Some("/wt/kd-app-1"));
+    assert!(sim.owed().contains(&Effect::Stop { session: late }), "the late session is stopped: {:?}", sim.owed());
+}
+
 #[test]
 fn a_checkout_with_a_launch_admitted_into_it_is_not_unheld() {
     let mut sim = Sim::booted();
