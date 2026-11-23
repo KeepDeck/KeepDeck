@@ -31,6 +31,8 @@ import { createAgentOrchestratorRuntime } from "./runtime";
 export interface AgentOrchestrator {
   /** Stable render snapshot for panes that are not running. */
   getView(): AgentRunView;
+  /** Told whenever what it answers may have changed: its view, or what its
+   * answers read beyond the deck — the machine's snapshot, the processes. */
   subscribe(listener: () => void): () => void;
   /** Whether this pane's agent would read something sent to it now — the
    * run decision the funnel makes, met with its process — or null for a pane

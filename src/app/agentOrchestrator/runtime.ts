@@ -11,6 +11,7 @@ import {
   paneWakeOrigin,
   remoteEndpointOf,
   teamActsOf,
+  type AgentReach,
   type Pane,
   type PaneRunIntent,
   type TeamActFacts,
@@ -217,13 +218,27 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     );
   }
 
+  /** Whether the pane's agent would read something sent to it now: its run
+   * decision met with its process — null for a pane the deck does not hold. */
+  function reachOf(paneId: string): AgentReach | null {
+    const state = deck.getSnapshot();
+    for (const ws of state.workspaces) {
+      const pane = ws.panes.find((candidate) => candidate.id === paneId);
+      if (!pane) continue;
+      return agentReach(intentOf(ws, pane, state.activeId, agents.commands()), sessions.state(paneId).kind, runView.get().planFailed.has(paneId));
+    }
+    return null;
+  }
+
   /** What a team act reads beyond the deck: the funnel's folder verdict, the
-   * live agent catalog, whether the machine is suspending a pane, and what
-   * it says the team's own actions would meet. */
+   * live agent catalog, whether the machine is suspending a pane, where each
+   * agent stands, and what the machine says the team's own actions would
+   * meet. */
   const teamFacts: TeamActFacts = {
     blocked: (paneId) => runView.isBlocked(paneId),
     agentAvailable: (agentType) => agents.commands().has(agentType),
     suspending: (paneId) => phaseOf(paneId) === "suspending",
+    reach: reachOf,
     gates: (teamId) => machine.snapshot()?.gates[teamId] ?? null,
   };
 
@@ -542,14 +557,23 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     publish();
     schedule();
   });
+  // What a team's acts and an agent's reach read beyond the deck — the
+  // machine's phases and gates, the processes — moves on its own: whoever
+  // renders them is told each time, or a menu would go on refusing for a
+  // stop that has long ended. Both, because neither waits for the other: the
+  // machine can have said its last before a process is up.
   machine.subscribe(() => {
     generation += 1;
+    publish();
     schedule();
   });
   spawnContext.subscribe(schedule);
   agents.subscribe(schedule);
   launchPolicy.subscribe(schedule);
-  sessions.subscribe(schedule);
+  sessions.subscribe(() => {
+    publish();
+    schedule();
+  });
   void agents.ready().then(() => {
     booted = true;
     schedule();
@@ -560,15 +584,7 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
     getView: runView.get,
     subscribe: runView.subscribe,
     puttingBack: (paneId) => puttingBack.has(paneId),
-    reachOf(paneId) {
-      const state = deck.getSnapshot();
-      for (const ws of state.workspaces) {
-        const pane = ws.panes.find((candidate) => candidate.id === paneId);
-        if (!pane) continue;
-        return agentReach(intentOf(ws, pane, state.activeId, agents.commands()), sessions.state(paneId).kind, runView.get().planFailed.has(paneId));
-      }
-      return null;
-    },
+    reachOf,
     ...doors,
     recoverRejectedResume: recovery.recoverRejectedResume,
     retryPlanBuild: recovery.retryPlanBuild,

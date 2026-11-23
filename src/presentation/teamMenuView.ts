@@ -56,6 +56,9 @@ export const TEAM_MENU_WORDS = {
   /** Both act lines' refusal for a team with nobody on it — a fact about
    * the team, not a reason of either act. */
   noAgents: "This team has no agents.",
+  /** Both act lines' refusal while a member is still on its way up or down
+   * — the team's, so both say the same. */
+  settling: "An agent on this team is still starting or stopping.",
   /** The ⋯ as a screen reader names it, on either surface. */
   ariaLabel: (name: string) => `Team ${name} actions`,
   /** The field its Rename line opens, on either surface. */
@@ -72,7 +75,9 @@ function resumeLine(acts: TeamActs["resume"]): Pick<TeamMenuItem, "label" | "ref
 }
 
 function resumeRefusal(whys: TeamActs["resume"]["skip"]): string {
-  return whys.length === 0 ? TEAM_MENU_WORDS.noAgents : teamResumeRefusalText(resumeReason(whys));
+  if (whys.length === 0) return TEAM_MENU_WORDS.noAgents;
+  if (whys.includes("settling")) return TEAM_MENU_WORDS.settling;
+  return teamResumeRefusalText(resumeReason(whys));
 }
 
 /** Which reason a team's Resume refusal gives: one the whole team shares
@@ -108,6 +113,7 @@ function suspendRefusal(acts: TeamActs["suspend"]): string | null {
   if (acts.take.length > 0) return null;
   const whys = acts.skip;
   if (whys.length === 0) return TEAM_MENU_WORDS.noAgents;
+  if (whys.includes("settling")) return TEAM_MENU_WORDS.settling;
   // A reason the whole team shares first, then one only some hold.
   const reason = (["provisioning", "in-flight", "remote"] as const).find((why) => whys.includes(why)) ?? "stopped";
   return teamSuspendRefusalText(reason);

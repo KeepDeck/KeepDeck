@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createWorkspaceInstance } from "../../workspaceInstance";
 import type { Pane } from "../panes";
+import type { AgentReach } from "../runIntent";
 import type { Workspace } from "../workspaces";
+import type { TeamLocation } from "./model";
 import { stillTaken, teamActsOf, teamResumeCohort, teamSuspendCohort, type TeamActFacts } from "./teamActs";
 
 const AT = "2026-11-19T10:00:00.000Z";
@@ -48,6 +50,8 @@ const facts: TeamActFacts = {
   blocked: (paneId) => paneId === "folder-gone",
   agentAvailable: (agentType) => agentType === "claude",
   suspending: (paneId) => paneId === "reaping",
+  // Nothing known of any process: each member is judged on its own.
+  reach: () => null,
   gates: (teamId) => (teamId === "team-1" ? { addMember: { kind: "targetLeaving" }, close: null, retry: null } : null),
 };
 
@@ -105,6 +109,51 @@ describe("teamResumeCohort — every member down by a decision that a single Res
     const cohort = teamResumeCohort(deck({ archived: { at: AT, phase: "archived" } }), "team-1", facts);
     expect(cohort.take).toEqual([]);
     expect(cohort.skip.every((why) => why === "archived")).toBe(true);
+  });
+});
+
+describe("a team act waits for the whole team to settle", () => {
+  /** A team of two: one agent up, one suspended — each act would take one. */
+  const pair = (location: TeamLocation = { kind: "attached", cwd: "/repo" }): Workspace =>
+    deck({
+      teams: [{ id: "team-3", name: "three", location }],
+      panes: [on("team-3", { id: "up" }), on("team-3", { id: "down", idle: { reason: "suspended", at: AT } })],
+    });
+  /** The facts with `down` standing where `reach` says, and `up` running. */
+  const standing = (reach: AgentReach): TeamActFacts => ({
+    ...facts,
+    reach: (paneId) => (paneId === "down" ? reach : { kind: "running" }),
+  });
+  const both = (ws: Workspace, at: TeamActFacts) => {
+    const acts = teamActsOf(ws, "team-3", at);
+    return { suspend: acts.suspend, resume: acts.resume };
+  };
+  const waiting = { take: [], skip: ["settling", "settling"] };
+
+  it.each<[string, AgentReach]>([
+    ["its stop has not ended", { kind: "down", why: "suspending" }],
+    ["it is being taken down", { kind: "down", why: "leaving" }],
+    ["it is on its way up", { kind: "starting" }],
+  ])("takes nobody while a member is between two states — %s — and leaves every one to wait", (_, reach) => {
+    expect(both(pair(), standing(reach))).toEqual({ suspend: waiting, resume: waiting });
+  });
+
+  it.each<[string, AgentReach]>([
+    ["suspended", { kind: "down", why: "suspended" }],
+    ["its process ended", { kind: "down", why: "exited" }],
+    ["its workspace is not open", { kind: "down", why: "workspace-closed" }],
+  ])("goes on once every member is up or down for good — %s", (_, reach) => {
+    expect(both(pair(), standing(reach))).toEqual({
+      suspend: { take: ["up"], skip: ["stopped"] },
+      resume: { take: ["down"], skip: ["running"] },
+    });
+  });
+
+  it("lets a team still creating its worktree say so, not that it waits", () => {
+    const creating = pair({ kind: "provisioning", intent: { repo: "/repo", path: "/wt/three", index: 3 } });
+    const acts = both(creating, standing({ kind: "starting" }));
+    expect(acts.suspend.skip).toEqual(["provisioning", "stopped"]);
+    expect(acts.resume.skip).toEqual(["provisioning", "provisioning"]);
   });
 });
 
