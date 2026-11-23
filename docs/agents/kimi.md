@@ -1,7 +1,8 @@
 # Kimi Code
 
 Checked 2026-10-19 against Kimi Code 2.2.0, both the native binary and the
-source of the `MoonshotAI/kimi-code` repository.
+source of the `MoonshotAI/kimi-code` repository. Updated 2026-11-23 against
+2.7.2 for the plugin API, launch, steering, sessions, fork and usage.
 
 ## No per-spawn hook door
 
@@ -29,8 +30,11 @@ Installation goes through a short-lived `kimi web` server and its public
 plugin API: `GET /api/v1/plugins`, `POST /api/v1/plugins {source}`, and
 `POST /api/v1/plugins/<id>:enable` and `:remove`. The API needs the bearer
 token from the server's banner and exists since Kimi 0.36.1. It replaced the
-`--debug-endpoints` RPC. The code is in `manager.ts`, `serverManager.ts` and
-`serverWrapper.ts`.
+`--debug-endpoints` RPC. Since 2.7.0 the list entries and the install answer
+name three fields in snake_case (`display_name`, `has_errors`,
+`original_source`) where older versions used camelCase; the installer reads
+both, in the one function that reads a plugin's shape (`pluginSummaryOf`).
+The code is in `manager.ts`, `serverManager.ts` and `serverWrapper.ts`.
 
 ## Launch
 
@@ -40,7 +44,15 @@ and adds `--session <new id>`. The launch carries:
 
 - `--skills-dir <dir>` when KeepDeck has staged skills. It **replaces** Kimi's
   own skill discovery rather than adding to it, so it is passed only when
-  there is something to stage.
+  there is something to stage. Since 2.6.0 Kimi watches the folder: when
+  KeepDeck restages it under a running pane, the new listing reaches the
+  model at its next turn. That watcher is the only way a long running
+  conversation learns of a new skill, so KeepDeck leaves `KIMI_CODE_WATCH`
+  unset. The same watcher, firing while Kimi restores a long session (5–15
+  MB of wire was measured), makes Kimi write a record of its own, read it
+  back as another client's, and exit with "Session was updated by another
+  client" — an upstream race (`MoonshotAI/kimi-code#4505`). KeepDeck resumes
+  such a pane once more, quietly; the second start passes.
 - `--auto` for permission-skipping panes: Kimi's never-ask mode, what YOLO
   means for every agent. Kimi's own `--yolo` is "ask when needed" — it still
   asks before dangerous commands, sensitive paths and the user's ask rules,
@@ -89,10 +101,12 @@ the MCP servers are detached as well (measured on 2.3.0). The residual risk:
 a root session made by a child kimi starts in its own group, or a future
 same-process root creator, would be accepted too (task-450).
 
-`/fork` on 2.3.0 creates a root session and fires SessionStart with
-`source: resume` from the pane's own process while the TUI stays on the
-original. The deck reads `resume` as a swap, so the pane moves to the fork
-the user is not in (task-454).
+`/fork` (since 2.3.0, still so on 2.7.2) creates a root session and fires
+SessionStart with `source: resume` from the pane's own process while the TUI
+stays on the original. The deck reads `resume` as a swap, so the pane moves
+to the fork the user is not in (task-454). A real switch into the fork
+through `/sessions` reports the very same, so nothing in the report tells
+the two apart.
 
 ## Hook output: what Kimi reads, what it drops
 
@@ -149,13 +163,23 @@ started. KeepDeck does not read it today.
 
 Plain Enter during a running turn queues the input for the next turn.
 Ctrl+S steers it into the running turn. Kimi also steers automatically in
-its tower and WaitFor modes. `UserPromptSubmit` has an `is_steer` field, but
-2.2.0 sets it only to `false`.
+its tower and WaitFor modes. `UserPromptSubmit` has an `is_steer` field;
+2.2.0 set it only to `false`, and since 2.5.3 it is live. 2.7.0 added a
+"Follow-up behavior" setting and a server-side
+`POST /api/v1/sessions/{id}/prompts::steer`. KeepDeck uses none of them: its
+mail reaches a kimi pane only through `UserPromptSubmit`.
 
 ## Sessions
 
-The store is `~/.kimi-code/sessions/wd_<slug>_<sha256(cwd)[:12]>/session_<id>/`,
-with `state.json`, `agents/<name>/wire.jsonl` per agent, blobs and logs.
+The store is `~/.kimi-code/sessions/<bucket>/session_<id>/`, with
+`state.json`, `agents/<name>/wire.jsonl` per agent, blobs and logs. A TUI
+directory's bucket is `wd_<slug>_<sha256(path)[:12]>`, derived by Kimi's
+`encodeWorkDirKey` (`_base/utils/workdir-slug.ts`, unchanged since 2.2.0):
+the path normalized (backslashes made slashes, trailing slashes dropped), a
+run of odd characters made one dash, dashes trimmed before and after the cut
+to forty, and "workspace" for an empty slug. Kimi keys a directory by its
+real path. Since 2.5.0 a workspace made in Kimi's web or desktop app files
+its sessions under `wm_<uuid>`, laid out the same way.
 `--session <id>` resolves ids through `~/.kimi-code/session_index.jsonl`.
 Since 2.2 a plain TUI creates its session lazily, on the first prompt, while
 `--session` and `--continue` create theirs at once.
@@ -171,9 +195,12 @@ session itself (`fork.ts`, with the rules in `forkRebase.ts`). On 2.2 three
 things remember the old place, and all three are rewritten in the clone:
 
 1. `state.json`: the directory, the `id`, and every agent's `homedir`.
-2. Every agent's wire: `runtime.set_binding.workspaceId`. Kimi asserts it
-   against the session's workspace on restore and refuses to start
-   otherwise.
+2. Every agent's wire: `runtime.set_binding.workspaceId`. Kimi before 2.5.0
+   asserts it against the session's workspace on restore and refuses to
+   start otherwise. Since 2.5.0 the record is no longer written and nothing
+   reads it; `environment.set_binding` took its place, and it carries a path
+   only for a non-local environment. The clone still rewrites the old record
+   for sessions an older Kimi made.
 3. The main agent's wire: the rendered system prompt (working directory,
    directory listing, AGENTS.md), saved as `profile.bind` and, by older
    versions, as `config.update` with a `systemPrompt`. It is replayed on
@@ -189,9 +216,18 @@ modified. Verified live on 2.2.0.
 
 ## Usage
 
-- Tokens and context come from the wire's `usage.record` and `llm.request`.
-  Records with `usageScope: "session"` are compaction: they count toward
-  cost but are not the context size.
+- Tokens and context come from the wire's `usage.record`, which names the
+  alias of the model it ran on. The window the context is measured against
+  is that model's, from the `[models."<alias>"]` tables of Kimi's
+  `config.toml`, taken as Kimi takes them: the `overrides` block over the
+  row's own fields, `max_input_size` as the window when set, cut to
+  `max_context_size`. The plugin's `src/models.ts` keeps that table,
+  refreshed with each limits read. Kimi before 2.6.0 also wrote
+  `llm.request`, naming the bare model id a call ran on; calls are booked
+  under it where it is written, else under the alias. Its `maxTokens` was the
+  request's output cap, never the window. Records with
+  `usageScope: "session"` are compaction: they count toward cost but are not
+  the context size.
 - Rate limits are polled from `<base>/usages` with the token Kimi keeps under
   `credentials/`. The base URL and token file come from Kimi's `config.toml`,
   under `providers."managed:kimi-code"` (`base_url`, `oauth.key`). The values

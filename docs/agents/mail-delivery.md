@@ -39,7 +39,9 @@ message waits for the end of the turn.
 
 - Kimi only reads hook output from `UserPromptSubmit`, `Stop` and
   `PreToolUse`. `PreToolUse` can only veto the tool, and `PostToolUse` is
-  fire-and-forget. Kimi 2.2 has no way to add context mid-turn.
+  fire-and-forget, so no hook adds context mid-turn. Kimi itself steers a
+  running turn since 2.5.3 (Ctrl+S, and since 2.7.0 a server-side
+  `prompts::steer`), but nothing a pane's hooks could deliver through.
 - OpenCode 2.0 has a session inbox with a `steer` mode that puts a message
   into the running turn programmatically. Moving the courier to it is
   planned work.
