@@ -399,4 +399,17 @@ mod tests {
         assert!(names(dir.path()).is_empty());
         journal.remove(OpId(9)).unwrap();
     }
+
+    /// The file left alone is the one the claim names: it is kept and never
+    /// read, and a file that is merely called "lock" is a stray like any
+    /// other.
+    #[test]
+    fn the_lock_left_alone_is_the_one_the_claim_names() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("claim.lock"), b"").unwrap();
+        fs::write(dir.path().join("lock"), b"").unwrap();
+        let loaded = DiskJournal::new(dir.path().to_path_buf(), "claim.lock").load().unwrap();
+        assert_eq!(loaded.dropped.iter().map(|dropped| dropped.name.as_str()).collect::<Vec<_>>(), ["lock"]);
+        assert_eq!(names(dir.path()), ["claim.lock"]);
+    }
 }
