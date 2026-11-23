@@ -58,7 +58,10 @@ the state needs, each in the order listed — on the machine's own task, one at
 a time. So it must not block. Long work goes through `events.spawn`: the
 future runs on its own task, and the event it returns, if any, comes back to
 the machine. Work that keeps sending — a subscription — calls `events.send`
-and stops when it returns false: the machine is gone.
+and stops when it returns false: the machine is gone. Blocking work goes
+through `supervised`: it runs on tokio's blocking pool and always ends in an
+outcome — its own, or an error when it panicked or was cancelled — so the
+event it owes the machine is sent whatever happened.
 
 A request that needs an answer gets it as an effect of the feature: `update`
 asks for it, and the handler delivers it to whoever is waiting.
@@ -243,6 +246,7 @@ are in the README of `keepdeck-fsm`.
 | Outside sees only the state. Effects go to the handler only; another feature learns about this one from its state | One output: nothing needs a second stream | `one_machine_learns_about_another_from_its_state` |
 | Dropping the last handle is the stop: what was sent before is still handled, then the machine ends. When its task is gone, by a panic too, its state stream ends and its timers stop; the other machines go on. `Events` do not keep a machine alive | Otherwise whoever waits would wait for ever, and a dead machine's timers would sleep on | `what_was_sent_before_the_last_handle_was_dropped_is_still_handled`, `a_machine_ends_with_its_last_handle_and_the_others_go_on`, `when_the_machine_panics_its_state_stream_ends_and_its_timers_stop`, `events_do_not_keep_a_machine_alive_and_say_when_it_is_gone` |
 | The framework recovers nothing. Work that fails or panics sends nothing; a feature that must know turns the failure into an event of its own. A panic in the machine is the app's concern | Recovery belongs to the feature that needs it, not to every feature | `work_that_panics_sends_nothing_and_the_machine_goes_on` |
+| Blocking work run through `supervised` always ends in an outcome: its own result, or an error when it panicked or was cancelled | A machine hears of work only through the event the work sends: work that panicked must still let the handler send it | `supervised_work_ends_in_an_outcome_a_panic_included` |
 | `start` needs an entered tokio runtime, with its time driver if the states need timers; `send` needs none | The machine is a tokio task; a command may be synchronous. A missing time driver fails the machine, not quietly one deadline | `starting_a_machine_outside_a_tokio_runtime_panics`, `with_a_runtime_entered_a_machine_starts_and_send_needs_no_runtime`, `a_machine_whose_state_needs_a_timer_needs_the_time_driver` |
 
 ## Testing a feature's timing

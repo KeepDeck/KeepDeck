@@ -5,8 +5,7 @@
 
 use super::door::Waiters;
 use super::store::DiskJournal;
-use crate::supervised::supervised;
-use keepdeck_fsm_runtime::{Effects, Events};
+use keepdeck_fsm_runtime::{supervised, Effects, Events};
 use keepdeck_lifecycle::domain::dir::Dir;
 use keepdeck_lifecycle::domain::ids::{AttemptId, SessionId};
 use keepdeck_lifecycle::domain::journal::Ticket;
