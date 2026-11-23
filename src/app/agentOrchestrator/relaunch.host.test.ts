@@ -86,8 +86,8 @@ describe("the app launched again on the same home", () => {
     await removing.caught;
 
     const d = await again("crash");
-    await host().until("the workspace, its worktree and its branch are gone", () =>
-      d.runtime.deckStore.getSnapshot().workspaces.length === 0 && !existsSync(made) && git(host().work, "branch", "--list", branch) === "", 15_000);
+    await host().until("the workspace, its worktree and its branch are gone, and the close is over", () =>
+      d.runtime.deckStore.getSnapshot().workspaces.length === 0 && !existsSync(made) && git(host().work, "branch", "--list", branch) === "" && host().journalEmpty(), 15_000);
     expect(d.launches(paneId)).toHaveLength(1);
   });
 });

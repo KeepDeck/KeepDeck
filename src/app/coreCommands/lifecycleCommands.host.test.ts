@@ -263,6 +263,6 @@ describe("the agents' lifecycle commands, on the host", () => {
 
     const gone = await teamUp("gone");
     await disband(gone.teamId, true);
-    await until("its worktree and then its branch are removed", () => !existsSync(gone.worktree.path) && !branches().includes(gone.worktree.branch));
+    await until("its worktree and then its branch are removed, and the disband is over", () => !existsSync(gone.worktree.path) && !branches().includes(gone.worktree.branch) && host().journalEmpty());
   });
 });
