@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { claimsOn } from "../../ipc/lifecycle";
 import { useHost } from "../../testing/host/host";
 import { startDeck, type Deck } from "../../testing/host/deck";
 
@@ -173,8 +174,11 @@ describe("where a team runs, on the host", () => {
     expect(await d.runtime.orchestrator.removeUnheld(ws, { path: orphan, discardDirty: false })).toMatchObject({ kind: "accepted" });
     await host().until("its removal is said to have failed", () =>
       host().tape.some(({ way, line }) => way === "← host" && line.includes('"kind":"worktreeNotDeleted"') && line.includes(orphan)), 15_000);
-    // It ends there, owing nothing: the folder is not held against the next ask.
-    await host().until("the removal is over", () => host().journalEmpty(), 15_000);
+    // It ends there: the machine holds the folder against no next ask — its
+    // own word, the one the worktrees table reads before it offers Remove —
+    // and owes nothing on disk.
+    await host().until("nobody holds the folder", async () => (await claimsOn(orphan)).length === 0, 15_000);
+    expect(host().journalEmpty()).toBe(true);
     expect(existsSync(work)).toBe(true);
     // With the person's leave to lose it, it goes.
     expect((await d.runtime.orchestrator.removeUnheld(ws, { path: orphan, discardDirty: true })).kind).toBe("accepted");

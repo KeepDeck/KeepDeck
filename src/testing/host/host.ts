@@ -52,8 +52,9 @@ export interface Host {
   /** Fail every call of `cmd` at the transport — the IPC broken under it,
    * the app never reached — until the answer is called. */
   fail(cmd: string): () => void;
-  /** Wait for `ok` to hold, polling; fail as "never: `label`" past `ms`. */
-  until(label: string, ok: () => boolean, ms?: number): Promise<void>;
+  /** Wait for `ok` to hold, polling — a question to the app is awaited
+   * before the next; fail as "never: `label`" past `ms`. */
+  until(label: string, ok: () => boolean | Promise<boolean>, ms?: number): Promise<void>;
   /** Whether the machine's journal holds no operation: nothing it began is
    * still owed. */
   journalEmpty(): boolean;
@@ -305,7 +306,7 @@ export async function startHost(): Promise<Host> {
     },
     async until(label, ok, ms = 5000) {
       const start = performance.now();
-      while (!ok()) {
+      while (!(await ok())) {
         if (performance.now() - start > ms) throw new Error(`never: ${label}`);
         await new Promise((resolve) => setTimeout(resolve, 5));
       }
