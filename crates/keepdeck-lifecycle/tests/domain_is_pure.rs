@@ -4,22 +4,30 @@
 //! `Cargo.toml` cannot say that; this test reads the domain's source and does.
 //!
 //! Every path in the domain's code is read by its root — a `use` line and a
-//! path written inline alike:
+//! path written inline alike, `::std` too:
 //! - `crate::` goes on into `domain`;
 //! - `super::super` is refused: from a domain file it climbs out of the
 //!   domain, and none needs it; nor does `domain/mod.rs` use `super`;
 //! - `std`, `core` and `alloc` only for collections, formatting, iterators,
 //!   `mem`, slices and `time::Duration`;
-//! - of the crate's own dependencies, only the ones in [`DEPENDENCIES`]; one
-//!   the crate adds later is refused here with no edit to this test.
+//! - of the crate's own dependencies — any table of them, one target's
+//!   included — only the ones in [`DEPENDENCIES`]; one the crate adds later
+//!   is refused here with no edit to this test.
 //!
-//! The printing macros are refused too.
+//! Refused wherever they stand: the hashed collections, whose order is drawn
+//! at random for each run, so a machine that walks one would list its
+//! effects and write its journal in an order that changes from run to run;
+//! and the macros that print or keep state per thread.
 //!
-//! Test code is not read — a `tests.rs` file and an item under
+//! Test code is not read — a `tests.rs` file and a module under
 //! `#[cfg(test)]`. What a test writes — the wire examples for TS, ts-rs's
-//! bindings — is the test's IO, not the domain's. What a macro expands to and
-//! what an allowed dependency does inside are beyond a reading of the source:
-//! review holds those.
+//! bindings — is the test's IO, not the domain's. `#[cfg(test)]` on anything
+//! but a module is read as code: what it stands on cannot be told apart from
+//! what follows it.
+//!
+//! Beyond a reading of the source, and left to review: what a macro expands
+//! to, what an allowed dependency does inside, and a crate renamed on the way
+//! in (`use std as s`).
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -32,20 +40,29 @@ const STD: &[&str] = &["collections", "fmt", "iter", "mem", "slice"];
 /// machines against, and the derives that describe its types on the wire.
 const DEPENDENCIES: &[&str] = &["keepdeck_fsm", "serde", "serde_json", "ts_rs"];
 
-const PRINTING: &[&str] = &["print", "println", "eprint", "eprintln", "dbg"];
+/// The macros that print, or keep state per thread.
+const MACROS: &[&str] = &["print", "println", "eprint", "eprintln", "dbg", "thread_local"];
+
+/// The collections whose order is drawn at random for each run.
+const HASHED: &[&str] = &["HashMap", "HashSet", "RandomState"];
 
 fn crate_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// The names the crate's own `[dependencies]` give, as Rust spells them.
+/// The names the crate's own dependencies give, as Rust spells them: every
+/// table of them — `[dependencies]`, one target's, and a dependency written
+/// as a table of its own.
 fn dependencies() -> BTreeSet<String> {
     let manifest = fs::read_to_string(crate_dir().join("Cargo.toml")).expect("Cargo.toml");
     let mut inside = false;
     let mut names = BTreeSet::new();
     for line in manifest.lines().map(str::trim) {
-        if line.starts_with('[') {
-            inside = line == "[dependencies]";
+        if let Some(header) = line.strip_prefix('[').and_then(|line| line.strip_suffix(']')) {
+            inside = header == "dependencies" || header.ends_with(".dependencies");
+            if let Some(name) = header.strip_prefix("dependencies.") {
+                names.insert(name.trim().replace('-', "_"));
+            }
         } else if inside && !line.starts_with('#') {
             if let Some((name, _)) = line.split_once('=') {
                 names.insert(name.trim().replace('-', "_"));
@@ -141,12 +158,22 @@ fn code_of(source: &str) -> String {
     out
 }
 
-/// The code with every item under `#[cfg(test)]` blanked, lines kept.
+/// The code with every module under `#[cfg(test)]` blanked, lines kept. The
+/// attribute on anything else is left, and what follows it read.
 fn without_tests(code: &str) -> String {
+    const TEST: &str = "#[cfg(test)]";
     let mut code = code.to_string();
-    while let Some(start) = code.find("#[cfg(test)]") {
-        let after = start + "#[cfg(test)]".len();
+    let mut from = 0;
+    while let Some(found) = code[from..].find(TEST) {
+        let start = from + found;
+        let after = start + TEST.len();
+        from = after;
         let rest = &code[after..];
+        let item = rest.trim_start();
+        let item = item.strip_prefix("pub ").unwrap_or(item).trim_start();
+        if !item.starts_with("mod ") {
+            continue;
+        }
         let end = match (rest.find(';'), rest.find('{')) {
             (Some(semi), Some(brace)) if semi < brace => after + semi + 1,
             (Some(semi), None) => after + semi + 1,
@@ -172,6 +199,7 @@ fn without_tests(code: &str) -> String {
         };
         let blank: String = code[start..end].chars().map(|c| if c == '\n' { '\n' } else { ' ' }).collect();
         code.replace_range(start..end, &blank);
+        from = end;
     }
     code
 }
@@ -229,11 +257,18 @@ fn breaches(file: &Path, code: &str, dependencies: &BTreeSet<String>) -> Vec<Str
     for (i, (line, token)) in tokens.iter().enumerate() {
         let Token::Ident(root) = token else { continue };
         let at = format!("{}:{line}", file.display());
-        if matches!(tokens.get(i + 1), Some((_, Token::Bang))) && PRINTING.contains(&root.as_str()) {
-            found.push(format!("{at}: `{root}!` prints"));
+        if matches!(tokens.get(i + 1), Some((_, Token::Bang))) && MACROS.contains(&root.as_str()) {
+            found.push(format!("{at}: `{root}!` prints or keeps state per thread"));
             continue;
         }
-        if !is_path(i + 1) || (i > 0 && is_path(i - 1)) {
+        if HASHED.contains(&root.as_str()) {
+            found.push(format!("{at}: `{root}` walks in an order drawn at random"));
+            continue;
+        }
+        // A segment after `::` is no root — unless that `::` leads the path,
+        // with nothing named before it (`::std`).
+        let leads = i < 2 || !matches!(tokens.get(i - 2), Some((_, Token::Ident(_) | Token::Other('>'))));
+        if !is_path(i + 1) || (i > 0 && is_path(i - 1) && !leads) {
             continue;
         }
         let next = ident(i + 2);
