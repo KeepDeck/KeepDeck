@@ -1,9 +1,11 @@
 import "./styles.css";
 import { kimiBinding } from "./binding";
+import { readKimiConfig } from "./config";
 import { kimiForkPlan, type ForkPorts } from "./fork";
 import { kimiHistory, type HistoryPorts } from "./history";
 import { readKimiLimits, type LimitsPorts } from "./limits";
 import { kimiMcpArms } from "./mcp";
+import { createKimiModelTable } from "./models";
 import {
   launchPlans,
   yoloFloor,
@@ -44,8 +46,8 @@ import { kimiTail } from "./tail";
 import {
   kimiAgentsDirectory,
   kimiUsageWatches,
+  kimiWireNormalizer,
   normalizeKimiUsages,
-  normalizeKimiWire,
 } from "./usage";
 
 let activeController: ReturnType<typeof createKimiSetupController> | null = null;
@@ -125,6 +127,10 @@ export type KimiPorts = HistoryPorts &
 
 export async function registerKimi(ctx: KimiPorts): Promise<void> {
   const history = kimiHistory(ctx);
+  // The windows of kimi's models, one table for this registration: read now,
+  // and again with every limits read while a kimi pane is live.
+  const models = createKimiModelTable();
+  void readKimiConfig(ctx.services).then(models.refresh, () => undefined);
   ctx.agents.register({
     id: "kimi",
     label: "Kimi Code",
@@ -134,9 +140,9 @@ export async function registerKimi(ctx: KimiPorts): Promise<void> {
     // Tokens/context ride the tailed wire.jsonl; rate windows exist only
     // behind the usages endpoint (kimi's own /usage queries it too).
     usage: {
-      normalize: normalizeKimiWire,
+      normalize: kimiWireNormalizer(models),
       tail: { watches: kimiUsageWatches, siblings: kimiAgentsDirectory },
-      limits: { read: () => readKimiLimits(ctx), normalize: normalizeKimiUsages },
+      limits: { read: () => readKimiLimits(ctx, models), normalize: normalizeKimiUsages },
     },
     status: {
       normalize: normalizeKimiStatus,

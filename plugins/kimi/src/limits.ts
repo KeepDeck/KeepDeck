@@ -1,7 +1,8 @@
-import type { LimitsRead, PluginEnv, PluginFs, PluginHttp } from "@keepdeck/plugin-api";
+import type { LimitsRead, PluginHttp } from "@keepdeck/plugin-api";
 import { asNonEmptyString, isJsonRecord } from "@keepdeck/plugin-api";
-import { parse } from "smol-toml";
-import { declaredDefault, KIMI_BASE_URL_VAR, kimiHome } from "./home";
+import { readKimiConfig, type KimiConfig, type KimiConfigPorts } from "./config";
+import { declaredDefault, KIMI_BASE_URL_VAR } from "./home";
+import type { KimiModelTable } from "./models";
 
 /**
  * kimi's account limits. Its rate windows exist nowhere on disk (its own
@@ -47,11 +48,11 @@ export function tokenStorageName(key: string): string | null {
  * reads as the mainland default, as kimi does. Null only for a token key
  * that would name a file outside the credentials directory. */
 export function usageSource(
-  configToml: string | null,
+  config: KimiConfig | undefined,
   envBaseUrl: string | null,
   defaultBaseUrl: string,
 ): UsageSource | null {
-  const provider = managedProvider(configToml);
+  const provider = managedProvider(config);
   const base = envBaseUrl ?? asNonEmptyString(provider?.base_url) ?? defaultBaseUrl;
   const oauth = provider?.oauth;
   const key = isJsonRecord(oauth) ? asNonEmptyString(oauth.key) : undefined;
@@ -60,33 +61,25 @@ export function usageSource(
   return { url: `${base.replace(/\/+$/, "")}/usages`, file: `${name}.json` };
 }
 
-function managedProvider(configToml: string | null): Record<string, unknown> | undefined {
-  if (configToml === null) return undefined;
-  let config: unknown;
-  try {
-    config = parse(configToml);
-  } catch {
-    return undefined;
-  }
-  const providers = isJsonRecord(config) ? config.providers : undefined;
+function managedProvider(config: KimiConfig | undefined): Record<string, unknown> | undefined {
+  const providers = config?.providers;
   const provider = isJsonRecord(providers) ? providers["managed:kimi-code"] : undefined;
   return isJsonRecord(provider) ? provider : undefined;
 }
 
 export interface LimitsPorts {
-  services: {
-    fs: Pick<PluginFs, "readFile">;
-    http: PluginHttp;
-    env: PluginEnv;
-  };
+  services: KimiConfigPorts & { http: PluginHttp };
 }
 
-/** One read of the usages document, for the host's limits lane. */
-export async function readKimiLimits({ services }: LimitsPorts): Promise<LimitsRead> {
-  const home = await kimiHome(services.env);
-  const config = await services.fs.readFile(`${home}/config.toml`).catch(() => null);
+/** One read of the usages document, for the host's limits lane. The config
+ * it reads for the login also refreshes the model table: kimi rewrites the
+ * models when it logs in and when it refreshes them, and this read runs
+ * every minute a kimi pane is live. */
+export async function readKimiLimits({ services }: LimitsPorts, models: KimiModelTable): Promise<LimitsRead> {
+  const config = await readKimiConfig(services);
+  models.refresh(config);
   const source = usageSource(
-    config && !config.truncated ? config.text : null,
+    config,
     await services.env.get(KIMI_BASE_URL_VAR),
     declaredDefault(KIMI_BASE_URL_VAR),
   );
