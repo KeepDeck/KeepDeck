@@ -110,6 +110,24 @@ describe("kimi history", () => {
     ]);
   });
 
+  it("lists an app-made workspace's wm_ bucket beside the wd_ ones, and skips kimi's own dot entries", async () => {
+    const history = kimiHistory(
+      ctx({}, {
+        "~/.kimi-code/sessions": [
+          { name: "wm_0b9d5c1e", path: "/k/wm_0b9d5c1e", kind: "dir" },
+          { name: ".index-dirty", path: "/k/.index-dirty", kind: "dir" },
+        ],
+        "/k/wm_0b9d5c1e": [{ name: "session_s2", path: "/k/wm_0b9d5c1e/session_s2", kind: "dir" }],
+        "/k/wm_0b9d5c1e/session_s2/agents/main": [
+          { name: "wire.jsonl", path: "/k/wm_0b9d5c1e/session_s2/agents/main/wire.jsonl", kind: "file", size: 4, mtime: 9 },
+        ],
+      }),
+    );
+    expect(await history.list()).toEqual([
+      { sessionId: "session_s2", ref: "/k/wm_0b9d5c1e/session_s2/agents/main/wire.jsonl", mtime: 9, size: 4 },
+    ]);
+  });
+
   it("lists the store under KIMI_CODE_HOME when it is set, and the default home when it is empty", async () => {
     const store = (root: string) => ({
       [`${root}/sessions`]: [{ name: "wd_a_1", path: "/k/wd_a_1", kind: "dir" as const }],

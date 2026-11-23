@@ -269,6 +269,18 @@ describe("kimiForkPlan", () => {
     expect(fx.appends).toHaveLength(0);
   });
 
+  it("takes a source filed in an app-made workspace's wm_ bucket past its layout gate", async () => {
+    const fx = fixture();
+    const outcome = await kimiForkPlan(fx.ctx, {
+      ...forkInput("/t"),
+      transcriptPath: `${HOME}/sessions/wm_0b9d5c1e-2f4a-4c55-9a51-2a8f0f6f1c11/session_orig-1/agents/main/wire.jsonl`,
+    }).then(
+      () => "forked",
+      (error: unknown) => String(error),
+    );
+    expect(outcome).not.toContain("unexpected store layout");
+  });
+
   it("refuses a state.json that is JSON but no object — zero writes", async () => {
     for (const text of ["null", "[]", "7", '"state"']) {
       const fx = fixture(text);

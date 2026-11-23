@@ -5,6 +5,7 @@ import {
   type PluginFs,
   type PluginFsWrite,
 } from "@keepdeck/plugin-api";
+import { isSessionBucket } from "./buckets";
 import { rebaseState, rebaseWire } from "./forkRebase";
 
 /** What a fork needs from the host: reading the source session, and the
@@ -54,13 +55,14 @@ export async function kimiForkPlan(
       `kimi fork of ${input.sessionId}: no recorded transcript path`,
     );
   }
-  // …/sessions/wd_<key>/session_<id>/agents/main/wire.jsonl — the store root
+  // …/sessions/<bucket>/session_<id>/agents/main/wire.jsonl, the bucket a
+  // `wd_` or `wm_` one — the store root
   // is derived from the recorded path, never guessed, so a layout change
   // fails LOUDLY here. (History lists a KIMI_CODE_HOME store too, but a
   // fork of one is refused when it writes: writes are containment-scoped to
   // the manifest's ~/.kimi-code prefix, and a variable widens no write.)
-  const match = wire.match(/^(.*\/sessions)\/(wd_[^/]+)\/(session_[^/]+)\/agents\/main\/wire\.jsonl$/);
-  if (!match || match[3] !== input.sessionId) {
+  const match = wire.match(/^(.*\/sessions)\/([^/]+)\/(session_[^/]+)\/agents\/main\/wire\.jsonl$/);
+  if (!match || !isSessionBucket(match[2]) || match[3] !== input.sessionId) {
     throw new Error(
       `kimi fork of ${input.sessionId}: unexpected store layout (${wire})`,
     );

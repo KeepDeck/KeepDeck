@@ -19,11 +19,13 @@ import {
   type PluginSessionStore,
   type SessionDialect,
 } from "@keepdeck/plugin-api";
+import { isSessionBucket } from "./buckets";
 import { kimiHome } from "./home";
 
 /**
  * Discovery over kimi's store ([F8] browser): sessions live at
- * `<kimi home>/sessions/wd_<key>/session_<id>/` — `state.json` carries
+ * `<kimi home>/sessions/<bucket>/session_<id>/` — a bucket is `wd_<key>`, or
+ * `wm_<uuid>` for an app-made workspace ([`isSessionBucket`]); `state.json` carries
  * workDir + title, `agents/main/wire.jsonl` is the conversation. The wire
  * file is the change fingerprint (a dir's mtime doesn't move when a child
  * file grows). Read-only via `fs`. The home is kimi's own rule
@@ -239,7 +241,7 @@ export function kimiHistory(ctx: HistoryPorts): AgentHistory {
       const stubs: AgentSessionStub[] = [];
       const root = `${await kimiHome(ctx.services.env)}/sessions`;
       for (const wd of await ctx.services.fs.readDir(root)) {
-        if (wd.kind !== "dir" || !wd.name.startsWith("wd_")) continue;
+        if (wd.kind !== "dir" || !isSessionBucket(wd.name)) continue;
         const sessions = await readStoreDir(ctx.services.fs, wd.path, unreadable);
         if (sessions) stubs.push(...(await stubsOfSessions(sessions, unreadable)));
       }
