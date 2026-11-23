@@ -39,7 +39,10 @@ export interface LifecycleSnapshotDeps {
   owners: CommandOwners;
   /** An owner's answer, to the machine. */
   answer(id: CommandId, outcome: Outcome): Promise<void>;
-  /** What an owner's carrying-out threw: for the log, never for the person. */
+  /** That a fork step's hook call has ended, to the machine. */
+  hookEnded(op: number): Promise<void>;
+  /** What an owner's carrying-out threw, or a report that failed: for the
+   * log, never for the person. */
   warn(message: string): void;
   /** The wait before an answer is sent again: the first, doubled each time
    * up to the last. */
@@ -57,11 +60,14 @@ export interface LifecycleSnapshot {
   receive(versioned: Versioned): void;
   /** The machine started over: its versions count from the start again. */
   restarted(): void;
-  /** The runtime is going: no command is carried and no answer sent any
-   * more, and no timer is left to send one. A command's id names a command
-   * only in its own machine's life — an answer that outlived the runtime
-   * would reach whichever machine runs next and answer some other command
-   * under the same id. */
+  /** A fork step's hook call has ended — its outcome or not: told to the
+   * machine, with the operation it was for. */
+  hookEnded(op: number): void;
+  /** The runtime is going: no command is carried and no answer or report
+   * sent any more, and no timer is left to send one. A command's id names a
+   * command only in its own machine's life — an answer or a report that
+   * outlived the runtime would reach whichever machine runs next and speak
+   * of some other command under the same id. */
   dispose(): void;
 }
 
@@ -155,6 +161,10 @@ export function createLifecycleSnapshot(deps: LifecycleSnapshotDeps): LifecycleS
     },
     restarted() {
       held = null;
+    },
+    hookEnded(op) {
+      if (disposed) return;
+      deps.hookEnded(op).catch((error: unknown) => deps.warn(`lifecycle: reporting a fork hook's end failed — ${String(error)}`));
     },
     dispose() {
       disposed = true;

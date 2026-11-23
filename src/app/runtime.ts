@@ -493,6 +493,7 @@ export function createAppRuntime(
       forkStep: { carry: (due) => orchestrator.runState.forkStep.carry(due) },
     },
     answer: reportApplied,
+    hookEnded: reportHookEnded,
     warn: (message) => log.warn("web:lifecycle", message),
   });
   // The library takes only the staleness half of the worktree manager: a write
@@ -538,9 +539,7 @@ export function createAppRuntime(
       release: releaseLease,
       snapshot: lifecycleSnapshot.current,
       subscribe: lifecycleSnapshot.subscribe,
-      hookEnded: (op) => {
-        void reportHookEnded(op).catch((e: unknown) => log.warn("web:lifecycle", `reporting a fork hook's end failed: ${String(e)}`));
-      },
+      hookEnded: lifecycleSnapshot.hookEnded,
     },
   });
   // What the lifecycle says about KeepDeck's work as a whole — this copy only
