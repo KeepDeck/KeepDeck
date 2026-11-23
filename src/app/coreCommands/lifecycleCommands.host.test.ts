@@ -200,7 +200,10 @@ describe("the agents' lifecycle commands, on the host", () => {
     try {
       const team = answered(await d.execute("team.create", { workspace: ws.id, name: "blocked" }));
       teamId = text(team, "teamId");
-      await until("the create failed and the machine let it go", () => createFailed(teamNamed(d.workspace(), "blocked")?.location) && d.settled());
+      // The create failed, and the machine has let it go: the team's Retry
+      // is open, as its menu reads it.
+      await until("the create failed and Retry is open", () =>
+        createFailed(teamNamed(d.workspace(), "blocked")?.location) && d.runtime.orchestrator.teamActs(ws.id, teamId)?.gates?.retry === null);
     } finally {
       chmodSync(host().trees, 0o755);
     }
