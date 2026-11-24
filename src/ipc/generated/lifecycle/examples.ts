@@ -778,7 +778,6 @@ export const versioned: Versioned = {
       "team-1": "live",
       "team-r": "live"
     },
-    "viewOnly": false,
     "workspaces": {
       "ws-a": "live"
     }

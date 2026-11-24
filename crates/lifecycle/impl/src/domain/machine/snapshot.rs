@@ -67,9 +67,6 @@ pub struct TeamGates {
 pub struct Snapshot {
     /// The barrier is down.
     pub open: bool,
-    /// Another KeepDeck holds this settings folder, or the deck could not be
-    /// loaded for work: only shows.
-    pub view_only: bool,
     pub sessions_down: bool,
     pub forgotten: Forgotten,
     pub workspaces: BTreeMap<WorkspaceId, WorkspacePhase>,
@@ -184,7 +181,6 @@ pub fn snapshot(state: &State) -> Snapshot {
     }
     Snapshot {
         open: state.open(),
-        view_only: !state.open() && !matches!(state.boot, super::boot::Boot::Waiting { .. }),
         sessions_down: state.sessions_down,
         forgotten: state.forgotten.clone(),
         workspaces,

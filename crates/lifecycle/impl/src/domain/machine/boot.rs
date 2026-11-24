@@ -36,8 +36,6 @@ pub enum Load {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Boot {
-    /// Another KeepDeck holds the journal root: this one only shows.
-    ViewOnly,
     /// Started; the deck has not loaded yet.
     Waiting { journal: Vec<Entry> },
     Ready { load: Load },
@@ -67,7 +65,6 @@ pub struct Reconcile {
 pub fn handshake(state: &mut State, ask: AskId, deck: DeckFacts, load: Load, fx: &mut Fx) {
     let journal = match &state.boot {
         Boot::Waiting { journal } => journal.clone(),
-        Boot::ViewOnly => return fx.answer(ask, Answer::refused(Refusal::BarrierUp)),
         Boot::Ready { .. } => return fx.answer(ask, Answer::refused(Refusal::Busy)),
     };
     state.world = World::from_facts(&deck);

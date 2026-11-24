@@ -13,12 +13,7 @@ export type Snapshot = {
 /**
  * The barrier is down.
  */
-open: boolean, 
-/**
- * Another KeepDeck holds this settings folder, or the deck could not be
- * loaded for work: only shows.
- */
-viewOnly: boolean, sessionsDown: boolean, forgotten: Forgotten, workspaces: { [key in WorkspaceId]: WorkspacePhase }, teams: { [key in TeamId]: TeamPhase }, gates: { [key in TeamId]: TeamGates }, panes: { [key in PaneId]: PanePhase }, 
+open: boolean, sessionsDown: boolean, forgotten: Forgotten, workspaces: { [key in WorkspaceId]: WorkspacePhase }, teams: { [key in TeamId]: TeamPhase }, gates: { [key in TeamId]: TeamGates }, panes: { [key in PaneId]: PanePhase }, 
 /**
  * Commands owed to owners, in order.
  */

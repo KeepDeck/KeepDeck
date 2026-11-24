@@ -66,8 +66,8 @@ pub fn serve() {
     };
     // The app's own door: one copy per home, here as in the app — said on
     // stderr, with no dialog.
-    let claim = match crate::single::enter(std::path::Path::new(&home)) {
-        crate::single::Copy::This { claim } => claim,
+    let owned = match crate::single::enter(std::path::Path::new(&home)) {
+        crate::single::Copy::This(owned) => owned,
         crate::single::Copy::Refused { holder, way } => {
             let pid = holder.map_or_else(|| "a copy that does not name itself".to_owned(), |holder| format!("pid {}", holder.pid));
             eprintln!("kd-host: the home is held by another copy ({pid}): {way:?}");
@@ -81,7 +81,7 @@ pub fn serve() {
     if log::set_logger(&LOG).is_ok() {
         log::set_max_level(log::LevelFilter::Info);
     }
-    let app = crate::compose(mock_builder(), |_| Ok(()), claim)
+    let app = crate::compose(mock_builder(), |_| Ok(()), owned)
         .channel_interceptor(|_webview, callback, index, message| {
             match body(message) {
                 Ok(message) => say(json!({ "channel": callback.0, "index": index, "message": message })),

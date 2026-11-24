@@ -63,10 +63,10 @@ fn deck() -> DeckFacts {
     }
 }
 
-/// The claim a copy on `home` would have.
-fn claimed(home: &std::path::Path) -> crate::fs_claim::ClaimedRoot {
-    let crate::single::Copy::This { claim } = crate::single::enter(home) else { panic!("a free home") };
-    claim
+/// The home a copy on `home` would own.
+fn claimed(home: &std::path::Path) -> crate::single::Owned {
+    let crate::single::Copy::This(owned) = crate::single::enter(home) else { panic!("a free home") };
+    owned
 }
 
 async fn booted(home: &std::path::Path, doors: Arc<FakeDoors>) -> Lifecycle {
@@ -140,7 +140,7 @@ async fn the_page_hears_its_machine_stop() {
     use keepdeck_fsm_runtime::At;
     use keepdeck_lifecycle::domain::machine::snapshot::Heard;
     use keepdeck_lifecycle::domain::machine::State;
-    let (publish, states) = tokio::sync::watch::channel(At { version: 0, value: State::start(Some(Vec::new())) });
+    let (publish, states) = tokio::sync::watch::channel(At { version: 0, value: State::start(Vec::new()) });
     let heard = Arc::new(Mutex::new(Vec::new()));
     let into = heard.clone();
     let send = move |message| {

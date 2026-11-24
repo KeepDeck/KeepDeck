@@ -19,10 +19,10 @@ fn ws() -> WorkspaceId {
     WorkspaceId("ws-a".into())
 }
 
-/// The claim a copy on `home` would have.
-fn claimed(home: &std::path::Path) -> crate::fs_claim::ClaimedRoot {
-    let crate::single::Copy::This { claim } = crate::single::enter(home) else { panic!("a free home") };
-    claim
+/// The home a copy on `home` would own.
+fn claimed(home: &std::path::Path) -> crate::single::Owned {
+    let crate::single::Copy::This(owned) = crate::single::enter(home) else { panic!("a free home") };
+    owned
 }
 
 fn deck(cwd: &str) -> DeckFacts {

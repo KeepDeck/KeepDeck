@@ -110,7 +110,7 @@ pub fn run() {
     // Then the question asked before anything touches the settings folder:
     // may this process own it. A copy on a folder another one holds says so
     // and ends here, before it has written a byte into it.
-    let claim = single::own_home();
+    let home = single::own_home();
     // Trim past runs' log files before the plugin opens this run's own.
     let collected = logging::collect_garbage();
     let builder = tauri::Builder::default()
@@ -177,7 +177,7 @@ pub fn run() {
         // the catalogue once a day, off the main thread.
         price_catalogue::start(app.handle());
         Ok(())
-    }, claim)
+    }, home)
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
     // The app is going — take the agents with it.
@@ -220,12 +220,13 @@ pub fn run() {
 /// lifecycle machines — and its one list of commands. Built on the window's
 /// builder by [`run`], whose `shell` runs first in setup: what only the
 /// windowed app does — its banner and notifications, the updater, the legacy
-/// migrations, the price catalogue. `claim` is the settings folder's, taken
-/// before anything else ran ([`single`]): there is no app without it.
+/// migrations, the price catalogue. `home` is the settings folder this copy
+/// owns — its claim and its lifecycle journal — taken before anything else
+/// ran ([`single`]): there is no app without it.
 fn compose<R: tauri::Runtime>(
     builder: tauri::Builder<R>,
     shell: impl FnOnce(&mut tauri::App<R>) -> Result<(), Box<dyn std::error::Error>> + Send + 'static,
-    claim: fs_claim::ClaimedRoot,
+    home: single::Owned,
 ) -> tauri::Builder<R> {
     builder
         .manage(history::HistoryIndex::default())
@@ -271,7 +272,7 @@ fn compose<R: tauri::Runtime>(
             let locks = app.state::<worktree::RepoLocks>().inner().clone();
             let stores = std::sync::Arc::new(lifecycle::AppStores::new(app.handle().clone()));
             let doors = std::sync::Arc::new(lifecycle::AppDoors::new(sessions.clone(), locks, stores));
-            let lifecycle = tauri::async_runtime::block_on(async move { lifecycle::Lifecycle::start(doors, claim) });
+            let lifecycle = tauri::async_runtime::block_on(async move { lifecycle::Lifecycle::start(doors, home) });
             // The sessions' watcher and the stores' commit gate hold the
             // machine's door rather than look it up in the managed state, so
             // the order of `manage` calls cannot make either lose it.
@@ -464,8 +465,8 @@ mod tests {
     #[test]
     fn the_app_composes_on_the_test_runtime() {
         let home = tempfile::tempdir().unwrap();
-        let crate::single::Copy::This { claim } = crate::single::enter(home.path()) else { panic!("a free home") };
-        compose(tauri::test::mock_builder(), |_| Ok(()), claim)
+        let crate::single::Copy::This(owned) = crate::single::enter(home.path()) else { panic!("a free home") };
+        compose(tauri::test::mock_builder(), |_| Ok(()), owned)
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("the app builds on the test runtime");
     }
@@ -590,7 +591,7 @@ mod tests {
         "Bridge",
         // `app.manage(skills::GateRegistry::new(...));`
         "GateRegistry",
-        // `let lifecycle = … Lifecycle::start(doors, claim) …; app.manage(lifecycle);`
+        // `let lifecycle = … Lifecycle::start(doors, home) …; app.manage(lifecycle);`
         "Lifecycle",
         // `let sessions = … SessionMachine::start() …; app.manage(sessions);`
         "SessionMachine",

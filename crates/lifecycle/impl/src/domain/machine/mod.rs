@@ -370,23 +370,19 @@ pub enum Clean {
 }
 
 impl State {
-    /// A machine started at app setup, before the deck has loaded. Without
-    /// the journal root's claim (`journal: None`) another KeepDeck owns this
-    /// settings folder, and this one only shows.
-    pub fn start(journal: Option<Vec<Entry>>) -> State {
+    /// A machine started at app setup, on the journal read from the folder
+    /// its copy holds, before the deck has loaded.
+    pub fn start(journal: Vec<Entry>) -> State {
         let next = Counters {
-            op: Counter::above(journal.iter().flatten().map(|entry| entry.op.0)),
+            op: Counter::above(journal.iter().map(|entry| entry.op.0)),
             ..Counters::default()
         };
         let mut forgotten = Forgotten::default();
-        for entry in journal.iter().flatten() {
+        for entry in &journal {
             boot::forget_closed(&mut forgotten, entry);
         }
         State {
-            boot: match journal {
-                Some(entries) => boot::Boot::Waiting { journal: entries },
-                None => boot::Boot::ViewOnly,
-            },
+            boot: boot::Boot::Waiting { journal },
             sessions_down: false,
             world: World::default(),
             ops: BTreeMap::new(),

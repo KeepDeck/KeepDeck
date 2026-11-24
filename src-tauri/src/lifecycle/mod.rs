@@ -21,6 +21,7 @@ pub use forgetting::MachineForgetting;
 pub use stores::{AppStores, StoreDoors};
 
 use crate::fs_claim::{self, ClaimedRoot};
+use crate::single::Owned;
 use keepdeck_lifecycle::domain::doors::Doors;
 use keepdeck_lifecycle::infrastructure::door::Door;
 use keepdeck_lifecycle::infrastructure::machine;
@@ -36,10 +37,12 @@ pub struct Lifecycle {
 }
 
 impl Lifecycle {
-    /// Start the machine on the journal root `claim` holds. Call where a
+    /// Start the machine on the home this copy owns: the journal root its
+    /// claim holds, and the journal read from it at the door. Call where a
     /// tokio runtime is entered.
-    pub fn start(doors: Arc<dyn Doors>, claim: ClaimedRoot) -> Lifecycle {
-        let door = machine::start(claim.root(), fs_claim::LOCK_FILE, true, doors.clone());
+    pub fn start(doors: Arc<dyn Doors>, home: Owned) -> Lifecycle {
+        let Owned { claim, journal } = home;
+        let door = machine::start(claim.root(), fs_claim::LOCK_FILE, journal, doors.clone());
         Lifecycle { door, doors, claim }
     }
 

@@ -329,7 +329,7 @@ mod tests {
                 panes: vec![pane(1, "1"), pane(2, "2"), pane(3, "3"), pane(4, "r")],
             }],
         };
-        let state = crate::domain::machine::State::start(Some(Vec::new()));
+        let state = crate::domain::machine::State::start(Vec::new());
         let next = update(&state, Event::Handshake { ask: crate::domain::ids::AskId(1), deck, load: Load::Loaded });
         next.state.expect("booted")
     }
