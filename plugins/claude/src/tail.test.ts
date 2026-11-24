@@ -134,6 +134,28 @@ describe("claudeTail", () => {
     });
   });
 
+  it("reads a goal not yet met as the turn going on, and a goal met or given up as nothing", () => {
+    // `/goal` is a Stop hook that blocks stopping: the reporter has already
+    // said the turn ended, and this line is the only witness that it did not.
+    // The shape is the one claude 2.1.331 wrote, read off a real transcript.
+    const line = (attachment: Record<string, unknown>, isSidechain = false) => ({
+      type: "attachment",
+      attachment: { type: "goal_status", condition: "the tests pass", ...attachment },
+      timestamp: "2026-11-24T01:33:44.028Z",
+      isSidechain,
+    });
+    const heard = (raw: Record<string, unknown>) => {
+      const watch = claudeTail.watches.find((candidate) => watchMatches(candidate, raw));
+      return watch ? claudeTail.read(watchProject(watch, raw)) : null;
+    };
+    expect(heard(line({ met: false }))).toEqual({ kind: "turn-observed", at: Date.parse("2026-11-24T01:33:44.028Z") });
+    expect(heard(line({ met: true }))).toBeNull();
+    expect(heard(line({ met: false, failed: true }))).toBeNull();
+    expect(heard(line({ met: false }, true))).toBeNull();
+    // Any other attachment is not carried at all.
+    expect(claudeTail.watches.some((watch) => watchMatches(watch, { type: "attachment", attachment: { type: "hook_success" } }))).toBe(false);
+  });
+
   it("takes the store claude's own reporter named, and waits when there is none", async () => {
     // No project slug to reconstruct and no directory rule: the path was
     // REPORTED. A pane whose agent has not spoken yet simply has nothing to
