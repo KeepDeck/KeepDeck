@@ -27,6 +27,7 @@ function shipped(name = "keepdeck"): BundledMcpContributor & {
         args: target.client
           ? ["--mcp-shim", "/s", "--client", target.client]
           : ["--mcp-shim", "/s"],
+        deckSocket: target.client ? { path: "/s", client: target.client } : { path: "/s" },
       };
     },
   };
@@ -100,6 +101,21 @@ describe("the MCP injection", () => {
     });
 
     expect(names(await injection.access(target))).toEqual(["keepdeck", "github", "fs"]);
+  });
+
+  it("hands a bundled spec on whole, its direct socket included", async () => {
+    // A plugin that dials the deck's socket itself reads it off the spec it is
+    // handed; a filter that rebuilt specs field by field would cut it off.
+    const injection = createMcpInjection({ ...ports, contributors: [shipped()] });
+
+    const [entry] = (await injection.access(target)).entries;
+    expect(entry?.spec).toEqual({
+      name: "keepdeck",
+      transport: "stdio",
+      command: "/bin/keepdeck",
+      args: ["--mcp-shim", "/s", "--client", "pane-secret"],
+      deckSocket: { path: "/s", client: "pane-secret" },
+    });
   });
 
   it("serves the library even when no bundled server has anything", async () => {

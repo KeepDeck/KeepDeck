@@ -23,6 +23,7 @@ export type {
   Shortfall,
   SpawnPlanInput,
   SpawnPlanOutput,
+  McpDeckSocket,
   McpHttpServerSpec,
   McpServerSpec,
   McpStdioServerSpec,
