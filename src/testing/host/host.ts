@@ -41,6 +41,8 @@ export type Ending = "quit" | "crash";
 export interface Host {
   /** The test's own KeepDeck home. */
   home: string;
+  /** The process id of the app's current launch. */
+  pid(): number;
   /** A folder for the test's workspaces and repositories. */
   work: string;
   /** A folder for the worktrees the test's teams are given. */
@@ -303,6 +305,7 @@ export async function startHost(): Promise<Host> {
 
   return {
     home,
+    pid: () => current.child.pid ?? -1,
     work,
     trees,
     tape,
