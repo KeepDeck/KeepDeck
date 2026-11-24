@@ -7,24 +7,23 @@ use super::Door;
 use crate::forgotten::{Forgetting, Source};
 use keepdeck_lifecycle::domain::ids::{PaneId, TeamId, WorkspaceId};
 
-/// The machine to ask, fetched for each question: a copy that got the
-/// journal root late runs a new machine.
-pub struct MachineForgetting<F> {
-    door: F,
+/// The machine to ask.
+pub struct MachineForgetting {
+    door: Door,
 }
 
-impl<F: Fn() -> Door + Send + Sync> MachineForgetting<F> {
-    pub fn new(door: F) -> MachineForgetting<F> {
+impl MachineForgetting {
+    pub fn new(door: Door) -> MachineForgetting {
         MachineForgetting { door }
     }
 }
 
-impl<F: Fn() -> Door + Send + Sync> Forgetting for MachineForgetting<F> {
+impl Forgetting for MachineForgetting {
     fn forgotten(&self, source: &Source) -> bool {
         let workspace = WorkspaceId(source.workspace.clone());
         let team = source.team.clone().map(TeamId);
         let pane = source.pane.as_deref().and_then(PaneId::parse);
-        let states = (self.door)().machine().state();
+        let states = self.door.machine().state();
         // Copied out, the borrow let go at once: the machine publishes under it.
         let forgotten = states.borrow().value.forgotten.source(&workspace, team.as_ref(), pane.as_ref());
         forgotten

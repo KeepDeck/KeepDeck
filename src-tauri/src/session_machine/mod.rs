@@ -51,23 +51,16 @@ struct Handler {
 /// ends — this machine gone, or a panic in it — letting go of it tells the
 /// lifecycle the sessions are gone: a lifecycle that went on unaware would
 /// admit launches it never hears of, and wait on their sessions for nothing.
-/// The hold is the lifecycle itself, whose door is had without fail: asked
-/// again while a panic unwinds, a lookup that could fail would abort the app.
-/// The app's exit does not drop it: the process ends around it.
+/// The hold is the machine's door itself: asked again while a panic unwinds,
+/// a lookup that could fail would abort the app. The app's exit does not
+/// drop it: the process ends around it.
 struct Watching {
-    lifecycle: crate::lifecycle::Lifecycle,
-}
-
-impl Watching {
-    /// The door of the lifecycle machine in place now.
-    fn door(&self) -> keepdeck_lifecycle::infrastructure::door::Door {
-        self.lifecycle.door()
-    }
+    door: keepdeck_lifecycle::infrastructure::door::Door,
 }
 
 impl Drop for Watching {
     fn drop(&mut self) {
-        self.door().tell(LifecycleEvent::SessionsGone);
+        self.door.tell(LifecycleEvent::SessionsGone);
     }
 }
 
@@ -182,20 +175,19 @@ impl SessionMachine {
         }
     }
 
-    /// Tell the lifecycle machine — the one in place at each pass, whichever
-    /// that is after a claim won late — about every session appearing and
-    /// ending, and about the end of this watcher.
-    pub fn link(&self, lifecycle: crate::lifecycle::Lifecycle) {
+    /// Tell the lifecycle machine behind `door` about every session appearing
+    /// and ending, and about the end of this watcher.
+    pub fn link(&self, door: keepdeck_lifecycle::infrastructure::door::Door) {
         let mut states = self.machine.state();
         tauri::async_runtime::spawn(async move {
-            let watching = Watching { lifecycle };
+            let watching = Watching { door };
             let mut seen: HashMap<u64, bool> = HashMap::new();
             loop {
                 let rows: Vec<(u64, Tag, bool)> = {
                     let at = states.borrow_and_update();
                     at.value.rows.iter().map(|(&id, row)| (id, row.tag.clone(), row.over())).collect()
                 };
-                let door = watching.door();
+                let door = &watching.door;
                 for (id, tag, over) in rows {
                     let ended = seen.entry(id).or_insert_with(|| {
                         door.tell(LifecycleEvent::SessionAppeared {

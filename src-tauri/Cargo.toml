@@ -93,6 +93,11 @@ tempfile = "3"
 # engine folds both to one key before it decides who owns a slot.
 unicode-normalization = "0.1"
 
+# The one message a second copy on a held settings folder shows, before
+# Tauri exists. Already in the build through the dialog plugin, at the same
+# version: no package of its own.
+rfd = { version = "0.16", default-features = false }
+
 # Our own AVCaptureDevice request with a REAL completion block (the plugin's
 # request passes a nil handler, which fails to raise the prompt in dev):
 [target.'cfg(target_os = "macos")'.dependencies]

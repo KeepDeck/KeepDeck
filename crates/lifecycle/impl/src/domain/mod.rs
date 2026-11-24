@@ -10,4 +10,5 @@ pub mod journal;
 pub mod machine;
 pub mod model;
 pub mod places;
+pub mod single;
 pub mod world;
