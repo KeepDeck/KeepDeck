@@ -86,13 +86,19 @@ const part = (prepare: (input: LaunchInput, draft: LaunchDraft) => void): Openco
  */
 const keepdeckServerPlugin = (ctx: LaunchPorts): OpencodeLaunch => ({
   async prepare(_input, draft) {
-    // `resources.path` answers about files, so the directory is found through
-    // its entry — which also keeps a bundle missing the entry from injecting
-    // a directory opencode cannot load.
-    const entry = await ctx.resources.path("keepdeck-plugin/index.js");
-    if (entry) draft.config.plugin = [entry.slice(0, -"/index.js".length)];
+    const dir = await pluginDir(ctx);
+    if (dir) draft.config.plugin = [dir];
   },
 });
+
+/** The plugin's directory, or null when this bundle does not ship it.
+ * `resources.path` answers about files, so the directory is found through its
+ * entry — which also keeps a bundle missing the entry from injecting a
+ * directory opencode cannot load. */
+async function pluginDir(ctx: LaunchPorts): Promise<string | null> {
+  const entry = await ctx.resources.path("keepdeck-plugin/index.js");
+  return entry ? entry.slice(0, -"/index.js".length) : null;
+}
 
 /** The MCP servers, in the same config variable as the plugin. */
 const mcpServers = part((input, draft) => {
@@ -107,8 +113,8 @@ const reachedByPlugin = (
   server.transport === "stdio" && server.deckSocket !== undefined;
 
 /**
- * 2.x: KeepDeck's own server goes to this plugin, every other server to
- * opencode.
+ * 2.x: KeepDeck's plugin, with KeepDeck's own server going to it and every
+ * other server to opencode.
  *
  * On 2.x opencode starts its MCP servers as children of `opencode serve`,
  * which runs in a session of its own, outside the pane's terminal. The deck
@@ -118,14 +124,23 @@ const reachedByPlugin = (
  * TUI. So the server that names its socket is left out of opencode's servers,
  * and its socket and secret are handed to the plugin.
  *
- * One part decides both halves, so a pane never offers KeepDeck's tools twice,
- * and never loses them to one half missing.
+ * One part decides the plugin and both halves of the handoff, so a pane never
+ * offers KeepDeck's tools twice, and never loses them to one half missing: a
+ * bundle without the plugin keeps every server opencode's, as on 1.x.
  */
-const mcpServersV2 = part((input, draft) => {
-  const servers = input.mcp?.servers ?? [];
-  Object.assign(draft.config, mcpConfigFragment({ servers: servers.filter((server) => !reachedByPlugin(server)) }) ?? {});
-  const deck = servers.find(reachedByPlugin);
-  if (deck) draft.env.push([DECK_SOCKET_ENV, encodeDeckSocket(deck.deckSocket)]);
+const keepdeckV2 = (ctx: LaunchPorts): OpencodeLaunch => ({
+  async prepare(input, draft) {
+    const dir = await pluginDir(ctx);
+    if (!dir) {
+      Object.assign(draft.config, mcpConfigFragment(input.mcp) ?? {});
+      return;
+    }
+    draft.config.plugin = [dir];
+    const servers = input.mcp?.servers ?? [];
+    Object.assign(draft.config, mcpConfigFragment({ servers: servers.filter((server) => !reachedByPlugin(server)) }) ?? {});
+    const deck = servers.find(reachedByPlugin);
+    if (deck) draft.env.push([DECK_SOCKET_ENV, encodeDeckSocket(deck.deckSocket)]);
+  },
 });
 
 /**
@@ -267,25 +282,30 @@ const remoteAttach = (endpoint: string) =>
   });
 
 /** Which launch this pane gets, and whether it settles the invocation whole
- * — THE place the target is read; the generation is version.ts's answer
- * (an unknown version runs as 1.x). How a recorded session opens on top of
- * the launch is opening.ts's. */
+ * — THE place the target is read; the generation is version.ts's answer.
+ * How a recorded session opens on top of the launch is opening.ts's.
+ *
+ * An unknown version runs as 1.x, the launch 1.x survives. A 2.x binary whose
+ * version could not be read then gets neither `--standalone` nor the deck
+ * tools: it joins opencode's shared service, and the MCP server it is handed
+ * runs where no pane can place it, so its KeepDeck calls are nobody's. Only
+ * the version probe keeps a 2.x pane right. */
 export function launchFor(
   ctx: LaunchPorts,
   input: LaunchInput,
 ): { launch: OpencodeLaunch; settles: boolean } {
-  const shared = [keepdeckServerPlugin(ctx), permissionMode];
+  const shared = [keepdeckServerPlugin(ctx), mcpServers, permissionMode];
   if (input.target?.kind === "nativeServer") {
     return {
-      launch: composed(...shared, mcpServers, remoteAttach(input.target.endpoint)),
+      launch: composed(...shared, remoteAttach(input.target.endpoint)),
       settles: true,
     };
   }
   if (generationOf(input.cliVersion) === 2) {
-    return { launch: composed(...shared, mcpServersV2, skillsInConfig, invocationV2), settles: false };
+    return { launch: composed(keepdeckV2(ctx), permissionMode, skillsInConfig, invocationV2), settles: false };
   }
   return {
-    launch: composed(...shared, mcpServers, skillsConfigDir(ctx), tuiObserver(ctx), invocationV1),
+    launch: composed(...shared, skillsConfigDir(ctx), tuiObserver(ctx), invocationV1),
     settles: false,
   };
 }

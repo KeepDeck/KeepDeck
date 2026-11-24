@@ -231,6 +231,31 @@ describe("opencode plugin hooks", () => {
     }
   });
 
+  it("leaves KeepDeck's server to opencode on a 2.x bundle that ships no plugin to take it", async () => {
+    // Handing the socket to a plugin that was not injected would leave the
+    // pane with KeepDeck's tools from neither side.
+    const agent = activate(null);
+    const mcp = {
+      servers: [
+        {
+          name: "keepdeck",
+          transport: "stdio" as const,
+          command: "/bin/keepdeck",
+          args: ["--mcp-shim", "/s"],
+          deckSocket: { path: "/s", client: "pane-secret" },
+        },
+      ],
+    };
+    const plan = output();
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, mcp, cliVersion: "opencode v2.4.1" }, plan);
+
+    const env = Object.fromEntries(plan.env);
+    const config = JSON.parse(present(env.OPENCODE_CONFIG_CONTENT, "the config"));
+    expect(config.plugin).toBeUndefined();
+    expect(Object.keys(config.mcp)).toEqual(["keepdeck"]);
+    expect(env[DECK_SOCKET_ENV]).toBeUndefined();
+  });
+
   it("leaves a 2.x pane's servers to opencode when none names the deck's socket", async () => {
     // A host older than the field hands a spec without it: the pane keeps
     // KeepDeck's server where it was, rather than losing it.
