@@ -6,7 +6,6 @@ import { log } from "../ipc/log";
 import { pendingIpcCallbacks } from "../ipc/ipcCallbacks";
 import { ensureNotificationPermission, notificationPermissionGranted } from "../ipc/notify";
 import { pointerInWindow, pointerOnWindow } from "../ipc/window";
-import { vouchPaneProcess } from "../ipc/session";
 import { probeWorktree } from "../ipc/worktree";
 import {
   loadNotifiedAchievements,
@@ -377,12 +376,6 @@ export function createAppRuntime(
       agentEntry(agentId)?.binding?.restartsConversation?.(report) ?? false,
     swapSources: (agentId) => agentEntry(agentId)?.binding?.swapSources ?? [],
   });
-  // The native side counts the children of a pane's pinned process as the
-  // pane's own (opencode 2.x's MCP servers are its `serve`'s), so it is told
-  // every pin. A lost call leaves that pane's helpers anonymous, nothing more.
-  const unsubscribePins = attribution.subscribePins((paneId, reporter) => {
-    void vouchPaneProcess(paneId, reporter).catch(() => {});
-  });
   // Mail exists only while its Experimental toggle is on, so the lifecycle
   // owner looks it up instead of holding it — hence the forward reference.
   const lifecycle = createPaneLifecycle(
@@ -734,7 +727,6 @@ export function createAppRuntime(
     dispose() {
       if (disposed) return;
       disposed = true;
-      unsubscribePins();
       application.dispose();
       sessionIndex.dispose();
       paneInputFocus.dispose();
