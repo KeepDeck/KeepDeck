@@ -38,17 +38,16 @@ Shared cores in `packages/plugin-api` so far:
 - Report origin: every process under a pane inherits its secret — in
   `KEEPDECK_BRIDGE`, and in the MCP config a spawn injects — and keeps it
   after it detaches. So a sender counts for a pane only when its process
-  belongs to the pane now: it is one of the pane's OWN processes, or its
-  direct parent is (`PtySession::hosts`, asked through
-  `SessionRegistry::pane_of`). The pane's own processes are those in its
-  terminal's session, plus the process its reports are pinned to (the
-  binding ledger, `src/app/paneAttribution.ts`, handed down by
-  `session_vouch`) while that process itself still belongs to the
-  terminal. The parent clause admits agents that start their own helpers
-  detached: kimi's MCP servers, and opencode 2.x's, which are children of
-  the `serve` its agent runs in. Being admitted through a parent does not
-  extend to one's own children, so a daemon's workers have no own parent
-  in any pane (task-376, verified live 2026-10-22). The bridge answers 403 to an envelope whose named
+  belongs to the pane now: it runs in the pane's terminal's session, or
+  its direct parent does (`PtySession::hosts`, asked through
+  `Table::pane_of`). The parent clause admits agents that start their own
+  helpers detached: kimi's MCP servers, and opencode 2.x's `serve`, whose
+  parent is the TUI. Being admitted through a parent does not extend to
+  one's own children, so a daemon's workers have no own parent in any pane
+  (task-376, verified live 2026-10-22). For the same reason the MCP
+  servers opencode 2.x's `serve` starts are nobody's: on 2.x KeepDeck's
+  tools are the plugin's own (`deck-tools.js`), which calls the socket
+  from `serve` itself, and opencode is handed no KeepDeck server. The bridge answers 403 to an envelope whose named
   reporter fails this (`src-tauri/src/bridge/origin.rs`); the MCP socket
   takes the client's pid from the socket, and the webview counts its secret
   only from that pane (`src/app/mcp/paneIdentity.ts`), else the connection

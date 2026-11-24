@@ -15,7 +15,7 @@ pub use table::Table;
 use crate::session::{deliver, resolve_command, DeliveryEnd, SessionEvent, SpawnSpec};
 use keepdeck_fsm_runtime::{supervised, Effects, Events, Runtime};
 use keepdeck_lifecycle::domain::dir::Dir;
-use keepdeck_lifecycle::domain::ids::{AttemptId, PaneId, PermitId, SessionId};
+use keepdeck_lifecycle::domain::ids::{AttemptId, PermitId, SessionId};
 use keepdeck_lifecycle::domain::machine::{Event as LifecycleEvent, LaunchOwner};
 use keepdeck_lifecycle::domain::model::{Answer, Refusal, Reply};
 use keepdeck_pty::sessions::{self, Effect, Event, Over, Sessions};
@@ -326,11 +326,4 @@ pub fn pty_resize(sessions: tauri::State<'_, SessionMachine>, id: SessionId, col
 #[tauri::command]
 pub async fn pty_stop(sessions: tauri::State<'_, SessionMachine>, id: SessionId) -> Result<Stopped, String> {
     Ok(sessions.stop_and_wait(id).await)
-}
-
-/// The webview's binding ledger says which process `pane`'s reports are
-/// pinned to (null: none any more). See [`Table::vouch`].
-#[tauri::command]
-pub fn pty_vouch(sessions: tauri::State<'_, SessionMachine>, pane: PaneId, pid: Option<u32>) {
-    sessions.table.vouch(pane, pid);
 }

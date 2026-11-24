@@ -99,7 +99,8 @@ export function keepdeckServer({
       return invoked && { transport: "stdio", command: invoked.command, args: invoked.args, env: {} };
     },
     async contribute(target) {
-      if (socket() === null) return null;
+      const path = socket();
+      if (path === null) return null;
       try {
         const invoked = await connection(target.client ?? undefined);
         return {
@@ -107,6 +108,10 @@ export function keepdeckServer({
           transport: "stdio",
           command: invoked.command,
           args: invoked.args,
+          // The same socket and the same secret the invocation names, for a
+          // plugin that talks to the socket itself: one answer, so the shim's
+          // way in and the direct one cannot name different panes.
+          deckSocket: target.client === null ? { path } : { path, client: target.client },
         };
       } catch (e) {
         log.warn(

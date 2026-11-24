@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { admitMail } from "@keepdeck/plugin-api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startDeck } from "../../../scripts/reporterHarness";
+import { DECK_SOCKET_ENV, encodeDeckSocket } from "../resources/keepdeck-plugin/deck-socket.js";
 import { HEARTBEAT_MS, writeForeground } from "../resources/keepdeck-plugin/foreground.js";
 import { OPENCODE_MAIL_CHANNELS, renderOpencodeMail } from "./mail";
 import { attributeOpencodeEvent, normalizeOpencodeStatus } from "./status";
@@ -785,5 +786,70 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
     await reported();
     expect(deck.envelopes).toEqual([]);
     expect(prompts).toEqual([]);
+  });
+
+  describe("the deck's tools", () => {
+    /** A 2.x context that also offers tools, recording each transform. */
+    const withTools = (order: string[] = []) => {
+      const made = createContext();
+      const transforms: unknown[] = [];
+      return {
+        ...made,
+        transforms,
+        context: {
+          ...made.context,
+          tool: {
+            ...made.context.tool,
+            transform: async (edit: unknown) => {
+              order.push("tools");
+              transforms.push(edit);
+            },
+            reload: async () => {},
+          },
+          permission: { assert: async () => {} },
+        },
+      };
+    };
+
+    beforeEach(() => {
+      // A socket nobody listens on: the listing fails quietly, and what is
+      // asserted here is only what setup starts, in what order.
+      process.env[DECK_SOCKET_ENV] = encodeDeckSocket({ path: join(dir, "none.sock"), client: "s" });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+    });
+    afterEach(() => {
+      delete process.env[DECK_SOCKET_ENV];
+      vi.restoreAllMocks();
+    });
+
+    it("are offered in a pane without a bridge: the two are separate facts", async () => {
+      delete process.env.KEEPDECK_BRIDGE;
+      const { context, transforms } = withTools();
+
+      expect(typeof (await setup(context))).toBe("function");
+      expect(transforms).toHaveLength(1);
+      // And nothing that needs the bridge started.
+      expect(await posted()).toEqual([]);
+    });
+
+    it("start before the plugin says the agent is ready, which lets the deck deliver mail", async () => {
+      const order: string[] = [];
+      vi.resetModules();
+      vi.doMock("../resources/keepdeck-plugin/ready.js", () => ({
+        announceReady: () => {
+          order.push("ready");
+          return {};
+        },
+      }));
+      try {
+        const { setupV2 } = await import("../resources/keepdeck-plugin/opencode-v2.js");
+        const cleanup = await setupV2(withTools(order).context);
+        if (typeof cleanup === "function") cleanups.push(cleanup);
+      } finally {
+        vi.doUnmock("../resources/keepdeck-plugin/ready.js");
+      }
+
+      expect(order).toEqual(["tools", "ready"]);
+    });
   });
 });

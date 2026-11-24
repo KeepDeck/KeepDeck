@@ -190,8 +190,17 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
       skills: [{ name: "review", content: "---\ndescription: Reviews\n---\n" }],
     },
     mcp: { servers: [
-      { name: "keepdeck", transport: "stdio", command: "/bin/kd", args: ["--mcp"], envPassthrough: ["KD"] },
+      {
+        name: "keepdeck",
+        transport: "stdio",
+        command: "/bin/kd",
+        args: ["--mcp"],
+        envPassthrough: ["KD"],
+        deckSocket: { path: "/k/mcp.sock", client: "secret" },
+      },
       { name: "remote", transport: "http", url: "https://x", headers: { "X-A": "1" }, bearerTokenEnv: "TOKEN" },
+      { name: "bare", transport: "stdio", command: "/bin/b", args: [], deckSocket: { path: "/k/mcp.sock" } },
+      { name: "plain", transport: "stdio", command: "/bin/p", args: [] },
     ] },
     target: { kind: "nativeServer", endpoint: "ws://vps:4500" },
   };
@@ -219,6 +228,9 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
       [{ ...spawn, mcp: { servers: [{ ...spawn.mcp.servers[0], args: "--mcp" }] } }, "spawn plan input.mcp.servers[0].args: expected an array of strings"],
       [{ ...spawn, mcp: { servers: [spawn.mcp.servers[0], { name: "x", transport: "sse", url: "u" }] } }, `spawn plan input.mcp.servers[1].transport: expected "stdio" or "http"`],
       [{ ...spawn, mcp: { servers: [{ ...spawn.mcp.servers[1], headers: { "X-A": 1 } }] } }, "spawn plan input.mcp.servers[0].headers.X-A: expected a string"],
+      [{ ...spawn, mcp: { servers: [{ ...spawn.mcp.servers[0], deckSocket: "/k/mcp.sock" }] } }, "spawn plan input.mcp.servers[0].deckSocket: expected an object"],
+      [{ ...spawn, mcp: { servers: [{ ...spawn.mcp.servers[0], deckSocket: { client: "s" } }] } }, "spawn plan input.mcp.servers[0].deckSocket.path: expected a string"],
+      [{ ...spawn, mcp: { servers: [{ ...spawn.mcp.servers[0], deckSocket: { path: "/k", client: 7 } }] } }, "spawn plan input.mcp.servers[0].deckSocket.client: expected a string"],
       [{ ...spawn, target: { kind: "ssh", endpoint: "e" } }, `spawn plan input.target.kind: expected "nativeServer"`],
       [{ ...spawn, workspace: { id: "ws-1" } }, "spawn plan input.workspace: expected a workspace ref"],
       [{ ...spawn, yolo: "yes" }, "spawn plan input.yolo: expected a boolean"],

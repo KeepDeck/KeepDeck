@@ -42,8 +42,31 @@ describe("KeepDeck's own server as a bundled contributor", () => {
       transport: "stdio",
       command: invocation.command,
       args: invocation.args,
+      deckSocket: { path: "/home/.config/keepdeck/mcp/mcp.sock", client: "pane-secret" },
     });
     expect(contributor.name).toBe(KEEPDECK_MCP_SERVER);
+  });
+
+  it("names the confirmed socket and the pane's secret for a plugin that dials it itself", async () => {
+    // The direct way in must name the same pane as the shim's: the socket the
+    // transport confirmed, and the secret this pane was asked for.
+    socket = "/tmp/kd-other/mcp.sock";
+    const spec = await server().contribute({ ...target, client: "pane-7-secret" });
+
+    expect(spec?.transport === "stdio" && spec.deckSocket).toEqual({
+      path: "/tmp/kd-other/mcp.sock",
+      client: "pane-7-secret",
+    });
+  });
+
+  it("names no secret beside the socket when the pane cannot carry one", async () => {
+    // A shared cwd delivery names no pane in `args` either; the direct way in
+    // must not invent one.
+    const spec = await server().contribute({ ...target, client: null });
+
+    expect(spec?.transport === "stdio" && spec.deckSocket).toEqual({
+      path: "/home/.config/keepdeck/mcp/mcp.sock",
+    });
   });
 
   it("contributes NOTHING while the transport is not confirmed up", async () => {

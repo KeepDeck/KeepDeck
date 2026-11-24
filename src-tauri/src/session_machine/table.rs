@@ -27,10 +27,6 @@ struct Inner {
     /// before the old session's exit is reaped, so removal only clears an
     /// entry that still names the session going away.
     panes: HashMap<PaneId, SessionId>,
-    /// pane → the process its reports are pinned to (the webview's binding
-    /// ledger, src/app/paneAttribution.ts). Its children count as the pane's
-    /// too — see [`PtySession::hosts`].
-    vouched: HashMap<PaneId, u32>,
     next: u64,
     exiting: bool,
 }
@@ -64,19 +60,11 @@ impl Table {
     }
 
     /// The process exited: the table lets its handle go, and with it the pane
-    /// it was the terminal of, and that pane's pin — the webview's own word
-    /// that the pin is gone may never arrive.
+    /// it was the terminal of.
     pub fn remove(&self, id: SessionId) {
         let mut inner = self.inner.lock().expect("session table");
         inner.sessions.remove(&id);
-        let Inner { panes, vouched, .. } = &mut *inner;
-        panes.retain(|pane, session| {
-            let stays = *session != id;
-            if !stays {
-                vouched.remove(pane);
-            }
-            stays
-        });
+        inner.panes.retain(|_, session| *session != id);
     }
 
     /// The pane whose terminal process `pid` belongs to
@@ -86,26 +74,17 @@ impl Table {
     /// process sits in one session, and so does the parent of one that
     /// detached.
     pub fn pane_of(&self, pid: u32) -> Option<PaneId> {
-        let panes: Vec<(PaneId, Arc<PtySession>, Option<u32>)> = {
+        let panes: Vec<(PaneId, Arc<PtySession>)> = {
             let inner = self.inner.lock().expect("session table");
             inner
                 .panes
                 .iter()
-                .filter_map(|(pane, id)| Some((*pane, inner.sessions.get(id)?.clone(), inner.vouched.get(pane).copied())))
+                .filter_map(|(pane, id)| Some((*pane, inner.sessions.get(id)?.clone())))
                 .collect()
         };
         // Outside the lock: the kernel is asked per terminal, and the table's
         // lock is never held across a syscall.
-        panes.into_iter().find_map(|(pane, session, vouched)| session.hosts(pid, vouched).then_some(pane))
-    }
-
-    /// Record the process `pane`'s reports are pinned to, or forget it.
-    pub fn vouch(&self, pane: PaneId, pid: Option<u32>) {
-        let mut inner = self.inner.lock().expect("session table");
-        match pid {
-            Some(pid) => inner.vouched.insert(pane, pid),
-            None => inner.vouched.remove(&pane),
-        };
+        panes.into_iter().find_map(|(pane, session)| session.hosts(pid).then_some(pane))
     }
 
     /// The app is going: stop everyone — one TERM each, one shared wait, a
@@ -253,10 +232,11 @@ mod tests {
     }
 
     #[test]
-    fn a_pane_counts_the_children_of_the_process_its_reports_are_pinned_to() {
-        // opencode 2.x: the agent (`serve`) leaves the terminal's session, and
-        // the MCP server it starts is its child — the pane's only through the
-        // pin the webview hands down.
+    fn a_pane_speaks_through_its_detached_agent_and_not_through_what_that_agent_starts() {
+        // opencode 2.x: the agent (`serve`) leaves the terminal's session, its
+        // parent still in it, and it starts its MCP servers as its own
+        // children. The agent is the pane's from its first word, so its plugin
+        // calls the deck itself; a server it starts is nobody's.
         let table = Table::default();
         let pane = PaneId(1);
         let (terminal, events) = sleeper(
@@ -266,18 +246,10 @@ mod tests {
         let mut seen = String::new();
         let agent = named_pid(&events, &mut seen, "AGENT");
         let server = named_pid(&events, &mut seen, "PID");
-        let id = table.insert(terminal, Some(pane)).ok().unwrap();
+        table.insert(terminal, Some(pane)).ok().unwrap();
 
-        assert_eq!(table.pane_of(server), None, "not before the pane vouches");
-        table.vouch(pane, Some(agent));
-        assert_eq!(table.pane_of(server), Some(pane));
-        table.vouch(pane, None);
-        assert_eq!(table.pane_of(server), None, "nor after the pin is dropped");
-
-        // The pin goes with its terminal, even when the webview never says so.
-        table.vouch(pane, Some(agent));
-        table.remove(id);
-        assert!(table.inner.lock().unwrap().vouched.is_empty());
+        assert_eq!(table.pane_of(agent), Some(pane));
+        assert_eq!(table.pane_of(server), None);
 
         for pid in [server, agent] {
             // SAFETY: processes this test started; they left the terminal's

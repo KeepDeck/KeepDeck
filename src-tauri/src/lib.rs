@@ -337,7 +337,6 @@ fn compose<R: tauri::Runtime>(
             session_machine::pty_write,
             session_machine::pty_resize,
             session_machine::pty_stop,
-            session_machine::pty_vouch,
             apps::list_applications,
             clipboard::clipboard_image_to_temp,
             dnd::paths_are_images,

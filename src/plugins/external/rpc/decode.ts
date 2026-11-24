@@ -565,6 +565,11 @@ function assertMcpServer(value: unknown, what: string): asserts value is McpServ
     str(v.command, `${what}.command`);
     strArray(v.args, `${what}.args`);
     if (v.envPassthrough !== undefined) strArray(v.envPassthrough, `${what}.envPassthrough`);
+    if (v.deckSocket !== undefined) {
+      const socket = record(v.deckSocket, `${what}.deckSocket`);
+      str(socket.path, `${what}.deckSocket.path`);
+      optStr(socket.client, `${what}.deckSocket.client`);
+    }
     return;
   }
   if (v.transport === "http") {

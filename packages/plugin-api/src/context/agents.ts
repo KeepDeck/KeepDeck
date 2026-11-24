@@ -360,6 +360,25 @@ export interface McpStdioServerSpec {
    * Only the CLI that filters its children's environment (codex) has
    * anything to render; the others inherit and render nothing. */
   envPassthrough?: string[];
+  /** KeepDeck's own server only: the socket it listens on, for a plugin that
+   * speaks to it itself instead of having the CLI spawn `command` (API 85).
+   * A renderer that does not use it renders the server like any other. */
+  deckSocket?: McpDeckSocket;
+}
+
+/**
+ * Where KeepDeck's own MCP server listens, and who a connection says it is.
+ *
+ * The socket speaks newline-delimited JSON-RPC. A connection opens with one
+ * `{"jsonrpc":"2.0","method":"deck/client","params":{"token":<client>}}` line
+ * naming its pane, and every request after it is answered on its own, with
+ * no `initialize` needed. `client` is the pane secret that greeting names,
+ * the same one `args` carries; it is absent when the delivery cannot carry
+ * one, as `args` then names none.
+ */
+export interface McpDeckSocket {
+  path: string;
+  client?: string;
 }
 
 /** One remote (streamable http) MCP server, as the host declares it. */

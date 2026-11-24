@@ -95,6 +95,19 @@ fn bridge_secret() -> Option<String> {
     (!token.is_empty()).then(|| token.to_string())
 }
 
+/// The line a connection opens with, naming its pane. The shim is not its
+/// only writer: the opencode plugin greets the socket itself
+/// (plugins/opencode/resources/keepdeck-plugin/deck-socket.js). Both are held
+/// to `client-greeting.json`, which the reader's tests read too.
+fn greeting(client: &str) -> String {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "deck/client",
+        "params": { "token": client },
+    })
+    .to_string()
+}
+
 /// Run the pump to completion. Returns the process exit code: 0 once the
 /// server closes the connection (page reload, app quit), non-zero when there
 /// is nothing to connect to — with a hint, because "KeepDeck is not running"
@@ -122,13 +135,8 @@ pub fn run(mode: ShimMode) -> i32 {
     // argument is the deck naming this invocation, and it must win over a
     // variable a whole process tree shares.
     if let Some(client) = mode.client.or_else(bridge_secret) {
-        let announced = serde_json::json!({
-            "jsonrpc": "2.0",
-            "method": "deck/client",
-            "params": { "token": client },
-        });
-        let mut greeting = &socket;
-        if let Err(e) = writeln!(greeting, "{announced}") {
+        let mut stream = &socket;
+        if let Err(e) = writeln!(stream, "{}", greeting(&client)) {
             eprintln!("keepdeck-mcp: could not announce this pane ({e})");
         }
     }
@@ -230,6 +238,16 @@ mod tests {
         ] {
             assert_eq!(secret_in(hostile), None, "must refuse {hostile:?}");
         }
+    }
+
+    #[test]
+    fn the_greeting_is_the_shared_line_byte_for_byte() {
+        // The opencode plugin writes the same line from JS; both writers and
+        // the reader (bridge.rs) are held to one file.
+        let shared: serde_json::Value = serde_json::from_str(include_str!("client-greeting.json"))
+            .expect("the shared greeting parses");
+        let token = shared["token"].as_str().expect("a token");
+        assert_eq!(greeting(token), shared["line"].as_str().expect("a line"));
     }
 
     #[test]
