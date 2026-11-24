@@ -262,6 +262,18 @@ mod tests {
     }
 
     #[test]
+    fn the_shared_greeting_names_its_token() {
+        // The line the shim and the opencode plugin both write (shim.rs,
+        // deck-socket.js), read the way a connection's first line is read.
+        let shared: serde_json::Value = serde_json::from_str(include_str!("client-greeting.json"))
+            .expect("the shared greeting parses");
+        assert_eq!(
+            client_token(shared["line"].as_str().expect("a line")).as_deref(),
+            shared["token"].as_str(),
+        );
+    }
+
+    #[test]
     fn resolve_delivers_to_the_parked_receiver() {
         let bridge = McpBridge::default();
         let (id, rx) = bridge.begin();
