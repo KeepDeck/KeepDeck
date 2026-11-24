@@ -467,7 +467,7 @@ mod tests {
     #[test]
     fn the_app_composes_on_the_test_runtime() {
         let home = tempfile::tempdir().unwrap();
-        let crate::single::Copy::This(owned) = crate::single::enter(home.path()) else { panic!("a free home") };
+        let crate::single::Admission::This(owned) = crate::single::enter(home.path()) else { panic!("a free home") };
         compose(tauri::test::mock_builder(), |_| Ok(()), owned)
             .build(tauri::test::mock_context(tauri::test::noop_assets()))
             .expect("the app builds on the test runtime");

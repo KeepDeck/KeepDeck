@@ -170,8 +170,12 @@ mod tests {
     fn a_claim_a_holder_keeps_is_refused_as_contention() {
         let (_dir, root) = temp_root();
         let _holder = claim(&root, "artifact store").expect("holder claim");
+        let started = Instant::now();
         let refused = claim(&root, "artifact store").expect_err("second claim must be refused");
         assert_eq!(refused, "artifact store is owned by another KeepDeck process");
+        // A store's toggle answers within the ordinary patience, not after a
+        // replacing copy's long wait.
+        assert!(started.elapsed() < Duration::from_secs(2), "refused after {:?}", started.elapsed());
     }
 
     #[test]

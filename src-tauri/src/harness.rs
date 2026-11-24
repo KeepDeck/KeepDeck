@@ -67,13 +67,13 @@ pub fn serve() {
     // The app's own door: one copy per home, here as in the app — said on
     // stderr, with no dialog.
     let owned = match crate::single::enter(std::path::Path::new(&home)) {
-        crate::single::Copy::This(owned) => owned,
-        crate::single::Copy::Refused { holder, way } => {
+        crate::single::Admission::This(owned) => owned,
+        crate::single::Admission::Refused { holder, way } => {
             let pid = holder.map_or_else(|| "a copy that does not name itself".to_owned(), |holder| format!("pid {}", holder.pid));
             eprintln!("kd-host: the home is held by another copy ({pid}): {way:?}");
             std::process::exit(3);
         }
-        crate::single::Copy::Fault(fault) => {
+        crate::single::Admission::Fault(fault) => {
             eprintln!("kd-host: the home cannot be owned: {fault}");
             std::process::exit(4);
         }

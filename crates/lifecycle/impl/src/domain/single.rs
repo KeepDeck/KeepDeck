@@ -121,10 +121,15 @@ pub fn way(patience: Patience, holder: Option<Holder>) -> Way {
     }
 }
 
-/// Whether a copy that does not start should bring the one in its way to
-/// the front: one going about its business, yes; one still quitting, no.
-pub fn reopens(way: Way) -> bool {
-    way == Way::Occupied
+/// The copy a copy that does not start should bring to the front, by its
+/// pid: one going about its business that its lock names. Not one still
+/// quitting; and not one that names nothing — an older build — since
+/// nothing would tie whatever is found in its place to this home.
+pub fn reopens(way: Way, holder: Option<Holder>) -> Option<u32> {
+    match (way, holder) {
+        (Way::Occupied, Some(holder)) => Some(holder.pid),
+        _ => None,
+    }
 }
 
 /// Whether the first copy was brought forward: only an answer that came
@@ -212,9 +217,10 @@ mod tests {
     }
 
     #[test]
-    fn only_a_copy_going_about_its_business_is_brought_forward() {
-        assert!(reopens(Way::Occupied));
-        assert!(!reopens(Way::StillLeaving), "a copy still quitting is not reopened");
+    fn only_a_named_copy_going_about_its_business_is_brought_forward() {
+        assert_eq!(reopens(Way::Occupied, RUNNING_COPY), Some(41));
+        assert_eq!(reopens(Way::StillLeaving, LEAVING_COPY), None, "a copy still quitting is not reopened");
+        assert_eq!(reopens(Way::Occupied, None), None, "nothing ties an unnamed holder's stand-in to this home");
     }
 
     #[test]

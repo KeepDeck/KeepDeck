@@ -65,7 +65,7 @@ fn deck() -> DeckFacts {
 
 /// The home a copy on `home` would own.
 fn claimed(home: &std::path::Path) -> crate::single::Owned {
-    let crate::single::Copy::This(owned) = crate::single::enter(home) else { panic!("a free home") };
+    let crate::single::Admission::This(owned) = crate::single::enter(home) else { panic!("a free home") };
     owned
 }
 
@@ -130,7 +130,7 @@ async fn a_second_copy_on_one_home_is_refused_and_names_the_first() {
     let dir = tempfile::tempdir().unwrap();
     let _first = booted(dir.path(), Arc::new(FakeDoors)).await;
     let first = Some(Holder { pid: std::process::id(), leaving: false });
-    assert!(matches!(crate::single::enter(dir.path()), crate::single::Copy::Refused { holder, way: Way::Occupied } if holder == first));
+    assert!(matches!(crate::single::enter(dir.path()), crate::single::Admission::Refused { holder, way: Way::Occupied } if holder == first));
 }
 
 /// The page hears each state as a snapshot, and when the machine's stream

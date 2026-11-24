@@ -30,7 +30,7 @@ pub struct Owned {
 }
 
 /// What a process may do with a home.
-pub enum Copy {
+pub enum Admission {
     /// The home is this copy's.
     This(Owned),
     /// Another copy holds it: what its lock said when the wait ran out, and
@@ -70,16 +70,16 @@ impl fmt::Display for Fault {
 
 /// May this process own `home`. The patience comes from what the lock says
 /// of its holder; the way out, from what it says when the wait has run out.
-pub fn enter(home: &Path) -> Copy {
+pub fn enter(home: &Path) -> Admission {
     let root = home.join(JOURNAL_FOLDER);
     let patience = rules::patience(fs_claim::holder(&root));
     match fs_claim::claim_within(&root, patience.duration()) {
         Ok(claim) => match machine::load_journal(&root, fs_claim::LOCK_FILE) {
-            Ok(journal) => Copy::This(Owned { claim, journal }),
-            Err(error) => Copy::Fault(Fault::Journal { root, error }),
+            Ok(journal) => Admission::This(Owned { claim, journal }),
+            Err(error) => Admission::Fault(Fault::Journal { root, error }),
         },
-        Err(Refusal::Held { holder }) => Copy::Refused { holder, way: rules::way(patience, holder) },
-        Err(Refusal::Fault { step, error }) => Copy::Fault(Fault::Claim { root, step, error }),
+        Err(Refusal::Held { holder }) => Admission::Refused { holder, way: rules::way(patience, holder) },
+        Err(Refusal::Fault { step, error }) => Admission::Fault(Fault::Claim { root, step, error }),
     }
 }
 
@@ -91,18 +91,19 @@ pub fn enter(home: &Path) -> Copy {
 pub fn own_home(ours: &str) -> Owned {
     let copy = match crate::paths::keepdeck_home() {
         Some(home) => enter(&home),
-        None => Copy::Fault(Fault::NoHome),
+        None => Admission::Fault(Fault::NoHome),
     };
     match copy {
-        Copy::This(owned) => owned,
-        Copy::Refused { holder, way } => {
-            if let Some(holder) = holder {
-                eprintln!("KeepDeck: the settings folder is held by pid {}", holder.pid);
+        Admission::This(owned) => owned,
+        Admission::Refused { holder, way } => {
+            match holder {
+                Some(holder) => eprintln!("KeepDeck: the settings folder is held by pid {}", holder.pid),
+                None => eprintln!("KeepDeck: the settings folder is held by a copy that does not name itself"),
             }
-            let handed_over = rules::reopens(way) && reopen(ours, holder);
+            let handed_over = rules::reopens(way, holder).is_some_and(|pid| reopen(ours, pid));
             leave(rules::say(way, handed_over), None)
         }
-        Copy::Fault(fault) => leave(Say::Unusable, Some(&fault)),
+        Admission::Fault(fault) => leave(Say::Unusable, Some(&fault)),
     }
 }
 
@@ -152,36 +153,21 @@ const FOCUS_BOUND: std::time::Duration = std::time::Duration::from_secs(3);
 /// bundle, as a click on its Dock icon does. That reopen unhides it,
 /// restores a minimized window and moves to its full-screen Space, from a
 /// terminal launch too — an activation request does none of that reliably
-/// (measured on macOS 15.7.4). Found by the pid its lock names, or — when it
-/// names none, an older build — as the one other running application of
-/// ours. Only KeepDeck is reopened: a pid can have gone to another app
-/// since. The call answers asynchronously, and this process runs no event
-/// loop: the answer is waited for, bounded. A holder that exits in that
-/// window is launched again by the reopen, and passes the door as any
-/// launch does.
+/// (measured on macOS 15.7.4). Found by the pid its lock names. Only
+/// KeepDeck is reopened: a pid can have gone to another app since. The call
+/// answers asynchronously, and this process runs no event loop: the answer
+/// is waited for, bounded. A holder that exits in that window is launched
+/// again by the reopen, and passes the door as any launch does.
 #[cfg(target_os = "macos")]
-fn reopen(ours: &str, holder: Option<Holder>) -> bool {
+fn reopen(ours: &str, pid: u32) -> bool {
     use objc2_app_kit::{NSRunningApplication, NSWorkspace, NSWorkspaceOpenConfiguration};
     use objc2_foundation::{NSError, NSString};
-    let me = std::process::id() as libc::pid_t;
     let ours = NSString::from_str(ours);
-    let target = match holder {
-        Some(holder) => NSRunningApplication::runningApplicationWithProcessIdentifier(holder.pid as libc::pid_t),
-        None => {
-            let running = NSRunningApplication::runningApplicationsWithBundleIdentifier(&ours);
-            let mut others = running.iter().filter(|app| app.processIdentifier() != me);
-            match (others.next(), others.next()) {
-                (Some(one), None) => Some(one),
-                _ => None,
-            }
-        }
-    };
-    let Some(target) = target else { return false };
+    let Some(target) = NSRunningApplication::runningApplicationWithProcessIdentifier(pid as libc::pid_t) else { return false };
     if !target.bundleIdentifier().is_some_and(|identifier| identifier.isEqualToString(&ours)) {
         return false;
     }
     let Some(url) = target.bundleURL() else { return false };
-    let holder_pid = target.processIdentifier() as u32;
     let configuration = NSWorkspaceOpenConfiguration::new();
     configuration.setActivates(true);
     let (done, answered) = std::sync::mpsc::channel::<Result<u32, ()>>();
@@ -192,12 +178,12 @@ fn reopen(ours: &str, holder: Option<Holder>) -> bool {
         let _ = done.send(opened.ok_or(()));
     });
     NSWorkspace::sharedWorkspace().openApplicationAtURL_configuration_completionHandler(&url, &configuration, Some(&completion));
-    rules::handed_over(answered.recv_timeout(FOCUS_BOUND).ok(), holder_pid)
+    rules::handed_over(answered.recv_timeout(FOCUS_BOUND).ok(), pid)
 }
 
 /// Nothing to bring forward where LaunchServices is not.
 #[cfg(not(target_os = "macos"))]
-fn reopen(_ours: &str, _holder: Option<Holder>) -> bool {
+fn reopen(_ours: &str, _pid: u32) -> bool {
     false
 }
 
@@ -237,7 +223,7 @@ mod tests {
     #[test]
     fn a_free_home_is_this_copys_and_its_lock_names_it() {
         let home = tempfile::tempdir().unwrap();
-        let Copy::This(owned) = enter(home.path()) else { panic!("a free home") };
+        let Admission::This(owned) = enter(home.path()) else { panic!("a free home") };
         assert_eq!(owned.claim.root(), root(home.path()));
         assert_eq!(fs_claim::holder(&root(home.path())), us(false));
     }
@@ -245,11 +231,11 @@ mod tests {
     #[test]
     fn a_home_a_running_copy_holds_is_refused_at_once() {
         let home = tempfile::tempdir().unwrap();
-        let Copy::This(_first) = enter(home.path()) else { panic!("the first copy") };
+        let Admission::This(_first) = enter(home.path()) else { panic!("the first copy") };
         let started = Instant::now();
         let refused = enter(home.path());
         let waited = started.elapsed();
-        assert!(matches!(refused, Copy::Refused { holder, way: Way::Occupied } if holder == us(false)), "refused as occupied");
+        assert!(matches!(refused, Admission::Refused { holder, way: Way::Occupied } if holder == us(false)), "refused as occupied");
         assert!(waited < RELAUNCH_PATIENCE / 5, "an ordinary second launch waited {waited:?}");
     }
 
@@ -259,7 +245,7 @@ mod tests {
         let first = letting_go(home.path(), |held| held.set_leaving());
         let started = Instant::now();
         let copy = enter(home.path());
-        assert!(matches!(copy, Copy::This(_)), "the replacement comes up");
+        assert!(matches!(copy, Admission::This(_)), "the replacement comes up");
         assert!(started.elapsed() >= HELD_FOR - Duration::from_millis(50), "it waited for the leaving copy");
         first.join().unwrap();
     }
@@ -271,7 +257,7 @@ mod tests {
         let lock = root(home.path()).join(fs_claim::LOCK_FILE);
         let first = letting_go(home.path(), move |_| std::fs::write(lock, "").unwrap());
         let copy = enter(home.path());
-        assert!(matches!(copy, Copy::This(_)), "the copy after an older build comes up");
+        assert!(matches!(copy, Admission::This(_)), "the copy after an older build comes up");
         first.join().unwrap();
     }
 
@@ -285,7 +271,7 @@ mod tests {
         std::fs::set_permissions(root(home.path()), std::fs::Permissions::from_mode(0o300)).unwrap();
         let copy = enter(home.path());
         std::fs::set_permissions(root(home.path()), std::fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(matches!(copy, Copy::Fault(Fault::Journal { .. })), "a fault");
+        assert!(matches!(copy, Admission::Fault(Fault::Journal { .. })), "a fault");
     }
 
     /// The app's identifier, as tauri.conf.json names it.
@@ -295,7 +281,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn a_pid_that_is_no_application_is_not_reopened() {
-        assert!(!reopen(OURS, Some(Holder { pid: 999_999, leaving: false })));
+        assert!(!reopen(OURS, 999_999));
     }
 
     #[cfg(target_os = "macos")]
@@ -311,7 +297,7 @@ mod tests {
             return;
         };
         let pid = finder.processIdentifier() as u32;
-        assert!(!reopen(OURS, Some(Holder { pid, leaving: false })));
+        assert!(!reopen(OURS, pid));
     }
 
     #[test]
@@ -320,6 +306,6 @@ mod tests {
         let home = dir.path().join("home");
         std::fs::write(&home, "a file where the home must be").unwrap();
         let copy = enter(&home);
-        assert!(matches!(copy, Copy::Fault(Fault::Claim { step: Step::MakeRoot, .. })), "a fault");
+        assert!(matches!(copy, Admission::Fault(Fault::Claim { step: Step::MakeRoot, .. })), "a fault");
     }
 }

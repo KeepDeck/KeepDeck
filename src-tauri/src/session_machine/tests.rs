@@ -21,7 +21,7 @@ fn ws() -> WorkspaceId {
 
 /// The home a copy on `home` would own.
 fn claimed(home: &std::path::Path) -> crate::single::Owned {
-    let crate::single::Copy::This(owned) = crate::single::enter(home) else { panic!("a free home") };
+    let crate::single::Admission::This(owned) = crate::single::enter(home) else { panic!("a free home") };
     owned
 }
 
