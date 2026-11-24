@@ -10,7 +10,6 @@
  * whose order against the first could matter.
  */
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Claim } from "./generated/lifecycle/Claim";
 import type { CommandId } from "./generated/lifecycle/CommandId";
 import type { DeckFacts } from "./generated/lifecycle/DeckFacts";
@@ -29,21 +28,12 @@ import type { Reply } from "./generated/lifecycle/Reply";
 import type { Revision } from "./generated/lifecycle/Revision";
 import type { WorkspaceId } from "./generated/lifecycle/WorkspaceId";
 
-/** What the page hears when the machine started over — a copy that got the
- * journal root late: the page handshakes again. Mirrors `RESTARTED` in
- * src-tauri/src/lifecycle/mod.rs. */
-export const LIFECYCLE_RESTARTED = "lifecycle://restarted";
-
 /** The snapshot now, then each change — and that the machine stopped, if it
  * does. */
 export async function subscribeLifecycle(onHeard: (heard: Heard) => void): Promise<void> {
   const channel = new Channel<Heard>();
   channel.onmessage = onHeard;
   await invoke("lifecycle_subscribe", { onHeard: channel });
-}
-
-export function onLifecycleRestarted(handler: () => void): Promise<UnlistenFn> {
-  return listen(LIFECYCLE_RESTARTED, handler);
 }
 
 /** The deck as loaded, and how it loaded: the barrier comes down on it. */

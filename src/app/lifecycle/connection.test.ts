@@ -13,23 +13,18 @@ const ws: Workspace = { id: "ws-a", instance: createWorkspaceInstance(), name: "
 
 function rig() {
   const order: string[] = [];
-  let restart: (() => void) | null = null;
   let loaded: { workspaces: readonly Workspace[]; load: DeckLoad } | null = null;
   const loadListeners = new Set<() => void>();
   const ports = {
     subscribe: vi.fn<LifecycleConnectionPorts["subscribe"]>(async () => {
       order.push("subscribe");
     }),
-    onRestarted: vi.fn<LifecycleConnectionPorts["onRestarted"]>(async (handler) => {
-      restart = handler;
-      return () => {};
-    }),
     handshake: vi.fn<LifecycleConnectionPorts["handshake"]>(async () => {
       order.push("handshake");
       return BOOTED;
     }),
   };
-  const snapshot = { receive: vi.fn(), restarted: vi.fn() };
+  const snapshot = { receive: vi.fn() };
   const warn = vi.fn();
   const booted = vi.fn();
   const stopped = vi.fn();
@@ -57,7 +52,6 @@ function rig() {
       loaded = { workspaces: [ws], load };
       for (const listener of [...loadListeners]) listener();
     },
-    restart: () => restart?.(),
   };
 }
 
@@ -96,33 +90,12 @@ describe("connectLifecycle", () => {
     expect(r.snapshot.receive).not.toHaveBeenCalled();
   });
 
-  it("starts over with a machine that started over: subscribe and handshake again, versions from the start", async () => {
+  it("connects once: the machine that took the handshake is said to be up", async () => {
     const r = rig();
     r.load("loaded");
     await settled();
-    r.restart();
-    await settled();
-    expect(r.snapshot.restarted).toHaveBeenCalledTimes(1);
-    expect(r.order).toEqual(["subscribe", "handshake", "subscribe", "handshake"]);
-    // Each machine that took the handshake is said to be up — the cue to
-    // tell it again what is on disk.
-    expect(r.booted).toHaveBeenCalledTimes(2);
-  });
-
-  it("takes nothing from a subscription to a machine that started over", async () => {
-    const r = rig();
-    r.load("loaded");
-    await settled();
-    const old = r.ports.subscribe.mock.calls[0][0];
-    r.restart();
-    await settled();
-    const now = r.ports.subscribe.mock.calls[1][0];
-    old({ kind: "snapshot", versioned: { ...versioned, version: 99 } });
-    old({ kind: "stopped" });
-    expect(r.snapshot.receive).not.toHaveBeenCalled();
-    expect(r.stopped).not.toHaveBeenCalled();
-    now({ kind: "snapshot", versioned });
-    expect(r.snapshot.receive).toHaveBeenCalledWith(versioned);
+    expect(r.order).toEqual(["subscribe", "handshake"]);
+    expect(r.booted).toHaveBeenCalledTimes(1);
   });
 
   it("says a handshake that got no answer, or a refusal — nothing else stands in for it", async () => {

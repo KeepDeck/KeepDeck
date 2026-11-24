@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DeckLoad } from "../domain/lifecycle";
+import { createWorkspaceInstance } from "../domain/workspaceInstance";
 import { createDeckStore } from "./deckStore";
 import { createDeckPersistence, type DeckPersistence } from "./deckPersistence";
 
@@ -135,22 +136,21 @@ describe("the deck's boot snapshot and saved revisions", () => {
     expect(saved).toHaveBeenLastCalledWith(store.revision());
   });
 
-  it("writes nothing while this copy only shows, and saves what changed once it holds the folder", async () => {
+  it("parks a deck whose unreadable file could not be set aside, as a failed read is, and writes nothing over it", async () => {
     vi.useFakeTimers();
-    ipc.loadDeckState.mockResolvedValue(STORED);
+    ipc.loadDeckState.mockResolvedValue("not json");
+    ipc.quarantineDeckState.mockRejectedValue(new Error("the disk said no"));
     const store = createDeckStore();
     persistence = createDeckPersistence(store);
     await vi.runAllTimersAsync();
-    ipc.saveDeckState.mockClear();
+    expect(persistence.getSnapshot()).toEqual({ restoring: false, frozen: { kind: "unreadable" }, load: "quarantineFailed" });
 
-    persistence.mayWrite(false);
-    store.dispatch({ type: "renamePane", wsId: "ws-1", paneId: "pane-1", name: "api" });
+    store.dispatch({
+      type: "createWorkspace",
+      workspace: { id: "ws-2", instance: createWorkspaceInstance(), name: "api", cwd: "/api", worktreeBaseDir: null, panes: [] },
+      at: "2026-01-01T00:00:00.000Z",
+    });
     await vi.runAllTimersAsync();
     expect(ipc.saveDeckState).not.toHaveBeenCalled();
-
-    persistence.mayWrite(true);
-    await vi.runAllTimersAsync();
-    expect(ipc.saveDeckState).toHaveBeenCalledTimes(1);
-    expect(ipc.saveDeckState.mock.calls[0][0]).toContain('"api"');
   });
 });
