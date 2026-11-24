@@ -200,6 +200,7 @@ describe("the shapes decoders used to pass unchecked (task-488)", () => {
       },
       { name: "remote", transport: "http", url: "https://x", headers: { "X-A": "1" }, bearerTokenEnv: "TOKEN" },
       { name: "bare", transport: "stdio", command: "/bin/b", args: [], deckSocket: { path: "/k/mcp.sock" } },
+      { name: "plain", transport: "stdio", command: "/bin/p", args: [] },
     ] },
     target: { kind: "nativeServer", endpoint: "ws://vps:4500" },
   };

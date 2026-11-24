@@ -36,9 +36,21 @@ describe("MCP servers through the plan", () => {
 
   it("MCP servers reach the hook input as a LIST, on spawn AND resume", async () => {
     // A list, not a server: the hook must loop, because the planned bank
-    // contributes more members than the built-in transport.
+    // contributes more members than the built-in transport. Each spec whole:
+    // the deck's socket rides on its own server for a plugin that dials it
+    // (opencode 2.x), and a rebuild that dropped it would cost that pane its
+    // tools.
     mcpState.entries = [
-      local("keepdeck", "/bin/keepdeck", ["--mcp-shim", "/sock"]),
+      {
+        spec: {
+          name: "keepdeck",
+          transport: "stdio",
+          command: "/bin/keepdeck",
+          args: ["--mcp-shim", "/sock", "--client", "pane-secret"],
+          deckSocket: { path: "/sock", client: "pane-secret" },
+        },
+        env: [],
+      },
       local("mnemo", "/bin/mnemo"),
     ];
     const inputs: Array<SpawnMcpInput | undefined> = [];
