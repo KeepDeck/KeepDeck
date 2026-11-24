@@ -53,7 +53,6 @@ import {
   askLease,
   bootHandshake,
   claimsOn,
-  onLifecycleRestarted,
   releaseLease,
   reportApplied,
   reportDeckSaved,
@@ -542,13 +541,13 @@ export function createAppRuntime(
       hookEnded: lifecycleSnapshot.hookEnded,
     },
   });
-  // What the lifecycle says about KeepDeck's work as a whole — this copy only
-  // shows, it lost its sessions, it stopped — told once each.
+  // What the lifecycle says about KeepDeck's work as a whole — it lost its
+  // sessions, it stopped — told once each.
   const standing = createStandingAnnouncer((fact) => notify({ ...standingNotice(fact), severity: "warning", source: { type: "app" } }));
   // The page's connection to the machine: subscribe, then — once the deck
   // has loaded — the handshake that lowers the barrier.
   const lifecycleConnection = connectLifecycle({
-    ports: { subscribe: subscribeLifecycle, onRestarted: onLifecycleRestarted, handshake: bootHandshake },
+    ports: { subscribe: subscribeLifecycle, handshake: bootHandshake },
     snapshot: lifecycleSnapshot,
     loaded: () => {
       const load = deckPersistence.getSnapshot().load;
@@ -559,11 +558,8 @@ export function createAppRuntime(
     stopped: () => standing.stopped(),
     warn: (message) => log.warn("web:lifecycle", message),
   });
-  // A second KeepDeck on this settings folder only shows: it writes no
-  // deck.json until it holds the folder.
   const stopStanding = lifecycleSnapshot.subscribe(() => {
     const snapshot = lifecycleSnapshot.current();
-    deckPersistence.mayWrite(snapshot?.viewOnly !== true);
     if (snapshot) standing.heard(snapshot);
   });
   // What was said about the deck's folders and workspaces stands only while

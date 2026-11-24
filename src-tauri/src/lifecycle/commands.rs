@@ -26,21 +26,16 @@ fn state_now(lifecycle: &Lifecycle) -> State {
 /// The snapshot now, then each change, on this channel — the one channel TS
 /// hears the machine on — and that the machine stopped, if it does.
 #[tauri::command]
-pub async fn lifecycle_subscribe<R: tauri::Runtime>(app: tauri::AppHandle<R>, lifecycle: tauri::State<'_, Lifecycle>, on_heard: Channel<Heard>) -> Result<(), String> {
+pub async fn lifecycle_subscribe(lifecycle: tauri::State<'_, Lifecycle>, on_heard: Channel<Heard>) -> Result<(), String> {
     let states = lifecycle.door().machine().state();
-    let running_now = move || {
-        use tauri::Manager;
-        app.state::<Lifecycle>().running()
-    };
-    tauri::async_runtime::spawn(publish(states, move |heard| on_heard.send(heard).is_ok(), running_now));
+    tauri::async_runtime::spawn(publish(states, move |heard| on_heard.send(heard).is_ok()));
     Ok(())
 }
 
-/// Each state of one machine as a snapshot, while `send` is heard. When the
-/// machine's stream ends, the page is told it stopped — unless the machine
-/// running now is another one: a copy that got the journal root late
-/// started over, and says so itself.
-pub(super) async fn publish(mut states: watch::Receiver<At<State>>, mut send: impl FnMut(Heard) -> bool, running_now: impl FnOnce() -> bool) {
+/// Each state of the machine as a snapshot, while `send` is heard. When the
+/// machine's stream ends, the page is told it stopped: the app has one
+/// machine, and nothing starts another.
+pub(super) async fn publish(mut states: watch::Receiver<At<State>>, mut send: impl FnMut(Heard) -> bool) {
     loop {
         let heard = {
             let at = states.borrow_and_update();
@@ -53,9 +48,7 @@ pub(super) async fn publish(mut states: watch::Receiver<At<State>>, mut send: im
             break;
         }
     }
-    if !running_now() {
-        send(Heard::Stopped);
-    }
+    send(Heard::Stopped);
 }
 
 #[tauri::command]

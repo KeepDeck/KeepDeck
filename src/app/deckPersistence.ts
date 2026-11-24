@@ -30,11 +30,6 @@ export type DeckPark =
 export interface DeckPersistence {
   getSnapshot(): DeckPersistenceSnapshot;
   subscribe(listener: () => void): () => void;
-  /** Whether this copy may write deck.json now. A second KeepDeck on the
-   * settings folder only shows, and Rust refuses its writes: while it may
-   * not, nothing is attempted; once it may, what changed meanwhile is
-   * saved. */
-  mayWrite(may: boolean): void;
   dispose(): void;
 }
 
@@ -55,8 +50,6 @@ export function createDeckPersistence(
   let load: DeckLoad = "loaded";
   let loaded = false;
   let frozen = false;
-  /** False while this copy only shows: another holds the settings folder. */
-  let writable = true;
   let disposed = false;
   let lastSaved: string | null = null;
   let lastImmediate: string | null = null;
@@ -107,7 +100,7 @@ export function createDeckPersistence(
   }
 
   function flushNow(): void {
-    if (disposed || frozen || !writable) return;
+    if (disposed || frozen) return;
     clearTimer();
     dirtySince = null;
     if (saving) return;
@@ -140,7 +133,7 @@ export function createDeckPersistence(
   }
 
   function reconcileSave(): void {
-    if (!loaded || serialized === lastSaved || frozen || disposed || !writable) return;
+    if (!loaded || serialized === lastSaved || frozen || disposed) return;
     if (immediate !== lastImmediate) {
       flushNow();
       return;
@@ -162,7 +155,7 @@ export function createDeckPersistence(
     // A revision that writes nothing new — the file already says this deck —
     // is on disk as it stands: nothing will ever be saved to say so, and a
     // deck command answered at it would wait for that save for good.
-    if (loaded && !saving && serialized === lastSaved && !frozen && writable && !disposed) onSaved(deck.revision());
+    if (loaded && !saving && serialized === lastSaved && !frozen && !disposed) onSaved(deck.revision());
     reconcileSave();
   }
 
@@ -207,11 +200,16 @@ export function createDeckPersistence(
             load = "quarantined";
           },
           (error) => {
+            // The unreadable file is still there and could not be set
+            // aside: the deck is parked as a failed read is, and nothing is
+            // written over it.
+            frozen = true;
             load = "quarantineFailed";
             log.error(
               "web:persist",
               `quarantine itself failed: ${errorMessage(error)}`,
             );
+            emit({ restoring: true, frozen: { kind: "unreadable" }, load: null });
           },
         );
       }
@@ -247,12 +245,6 @@ export function createDeckPersistence(
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
-    },
-    mayWrite(may) {
-      if (may === writable) return;
-      writable = may;
-      if (may) reconcileSave();
-      else clearTimer();
     },
     dispose() {
       if (disposed) return;

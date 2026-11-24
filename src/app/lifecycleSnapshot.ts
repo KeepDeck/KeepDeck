@@ -58,8 +58,6 @@ export interface LifecycleSnapshot {
   forgotten(source: WriteSource): boolean;
   /** A snapshot off the channel; an older one than held is let go. */
   receive(versioned: Versioned): void;
-  /** The machine started over: its versions count from the start again. */
-  restarted(): void;
   /** A fork step's hook call has ended — its outcome or not: told to the
    * machine, with the operation it was for. */
   hookEnded(op: number): void;
@@ -158,9 +156,6 @@ export function createLifecycleSnapshot(deps: LifecycleSnapshotDeps): LifecycleS
       }
       for (const command of versioned.snapshot.commands) carry(command);
       for (const listener of listeners) listener();
-    },
-    restarted() {
-      held = null;
     },
     hookEnded(op) {
       if (disposed) return;

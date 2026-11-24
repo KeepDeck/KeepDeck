@@ -88,19 +88,6 @@ describe("the lifecycle snapshot", () => {
     expect(answer).toHaveBeenCalledTimes(5);
   });
 
-  it("answers a command the restarted machine asks again with the answer it had, carrying nothing twice", async () => {
-    const forked: Outcome = { kind: "rejected", why: { kind: "role", why: "taken", role: "lead" } };
-    const { store, carried, answers } = rig(() => Promise.resolve(forked));
-    store.receive(at(9, [removePane]));
-    await vi.advanceTimersByTimeAsync(0);
-    store.receive(at(10, []));
-    store.restarted();
-    store.receive(at(1, [removePane]));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(carried).toHaveLength(1);
-    expect(answers.map(([, outcome]) => outcome)).toEqual([forked, forked]);
-  });
-
   it("answers an owner that failed with the failed kind, and logs what it threw — never words for the person", async () => {
     const { store, answers, warn } = rig(() => Promise.reject(new Error("the deck could not take it")));
     store.receive(at(1, [removePane]));

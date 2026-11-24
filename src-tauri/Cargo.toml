@@ -93,12 +93,20 @@ tempfile = "3"
 # engine folds both to one key before it decides who owns a slot.
 unicode-normalization = "0.1"
 
+# The one message a second copy on a held settings folder shows, before
+# Tauri exists. Already in the build through the dialog plugin, at the same
+# version: no package of its own.
+rfd = { version = "0.16", default-features = false }
+
 # Our own AVCaptureDevice request with a REAL completion block (the plugin's
 # request passes a nil handler, which fails to raise the prompt in dev):
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = "0.3"
+# A second copy on a held settings folder asks LaunchServices to reopen the
+# first one. Already in the build through tao, at the same version.
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "block2", "NSWorkspace", "NSRunningApplication"] }
 
 [dev-dependencies]
 # The lifecycle's waiting door is tested on a tiny machine of its own.

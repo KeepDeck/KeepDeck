@@ -19,6 +19,12 @@ fn ws() -> WorkspaceId {
     WorkspaceId("ws-a".into())
 }
 
+/// The home a copy on `home` would own.
+fn claimed(home: &std::path::Path) -> crate::single::Owned {
+    let crate::single::Admission::This(owned) = crate::single::enter(home) else { panic!("a free home") };
+    owned
+}
+
 fn deck(cwd: &str) -> DeckFacts {
     DeckFacts {
         workspaces: vec![WorkspaceFacts {
@@ -70,8 +76,8 @@ async fn rig() -> Rig {
     let cwd = work.path().to_string_lossy().into_owned();
     let sessions = SessionMachine::start();
     let doors = AppDoors::new(sessions.clone(), crate::worktree::RepoLocks::default(), Arc::new(NoStores));
-    let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(doors));
-    sessions.link(lifecycle.clone());
+    let lifecycle = Lifecycle::start(Arc::new(doors), claimed(journal.path()));
+    sessions.link(lifecycle.door());
     let reply = lifecycle.door().ask(|ask| Event::Handshake { ask, deck: deck(&cwd), load: Load::Loaded }).await;
     assert!(matches!(reply, Reply::Answered { answer: Answer::Booted { .. } }), "{reply:?}");
     Rig { sessions, lifecycle, cwd, _journal: journal, _work: work }
@@ -149,9 +155,9 @@ async fn a_watcher_that_ends_tells_the_lifecycle_the_sessions_are_gone() {
     // The lifecycle's doors stop another machine's sessions: the watched one
     // can end alone.
     let doors = AppDoors::new(SessionMachine::start(), crate::worktree::RepoLocks::default(), Arc::new(NoStores));
-    let lifecycle = Lifecycle::start_at(journal.path().to_path_buf(), Arc::new(doors));
+    let lifecycle = Lifecycle::start(Arc::new(doors), claimed(journal.path()));
     let watched = SessionMachine::start();
-    watched.link(lifecycle.clone());
+    watched.link(lifecycle.door());
     drop(watched);
     for _ in 0..200 {
         if lifecycle.door().machine().state().borrow().value.sessions_down {

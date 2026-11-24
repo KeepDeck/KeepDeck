@@ -77,13 +77,13 @@ struct Sim {
 }
 
 impl Sim {
-    fn new(journal: Option<Vec<Entry>>) -> Sim {
-        let disk = journal.iter().flatten().map(|entry| (entry.op, entry.clone())).collect();
+    fn new(journal: Vec<Entry>) -> Sim {
+        let disk = journal.iter().map(|entry| (entry.op, entry.clone())).collect();
         Sim { state: State::start(journal), log: Vec::new(), asks: 0, revision: 0, sessions: 0, disk, cleaned: Vec::new(), carried: Vec::new() }
     }
 
     fn booted_with(deck: DeckFacts, journal: Vec<Entry>) -> Sim {
-        let mut sim = Sim::new(Some(journal));
+        let mut sim = Sim::new(journal);
         let ask = sim.next_ask();
         sim.send(Event::Handshake { ask, deck, load: Load::Loaded });
         sim
@@ -345,31 +345,25 @@ fn seat(name: &str) -> Intent {
 // ---------------------------------------------------------------- the barrier
 
 #[test]
-fn nothing_goes_before_the_handshake_and_a_view_only_copy_never_opens() {
-    let mut sim = Sim::new(Some(Vec::new()));
+fn nothing_goes_before_the_handshake() {
+    let mut sim = Sim::new(Vec::new());
     let ask = sim.intent(close_agent(1));
     assert_eq!(sim.refusal(ask), Some(Refusal::BarrierUp));
     let lease = sim.next_ask();
     sim.send(Event::Lease { ask: lease, lease: LeaseAsk::Launch { workspace: ws(), owner: LaunchOwner::Pane { pane: PaneId(1) }, dir: None } });
     assert_eq!(sim.refusal(lease), Some(Refusal::BarrierUp));
-
-    let mut view = Sim::new(None);
-    let ask = view.next_ask();
-    view.send(Event::Handshake { ask, deck: deck(), load: Load::Loaded });
-    assert_eq!(view.refusal(ask), Some(Refusal::BarrierUp), "without the journal root, only shows");
-    assert!(!view.state.open());
 }
 
 #[test]
 fn a_deck_that_did_not_load_keeps_the_barrier_up_and_a_quarantined_one_removes_nothing() {
     for load in [Load::Newer, Load::ReadFailed, Load::QuarantineFailed] {
-        let mut sim = Sim::new(Some(Vec::new()));
+        let mut sim = Sim::new(Vec::new());
         let ask = sim.next_ask();
         sim.send(Event::Handshake { ask, deck: deck(), load });
         assert!(!sim.state.open(), "{load:?}");
-        assert!(snapshot(&sim.state).view_only);
+        assert!(!snapshot(&sim.state).open, "{load:?}");
     }
-    let mut sim = Sim::new(Some(Vec::new()));
+    let mut sim = Sim::new(Vec::new());
     let ask = sim.next_ask();
     sim.send(Event::Handshake { ask, deck: deck(), load: Load::Quarantined });
     assert!(sim.state.open(), "work goes on");
@@ -2413,7 +2407,7 @@ fn a_quarantined_deck_removes_nothing_a_restored_operation_owes_and_keeps_its_en
         commands: vec![],
         done: vec![],
     };
-    let mut sim = Sim::new(Some(vec![fork]));
+    let mut sim = Sim::new(vec![fork]);
     let ask = sim.next_ask();
     sim.send(Event::Handshake { ask, deck: deck(), load: Load::Quarantined });
     for _ in 0..6 {
@@ -2448,7 +2442,7 @@ fn a_quarantined_deck_holds_a_restored_close_whole_its_forgetting_included() {
         }],
         done: vec![],
     };
-    let mut sim = Sim::new(Some(vec![close]));
+    let mut sim = Sim::new(vec![close]);
     let ask = sim.next_ask();
     sim.send(Event::Handshake { ask, deck: deck(), load: Load::Quarantined });
     sim.drive();
@@ -3075,11 +3069,11 @@ fn the_journals_closes_are_forgotten_from_the_machines_start() {
         commands: vec![],
         done: vec![],
     };
-    let state = State::start(Some(vec![
+    let state = State::start(vec![
         close(1, "ws-gone", Target::Workspace, vec![team("g")], vec![PaneId(5)]),
         close(2, "ws-b", Target::Team { team: team("d") }, vec![team("d")], vec![PaneId(6)]),
         close(3, "ws-b", Target::Agent { pane: PaneId(7) }, vec![], vec![PaneId(7)]),
-    ]));
+    ]);
     let forgotten = &snapshot(&state).forgotten;
     assert!(forgotten.workspaces.contains(&WorkspaceId("ws-gone".into())));
     assert_eq!(forgotten.teams, [team("d"), team("g")].into_iter().collect());
@@ -3135,7 +3129,7 @@ fn a_gate_says_exactly_what_its_intent_then_meets() {
     assert_eq!(snapshot(&sim.state).gates[&team("p")].retry, Some(Refusal::Busy));
 
     // A deck too new to work on only shows: every gate is the barrier.
-    let mut view = Sim::new(Some(Vec::new()));
+    let mut view = Sim::new(Vec::new());
     let ask = view.next_ask();
     view.send(Event::Handshake { ask, deck: deck(), load: Load::Newer });
     let barrier = Some(Refusal::BarrierUp);

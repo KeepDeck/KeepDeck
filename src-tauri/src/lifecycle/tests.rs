@@ -11,7 +11,7 @@ use keepdeck_lifecycle::domain::ids::{AttemptId, PaneId, SessionId, TeamId, Work
 use keepdeck_lifecycle::domain::journal::Ticket;
 use keepdeck_lifecycle::domain::machine::snapshot::snapshot;
 use keepdeck_lifecycle::domain::machine::{Clean, Event, Load};
-use keepdeck_lifecycle::domain::model::{Answer, Consent, Intent, Refusal, Reply};
+use keepdeck_lifecycle::domain::model::{Answer, Consent, Intent, Reply};
 use keepdeck_lifecycle::domain::world::{DeckFacts, PaneFacts, TeamAtFacts, TeamFacts, WorkspaceFacts};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -63,8 +63,14 @@ fn deck() -> DeckFacts {
     }
 }
 
-async fn booted(root: &std::path::Path, doors: Arc<FakeDoors>) -> Lifecycle {
-    let lifecycle = Lifecycle::start_at(root.to_path_buf(), doors);
+/// The home a copy on `home` would own.
+fn claimed(home: &std::path::Path) -> crate::single::Owned {
+    let crate::single::Admission::This(owned) = crate::single::enter(home) else { panic!("a free home") };
+    owned
+}
+
+async fn booted(home: &std::path::Path, doors: Arc<FakeDoors>) -> Lifecycle {
+    let lifecycle = Lifecycle::start(doors, claimed(home));
     let reply = lifecycle.door().ask(|ask| Event::Handshake { ask, deck: deck(), load: Load::Loaded }).await;
     assert!(matches!(reply, Reply::Answered { answer: Answer::Booted { .. } }), "{reply:?}");
     lifecycle
@@ -99,30 +105,12 @@ fn close_agent(pane: u64) -> Intent {
     Intent::CloseAgent { workspace: ws(), pane: PaneId(pane), consent: Consent::default() }
 }
 
-/// The machine's door is had without fail: a lock another thread poisoned
-/// still holds a whole door. The sessions' watcher asks for one as its own
-/// panic unwinds, where a second panic would abort the app.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_door_is_had_even_from_a_poisoned_lock() {
-    let dir = tempfile::tempdir().unwrap();
-    let lifecycle = booted(dir.path(), Arc::new(FakeDoors)).await;
-    let poisoner = lifecycle.clone();
-    let _ = std::thread::spawn(move || {
-        let _held = poisoner.live.lock().unwrap();
-        panic!("a panic while the lock is held");
-    })
-    .join();
-    assert!(lifecycle.live.is_poisoned());
-    assert!(lifecycle.door().machine().state().has_changed().is_ok(), "the door of the running machine");
-}
-
 #[tokio::test(flavor = "multi_thread")]
 async fn the_stores_gate_refuses_a_closed_panes_writes_and_no_one_elses() {
     use crate::forgotten::{Gate, Source};
     let dir = tempfile::tempdir().unwrap();
-    let lifecycle = Arc::new(booted(dir.path(), Arc::new(FakeDoors)).await);
-    let asked = lifecycle.clone();
-    let gate = Gate::new(super::MachineForgetting::new(move || asked.door()));
+    let lifecycle = booted(dir.path(), Arc::new(FakeDoors)).await;
+    let gate = Gate::new(super::MachineForgetting::new(lifecycle.door()));
     let from = |pane: &str| Source { workspace: "ws-a".into(), team: Some("team-r".into()), pane: Some(pane.into()) };
     assert!(gate.admit(&from("pane-2")).is_ok(), "nothing is forgotten yet");
 
@@ -134,44 +122,37 @@ async fn the_stores_gate_refuses_a_closed_panes_writes_and_no_one_elses() {
     assert!(gate.admit(&Source::from("ws-a")).is_ok(), "its workspace");
 }
 
+/// A second copy on a home the first one's machine runs on gets no machine
+/// of its own: it is refused at the door, and the lock names the first.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_second_copy_without_the_claim_only_shows() {
+async fn a_second_copy_on_one_home_is_refused_and_names_the_first() {
+    use keepdeck_lifecycle::domain::single::{Holder, Way};
     let dir = tempfile::tempdir().unwrap();
     let _first = booted(dir.path(), Arc::new(FakeDoors)).await;
-    let second = Lifecycle::start_at(dir.path().to_path_buf(), Arc::new(FakeDoors));
-    assert!(!second.claimed());
-    let reply = second.door().ask(|ask| Event::Handshake { ask, deck: deck(), load: Load::Loaded }).await;
-    assert_eq!(reply, Reply::Answered { answer: Answer::refused(Refusal::BarrierUp) });
-    let intent = second.door().ask(|ask| Event::Intent { ask, intent: close_agent(1) }).await;
-    assert_eq!(intent, Reply::Answered { answer: Answer::refused(Refusal::BarrierUp) });
+    let first = Some(Holder { pid: std::process::id(), leaving: false });
+    assert!(matches!(crate::single::enter(dir.path()), crate::single::Admission::Refused { holder, way: Way::Occupied } if holder == first));
 }
 
-/// The page hears each state as a snapshot. When the machine's stream ends,
-/// it hears that the machine stopped — unless another machine runs in its
-/// place, which says so itself.
+/// The page hears each state as a snapshot, and when the machine's stream
+/// ends, that the machine stopped.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_page_hears_its_machine_stop_and_not_a_machine_that_was_replaced() {
+async fn the_page_hears_its_machine_stop() {
     use keepdeck_fsm_runtime::At;
     use keepdeck_lifecycle::domain::machine::snapshot::Heard;
     use keepdeck_lifecycle::domain::machine::State;
-    let heard_until_the_end = |running_now: bool| async move {
-        let (publish, states) = tokio::sync::watch::channel(At { version: 0, value: State::start(Some(Vec::new())) });
-        let heard = Arc::new(Mutex::new(Vec::new()));
-        let into = heard.clone();
-        let send = move |message| {
-            into.lock().unwrap().push(message);
-            true
-        };
-        let publishing = tokio::spawn(super::commands::publish(states, send, move || running_now));
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        publish.send_modify(|at| at.version = 1);
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        drop(publish);
-        publishing.await.unwrap();
-        Arc::try_unwrap(heard).unwrap().into_inner().unwrap()
+    let (publish, states) = tokio::sync::watch::channel(At { version: 0, value: State::start(Vec::new()) });
+    let heard = Arc::new(Mutex::new(Vec::new()));
+    let into = heard.clone();
+    let send = move |message| {
+        into.lock().unwrap().push(message);
+        true
     };
-    let fell = heard_until_the_end(false).await;
+    let publishing = tokio::spawn(super::commands::publish(states, send));
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    publish.send_modify(|at| at.version = 1);
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    drop(publish);
+    publishing.await.unwrap();
+    let fell = Arc::try_unwrap(heard).unwrap().into_inner().unwrap();
     assert!(matches!(&fell[..], [Heard::Snapshot { versioned: first }, Heard::Snapshot { versioned: second }, Heard::Stopped] if first.version == 0 && second.version == 1), "{fell:?}");
-    let replaced = heard_until_the_end(true).await;
-    assert!(!replaced.contains(&Heard::Stopped), "{replaced:?}");
 }

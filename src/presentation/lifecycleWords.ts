@@ -100,11 +100,6 @@ export function intentOutcomeText(outcome: IntentOutcome): string | null {
 /** What the lifecycle says once about KeepDeck's work as a whole. */
 export function standingNotice(standing: Standing): { title: string; body: string } {
   switch (standing) {
-    case "viewOnly":
-      return {
-        title: "Another KeepDeck is running",
-        body: "It holds this settings folder, so this window only shows the deck — nothing here starts, closes or changes.",
-      };
     case "sessionsDown":
       return {
         title: "KeepDeck lost control of its sessions",

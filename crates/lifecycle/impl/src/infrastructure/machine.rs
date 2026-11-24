@@ -6,47 +6,42 @@
 use super::door::{Door, Waiters};
 use super::handler::Handler;
 use super::journal::DiskJournal;
+pub use super::journal::Loaded;
 use crate::domain::doors::Doors;
-use crate::domain::journal::Entry;
 use crate::domain::machine::{update, work, State};
 use keepdeck_fsm_runtime::Runtime;
 use std::path::Path;
 use std::sync::Arc;
 
-/// The journal of `root`: every readable entry; every other file is logged
-/// with its content and removed. None when the folder cannot be read at all.
-fn read_journal(journal: &DiskJournal, root: &Path) -> Option<Vec<Entry>> {
-    match journal.load() {
-        Ok(loaded) => {
-            for dropped in &loaded.dropped {
-                log::error!(
-                    "lifecycle: journal file {} is not replayed ({:?}); removed: {:?}; content: {}",
-                    dropped.name,
-                    dropped.why,
-                    dropped.removed,
-                    dropped.raw
-                );
-            }
-            Some(loaded.entries)
-        }
-        Err(error) => {
-            log::error!("lifecycle: the journal at {} could not be read: {error}", root.display());
-            None
-        }
-    }
+/// Read the journal in `root`: every readable entry, and every other file —
+/// removed already — with its content. An error when the folder cannot be
+/// read at all: an unreadable journal is not an empty one, and nothing may
+/// start as if it were. `lock` is the file of the folder's claim, named by
+/// whoever holds the claim: it is no entry. Read once, by whoever holds the
+/// claim, and handed to [`start`]: a second read would find nothing of what
+/// the first one removed.
+pub fn load_journal(root: &Path, lock: &str) -> std::io::Result<Loaded> {
+    DiskJournal::new(root.to_path_buf(), lock).load()
 }
 
-/// Start a machine on the journal in `root` when it may write there — or
-/// view-only, without it: an unreadable journal is not an empty one, and
-/// nothing may run as if it were. `lock` is the file of the folder's claim,
-/// named by whoever holds the claim: it is no entry. Call where a tokio
-/// runtime is entered.
-pub fn start(root: &Path, lock: &str, writes_journal: bool, doors: Arc<dyn Doors>) -> Door {
+/// Start the machine on `journal`, read from `root` by [`load_journal`]. The
+/// files that read dropped are logged here, where the log is up: their
+/// content is the only record left of them. Call where a tokio runtime is
+/// entered.
+pub fn start(root: &Path, lock: &str, journal: Loaded, doors: Arc<dyn Doors>) -> Door {
+    for dropped in &journal.dropped {
+        log::error!(
+            "lifecycle: journal file {} is not replayed ({:?}); removed: {:?}; content: {}",
+            dropped.name,
+            dropped.why,
+            dropped.removed,
+            dropped.raw
+        );
+    }
     let disk = DiskJournal::new(root.to_path_buf(), lock);
-    let journal = if writes_journal { read_journal(&disk, root) } else { None };
     let waiters = Waiters::default();
     let handler = Handler::new(doors, disk, waiters.clone());
-    let machine = Runtime::start(State::start(journal), update, work, handler);
+    let machine = Runtime::start(State::start(journal.entries), update, work, handler);
     Door::new(machine, waiters)
 }
 
@@ -134,7 +129,7 @@ mod tests {
     }
 
     async fn booted(root: &Path, doors: Arc<FakeDoors>) -> Door {
-        let door = start(root, LOCK_FILE, true, doors);
+        let door = start(root, LOCK_FILE, load_journal(root, LOCK_FILE).expect("the journal"), doors);
         let reply = handshake(&door).await;
         assert!(matches!(reply, Reply::Answered { answer: Answer::Booted { .. } }), "{reply:?}");
         door
@@ -259,14 +254,24 @@ mod tests {
         assert_eq!(reply.ok(), Some(Reply::Answered { answer: Answer::refused(Refusal::LocationHeld) }));
     }
 
-    /// Without the journal it may write, or with one it cannot read, the
-    /// machine only shows: an unread journal is not an empty one.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn without_the_journal_it_may_write_or_with_one_it_cannot_read_the_machine_only_shows() {
+    /// A journal that cannot be read is an error, never an empty journal:
+    /// nothing may start as if the operations it holds were done.
+    #[test]
+    fn a_journal_that_cannot_be_read_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        let not_ours = start(dir.path(), LOCK_FILE, false, Arc::new(FakeDoors::default()));
-        assert_eq!(handshake(&not_ours).await, Reply::Answered { answer: Answer::refused(Refusal::BarrierUp) }, "not its to write");
-        let unreadable = start(&dir.path().join("not-there"), LOCK_FILE, true, Arc::new(FakeDoors::default()));
-        assert_eq!(handshake(&unreadable).await, Reply::Answered { answer: Answer::refused(Refusal::BarrierUp) }, "not to be read");
+        assert!(load_journal(&dir.path().join("not-there"), LOCK_FILE).is_err(), "not to be read");
+    }
+
+    /// A file the journal cannot replay is removed by the one read, and the
+    /// entries beside it are kept: what the read dropped goes to `start`, to
+    /// be logged.
+    #[test]
+    fn the_read_drops_what_it_cannot_replay_and_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("op-3.json"), "not an entry").unwrap();
+        let loaded = load_journal(dir.path(), LOCK_FILE).expect("the journal");
+        assert_eq!(loaded.dropped.iter().map(|dropped| dropped.name.as_str()).collect::<Vec<_>>(), ["op-3.json"]);
+        assert!(loaded.entries.is_empty());
+        assert!(!dir.path().join("op-3.json").exists(), "removed by the read");
     }
 }

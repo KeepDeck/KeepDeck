@@ -8,7 +8,7 @@ import { standingsOf, type Standing } from "../../domain/lifecycle";
 
 export interface StandingAnnouncer {
   /** A snapshot of the machine: what it says about KeepDeck's work. */
-  heard(snapshot: { viewOnly: boolean; sessionsDown: boolean }): void;
+  heard(snapshot: { sessionsDown: boolean }): void;
   /** The machine the page listens to stopped. */
   stopped(): void;
 }

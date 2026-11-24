@@ -74,12 +74,11 @@ describe("the lifecycle's words", () => {
   });
 
   it("say each standing fact in its own notice, and that a restart is what brings work back", () => {
-    const standings: Standing[] = ["viewOnly", "sessionsDown", "stopped"];
+    const standings: Standing[] = ["sessionsDown", "stopped"];
     const notices = standings.map(standingNotice);
     expect(new Set(notices.map((notice) => notice.title)).size).toBe(standings.length);
     expect(new Set(notices.map((notice) => notice.body)).size).toBe(standings.length);
     expect(standingNotice("sessionsDown").body).toContain("until KeepDeck restarts");
     expect(standingNotice("stopped").body).toContain("until KeepDeck restarts");
-    expect(standingNotice("viewOnly").body).toContain("only shows");
   });
 });

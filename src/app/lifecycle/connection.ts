@@ -1,9 +1,9 @@
 /**
  * The page's connection to the lifecycle machine: the subscription first,
  * then — once the deck has loaded — the boot handshake with the deck as it
- * loaded, and the same again when the machine starts over. The barrier
- * comes down on the handshake; until then the snapshot says it is up, and
- * whatever waits on it waits silently.
+ * loaded. The barrier comes down on the handshake; until then the snapshot
+ * says it is up, and whatever waits on it waits silently. The app runs one
+ * machine for its whole life, so the page connects once.
  *
  * The order is the rule this owner exists for: a snapshot the machine
  * sends in answer to the handshake must find the subscription already
@@ -17,13 +17,12 @@ import type { LifecycleSnapshot } from "../lifecycleSnapshot";
 
 export interface LifecycleConnectionPorts {
   subscribe(onHeard: (heard: Heard) => void): Promise<void>;
-  onRestarted(handler: () => void): Promise<() => void>;
   handshake(deck: DeckFacts, load: DeckLoad): Promise<Reply>;
 }
 
 export interface LifecycleConnectionDeps {
   ports: LifecycleConnectionPorts;
-  snapshot: Pick<LifecycleSnapshot, "receive" | "restarted">;
+  snapshot: Pick<LifecycleSnapshot, "receive">;
   /** The deck as it loaded, and how — null while it is still loading. */
   loaded(): { workspaces: readonly Workspace[]; load: DeckLoad } | null;
   /** Be told when the load settles. */
@@ -42,9 +41,6 @@ export interface LifecycleConnection {
 
 export function connectLifecycle(deps: LifecycleConnectionDeps): LifecycleConnection {
   let disposed = false;
-  /** Bumped by every connect: a handshake a later connect overtook says
-   * nothing about the machine that is there now. */
-  let attempt = 0;
   const stops: (() => void)[] = [];
 
   /** The deck as it loaded, once it has. */
@@ -63,40 +59,24 @@ export function connectLifecycle(deps: LifecycleConnectionDeps): LifecycleConnec
   }
 
   async function connect(): Promise<void> {
-    const mine = ++attempt;
     await deps.ports.subscribe((heard) => {
-      // A machine that started over took the page with it: the old
-      // subscription's last words are about a machine that is gone.
-      if (disposed || mine !== attempt) return;
+      if (disposed) return;
       if (heard.kind === "snapshot") deps.snapshot.receive(heard.versioned);
       else deps.stopped();
     });
     const { workspaces, load } = await whenLoaded();
-    if (disposed || mine !== attempt) return;
+    if (disposed) return;
     const reply = await deps.ports.handshake(deckFactsOf(workspaces), load);
     if (reply.kind !== "answered") {
       deps.warn(`lifecycle: the boot handshake got no answer (${reply.kind})`);
     } else if (reply.answer.kind === "refused") {
       deps.warn(`lifecycle: the boot handshake was refused (${reply.answer.refusal.kind})`);
-    } else if (!disposed && mine === attempt) {
+    } else if (!disposed) {
       deps.booted();
     }
   }
 
-  const failed = (error: unknown) => deps.warn(`lifecycle: connecting failed — ${String(error)}`);
-  void connect().catch(failed);
-  void deps.ports
-    .onRestarted(() => {
-      if (disposed) return;
-      // A new machine counts its versions from the start again, and has
-      // heard no handshake yet.
-      deps.snapshot.restarted();
-      void connect().catch(failed);
-    })
-    .then((unlisten) => {
-      if (disposed) unlisten();
-      else stops.push(unlisten);
-    }, failed);
+  void connect().catch((error: unknown) => deps.warn(`lifecycle: connecting failed — ${String(error)}`));
 
   return {
     dispose() {

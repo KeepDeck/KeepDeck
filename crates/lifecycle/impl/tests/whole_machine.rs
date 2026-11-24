@@ -123,7 +123,7 @@ impl World {
     fn new(seed: u64, doors: Doors) -> World {
         TRACE.with(|trace| trace.borrow_mut().clear());
         World {
-            state: State::start(Some(Vec::new())),
+            state: State::start(Vec::new()),
             rng: Rng(seed | 1),
             doors,
             asks: 0,
