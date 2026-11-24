@@ -18,10 +18,14 @@ import {
   errorMessage,
   yoloFloor,
   yoloSwitch,
+  type McpDeckSocket,
+  type McpServerSpec,
+  type McpStdioServerSpec,
   type PluginResources,
   type SpawnPlanInput,
   type SpawnPlanOutput,
 } from "@keepdeck/plugin-api";
+import { DECK_SOCKET_ENV, encodeDeckSocket } from "../resources/keepdeck-plugin/deck-socket.js";
 import type { SkillsConfigDirs } from "./layout";
 import { mcpConfigFragment } from "./mcp";
 import { generationOf } from "./version";
@@ -93,6 +97,35 @@ const keepdeckServerPlugin = (ctx: LaunchPorts): OpencodeLaunch => ({
 /** The MCP servers, in the same config variable as the plugin. */
 const mcpServers = part((input, draft) => {
   Object.assign(draft.config, mcpConfigFragment(input.mcp) ?? {});
+});
+
+/** A server this plugin reaches itself: one that names its socket, which only
+ * KeepDeck's own does. */
+const reachedByPlugin = (
+  server: McpServerSpec,
+): server is McpStdioServerSpec & { deckSocket: McpDeckSocket } =>
+  server.transport === "stdio" && server.deckSocket !== undefined;
+
+/**
+ * 2.x: KeepDeck's own server goes to this plugin, every other server to
+ * opencode.
+ *
+ * On 2.x opencode starts its MCP servers as children of `opencode serve`,
+ * which runs in a session of its own, outside the pane's terminal. The deck
+ * places a socket caller by that terminal, so a shim there is nobody's pane.
+ * The plugin's deck tools (resources/keepdeck-plugin/deck-tools.js) call the
+ * socket from `serve` itself, which the deck places through its parent, the
+ * TUI. So the server that names its socket is left out of opencode's servers,
+ * and its socket and secret are handed to the plugin.
+ *
+ * One part decides both halves, so a pane never offers KeepDeck's tools twice,
+ * and never loses them to one half missing.
+ */
+const mcpServersV2 = part((input, draft) => {
+  const servers = input.mcp?.servers ?? [];
+  Object.assign(draft.config, mcpConfigFragment({ servers: servers.filter((server) => !reachedByPlugin(server)) }) ?? {});
+  const deck = servers.find(reachedByPlugin);
+  if (deck) draft.env.push([DECK_SOCKET_ENV, encodeDeckSocket(deck.deckSocket)]);
 });
 
 /**
@@ -241,18 +274,18 @@ export function launchFor(
   ctx: LaunchPorts,
   input: LaunchInput,
 ): { launch: OpencodeLaunch; settles: boolean } {
-  const shared = [keepdeckServerPlugin(ctx), mcpServers, permissionMode];
+  const shared = [keepdeckServerPlugin(ctx), permissionMode];
   if (input.target?.kind === "nativeServer") {
     return {
-      launch: composed(...shared, remoteAttach(input.target.endpoint)),
+      launch: composed(...shared, mcpServers, remoteAttach(input.target.endpoint)),
       settles: true,
     };
   }
   if (generationOf(input.cliVersion) === 2) {
-    return { launch: composed(...shared, skillsInConfig, invocationV2), settles: false };
+    return { launch: composed(...shared, mcpServersV2, skillsInConfig, invocationV2), settles: false };
   }
   return {
-    launch: composed(...shared, skillsConfigDir(ctx), tuiObserver(ctx), invocationV1),
+    launch: composed(...shared, mcpServers, skillsConfigDir(ctx), tuiObserver(ctx), invocationV1),
     settles: false,
   };
 }

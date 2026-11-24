@@ -8,6 +8,7 @@ import {
   v2Session,
   type FakeOpencodeOptions,
 } from "./fakeOpencode.test-support";
+import { decodeDeckSocket, DECK_SOCKET_ENV } from "../resources/keepdeck-plugin/deck-socket.js";
 import { registerOpencode, type OpencodePorts } from "./index";
 import { OPENCODE_SESSION_ENV } from "./opening";
 import { present } from "@keepdeck/plugin-api/testing";
@@ -177,6 +178,72 @@ describe("opencode plugin hooks", () => {
       "--mcp-shim",
       "/home/mcp.sock",
     ]);
+  });
+
+  it("hands a 2.x pane KeepDeck's server through the plugin, never through opencode as well", async () => {
+    // On 2.x opencode's MCP children run outside the pane's terminal, where
+    // the deck places no shim, so the plugin's deck tools call the socket
+    // instead (resources/keepdeck-plugin/deck-tools.js). One decision: the
+    // entry leaves opencode's servers exactly where the socket is handed over.
+    const agent = activate("/App/resources", opencodeServices({ generation: 2 }));
+    const deckSocket = { path: "/home/mcp.sock", client: "pane-secret" };
+    const mcp = {
+      servers: [
+        {
+          name: "keepdeck",
+          transport: "stdio" as const,
+          command: "/bin/keepdeck",
+          args: ["--mcp-shim", "/home/mcp.sock", "--client", "pane-secret"],
+          deckSocket,
+        },
+        { name: "fs", transport: "stdio" as const, command: "/usr/bin/npx", args: ["-y", "fs"] },
+      ],
+    };
+    const servers = (out: SpawnPlanOutput) =>
+      Object.keys(JSON.parse(present(Object.fromEntries(out.env).OPENCODE_CONFIG_CONTENT, "the config")).mcp ?? {});
+    const handed = (out: SpawnPlanOutput) => Object.fromEntries(out.env)[DECK_SOCKET_ENV];
+    const v2 = { ...input, mcp, cliVersion: "opencode v2.4.1" };
+
+    const spawn = output();
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(v2, spawn);
+    const resume = output();
+    await present(agent.hooks["resume.plan"], "the resume.plan hook")({ ...v2, sessionId: "ses_x" }, resume);
+    const fork = output();
+    await present(agent.hooks["fork.plan"], "the fork.plan hook")({ ...v2, sessionId: SRC, sourceCwd: "/repo" }, fork);
+    for (const plan of [spawn, resume, fork]) {
+      expect(servers(plan)).toEqual(["fs"]);
+      expect(decodeDeckSocket(handed(plan))).toEqual(deckSocket);
+    }
+
+    // 1.x runs its MCP servers in the pane's terminal, and an unknown version
+    // runs as 1.x: both keep the server and get no variable. So does a remote
+    // pane, whose `attach` loads neither.
+    const remote = { kind: "nativeServer" as const, endpoint: "http://vps:4096" };
+    for (const other of [
+      { ...input, mcp, cliVersion: "1.19.3" },
+      { ...input, mcp },
+      { ...v2, target: remote },
+    ]) {
+      const plan = output();
+      await present(agent.hooks["spawn.plan"], "the spawn.plan hook")(other, plan);
+      expect(servers(plan)).toEqual(["keepdeck", "fs"]);
+      expect(handed(plan)).toBeUndefined();
+    }
+  });
+
+  it("leaves a 2.x pane's servers to opencode when none names the deck's socket", async () => {
+    // A host older than the field hands a spec without it: the pane keeps
+    // KeepDeck's server where it was, rather than losing it.
+    const agent = activate("/App/resources");
+    const mcp = {
+      servers: [{ name: "keepdeck", transport: "stdio" as const, command: "/bin/keepdeck", args: ["--mcp-shim", "/s"] }],
+    };
+    const plan = output();
+    await present(agent.hooks["spawn.plan"], "the spawn.plan hook")({ ...input, mcp, cliVersion: "opencode v2.4.1" }, plan);
+
+    const env = Object.fromEntries(plan.env);
+    expect(Object.keys(JSON.parse(present(env.OPENCODE_CONFIG_CONTENT, "the config")).mcp)).toEqual(["keepdeck"]);
+    expect(env[DECK_SOCKET_ENV]).toBeUndefined();
   });
 
   /**

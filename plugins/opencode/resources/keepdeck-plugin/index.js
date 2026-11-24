@@ -19,7 +19,8 @@
  * ONE `pane-session.js` and state facts through ONE wire
  * (`keepdeck-bridge.js`), and opencode 2.x gives each plugin entry its own
  * copy of a sibling module. Loaded from here, there is one module graph and
- * one copy, on either generation.
+ * one copy, on either generation. On 2.x a third component offers KeepDeck's
+ * commands as tools (deck-tools.js), in place of the MCP server 1.x is given.
  *
  * What being two plugins used to give for free is kept here instead: a
  * component that fails to start, or whose handler throws, takes nothing else

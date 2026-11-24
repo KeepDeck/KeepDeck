@@ -5,16 +5,19 @@
  * opencode 2.x hands a plugin domains instead of a client and a hook map
  * (packages/plugin/src/promise/plugin.ts at v2.1.2): `event.subscribe()` for
  * the bus, `session` for asking and writing, `session.hook` / `tool.hook` for
- * the moments a message can ride along. This file is the adapter between
- * those and the two components (session-reporter-v2.js, mail-courier-v2.js);
- * what the components share with 1.x — the pane's session, the wire, the mail
- * ask, the doorbell — they import as 1.x does.
+ * the moments a message can ride along, `tool` for the tools it offers. This
+ * file is the adapter between those and the components: the reporter and the
+ * courier (session-reporter-v2.js, mail-courier-v2.js), which share with 1.x
+ * the pane's session, the wire, the mail ask and the doorbell, and the deck's
+ * tools (deck-tools.js), which only 2.x has.
  *
  * Every 2.x pane runs with `--standalone`, so this process serves one pane:
  * the TUI spawns it as `opencode serve`, and that TUI is its parent process
- * — whose screen the follower reads (tui.js writes it; task-436).
+ * — whose screen the follower reads (tui.js writes it; task-436), and through
+ * which the deck places this process as the pane's.
  */
 import { startComponents } from "./components.js";
+import { startDeckTools } from "./deck-tools.js";
 import { follower } from "./follower.js";
 import { isRecord } from "./guards.js";
 import { readBridge } from "./keepdeck-bridge.js";
@@ -58,11 +61,11 @@ export const parentLookupV2 = (context) => async (/** @type {string} */ sessionI
 export const resumedSession = () => process.env.KEEPDECK_OPENCODE_SESSION || undefined;
 
 /**
- * Start both components on a 2.x host, feed them the bus, and follow the
+ * Start the components on a 2.x host, feed them the bus, and follow the
  * TUI's screen. Returns the cleanup opencode 2.x calls when it reloads or
  * unloads the plugin: a reload starts everything afresh, and what the old
- * one left running — the bus, the doorbell, the screen watch — would answer
- * twice.
+ * one left running — the bus, the doorbell, the screen watch, a call to the
+ * deck — would answer twice.
  *
  * Inert outside a KeepDeck pane. A component that fails to start, or whose
  * handler throws, takes nothing else down — the same isolation index.js gives
@@ -71,27 +74,17 @@ export const resumedSession = () => process.env.KEEPDECK_OPENCODE_SESSION || und
  */
 export async function setupV2(context) {
   if (!isV2Context(context)) return;
+  // The deck's tools first, and whether or not the pane has a bridge: the two
+  // are separate facts. Their list is then on its way before READY lets the
+  // deck deliver the pane its mail.
+  const tools = await startComponents([startDeckTools], { context });
   const bridge = readBridge();
-  if (!bridge) return;
-  const pane = paneSession(parentLookupV2(context));
-  // Bound before anything starts: a resumed session says nothing until it
-  // works, and a ring already waiting on disk would otherwise find the pane
-  // with no conversation to deliver into. KeepDeck resumes a pane's ROOT, so
-  // no lookup is needed — and none is made while opencode is still loading.
-  const resumed = resumedSession();
-  if (resumed) pane.bindFromChain(resumed);
-  const components = await startComponents([startReporterV2, startCourierV2, announceReady], {
-    context,
-    bridge,
-    pane,
-    resumed,
-  });
-  // Both components have joined the follower by now (follower.js).
-  const stopFollowing = follower().start(bridge.dir, process.ppid);
-  const stopFeed = feed(
-    context,
-    components.filter(isRecord).filter((component) => typeof component.onEvent === "function"),
-  );
+  const reporting = bridge ? await startReporting(context, bridge) : [];
+  // The reporter and the courier have joined the follower by now (follower.js).
+  const stopFollowing = bridge ? follower().start(bridge.dir, process.ppid) : () => {};
+  const components = [...tools, ...reporting].filter(isRecord);
+  const listeners = components.filter((component) => typeof component.onEvent === "function");
+  const stopFeed = listeners.length > 0 ? feed(context, listeners) : () => {};
   return () => {
     stopFollowing();
     stopFeed();
@@ -104,6 +97,27 @@ export async function setupV2(context) {
       }
     }
   };
+}
+
+/**
+ * The reporter, the courier and READY, for the pane `bridge` names.
+ * @param {V2Context} context
+ * @param {import("./keepdeck-wire.js").Bridge} bridge
+ */
+async function startReporting(context, bridge) {
+  const pane = paneSession(parentLookupV2(context));
+  // Bound before anything starts: a resumed session says nothing until it
+  // works, and a ring already waiting on disk would otherwise find the pane
+  // with no conversation to deliver into. KeepDeck resumes a pane's ROOT, so
+  // no lookup is needed — and none is made while opencode is still loading.
+  const resumed = resumedSession();
+  if (resumed) pane.bindFromChain(resumed);
+  return startComponents([startReporterV2, startCourierV2, announceReady], {
+    context,
+    bridge,
+    pane,
+    resumed,
+  });
 }
 
 /**
