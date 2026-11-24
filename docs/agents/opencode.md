@@ -65,10 +65,13 @@ nothing is installed on the user's side.
 `stageLaunch` in `src/launch.ts` is what every launch carries, through the
 shared `launchPlans`. A launch is one interface, `OpencodeLaunch`, with a
 whole launch per case composed from parts:
-- shared parts: KeepDeck's plugin, MCP servers, the permission mode;
-- 1.x: the plugin-built config dir (skills, warm-up) and its flags;
-- 2.x: the `skills` config key and `--standalone`;
-- remote: `attach <endpoint>` and nothing local.
+- shared parts: KeepDeck's plugin and the permission mode;
+- 1.x: the MCP servers, the plugin-built config dir (skills, warm-up) and
+  its flags;
+- 2.x: the MCP servers except KeepDeck's own, whose socket and secret go to
+  the plugin instead (`KEEPDECK_OPENCODE_DECK`, read by `deck-tools.js`),
+  the `skills` config key and `--standalone`;
+- remote: the MCP servers, `attach <endpoint>` and nothing local.
 
 `launchFor` is the only place that reads the version and the target. An
 unknown version runs as 1.x. The draft a launch fills holds only what every
@@ -233,7 +236,8 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
     the same `foreground.json`, and its `setup` returns the cleanup 2.x
     calls on reload.
   - `opencode-v2.js` starts the follower with the parent's pid, and returns
-    a cleanup that stops the bus, the doorbell and the screen watch.
+    a cleanup that stops the bus, the doorbell, the screen watch and any
+    call the deck tools still have open.
   - Leaving stops nothing on 2.x (user decision): `leaving.js` gets no
     `interrupt`, so on the home screen the pane lets go at once
     (`session.unbound`) and the tab runs on. Another session on screen moves
@@ -279,7 +283,11 @@ Read from the 2.0.32 and 2.1.2 source, and verified live on 2.1.2
   - 15 concurrent `--standalone` starts on an initialized db, no failure
     (upstream #53879 is a NEW db only);
   - the MCP server's parent is the `serve` process, in its own session, so
-    the pane-identity rule of task-424 does not admit it yet (open).
+    the pane-identity rule of task-424 does not admit it. Since task-1059
+    KeepDeck's own server is not given to opencode on 2.x: the plugin's
+    `deck-tools.js` registers KeepDeck's commands as opencode tools and
+    calls the MCP socket from `serve` itself, which the rule admits through
+    its parent, the TUI (measured on 2.4.1, task-1063).
 - **Remote.** `attach` is gone; it is now `--server <url>` with
   `OPENCODE_PASSWORD`.
 - **Fork.** `--fork` is gone; KeepDeck forks by `session export`/`import`
