@@ -251,13 +251,17 @@ describe("the deck's commands as opencode 2.x tools", () => {
     const host = standInHost();
     await listed(host);
     const before = deck.connections.length;
-    host.assert.mockImplementation(async () => {
-      // Long enough for a connection opened before the ask to be accepted.
-      await settle();
-      expect(deck.connections).toHaveLength(before);
-    });
+    let grant: (() => void) | undefined;
+    host.assert.mockImplementation(() => new Promise<void>((resolve) => (grant = resolve)));
 
-    await host.tool("mail_send")({ to: "lead" }, call());
+    const pending = host.tool("mail_send")({ to: "lead" }, call());
+    await vi.waitFor(() => expect(host.assert).toHaveBeenCalled());
+    // Long enough for a connection opened before the answer to be accepted.
+    await settle();
+    expect(deck.connections).toHaveLength(before);
+    grant?.();
+    await pending;
+    expect(deck.connections).toHaveLength(before + 1);
 
     expect(host.assert).toHaveBeenCalledWith({
       sessionID: "ses_1",
@@ -379,6 +383,53 @@ describe("the deck's commands as opencode 2.x tools", () => {
     started.onEvent?.({ type: "session.step.started", data: {} });
     await settle();
     expect(deck.requests("tools/list")).toHaveLength(3);
+  });
+
+  it("keeps a turn that starts while a listing is on its way, and lists again after it", async () => {
+    let offered: unknown[] = [MAIL_SEND];
+    let held: (() => void) | undefined;
+    let hold = false;
+    deck.answer(() => {
+      // The answer is what the deck held when it was asked.
+      const body = listing(...offered);
+      return hold ? new Promise<Answer>((resolve) => (held = () => resolve(body))) : body;
+    });
+    const host = standInHost();
+    const started = await listed(host);
+
+    hold = true;
+    started.onEvent?.({ type: "session.execution.started", data: {} });
+    await vi.waitFor(() => expect(held).toBeDefined());
+    // A command lands, and the next turn starts, while that listing waits.
+    offered = [MAIL_SEND, TASK_LIST];
+    hold = false;
+    started.onEvent?.({ type: "session.execution.started", data: {} });
+    held?.();
+
+    await vi.waitFor(() => expect(host.registered().tools.map((tool) => tool.name)).toEqual(["mail_send", "task_list"]));
+    expect(deck.requests("tools/list")).toHaveLength(3);
+  });
+
+  it("sends nothing once the plugin stopped, a call whose permission was still pending included", async () => {
+    deck.answer((request) => (request.method === "tools/list" ? listing(MAIL_SEND) : text("ok")));
+    const host = standInHost();
+    const started = await listed(host);
+    const before = deck.connections.length;
+    let grant: (() => void) | undefined;
+    host.assert.mockImplementation(() => new Promise<void>((resolve) => (grant = resolve)));
+
+    const pending = host.tool("mail_send")({}, call());
+    await vi.waitFor(() => expect(host.assert).toHaveBeenCalled());
+    started.stop?.();
+    grant?.();
+
+    await expect(pending).rejects.toThrow("stopped");
+    await settle();
+    expect(deck.connections).toHaveLength(before);
+    // Nor does a turn list again.
+    started.onEvent?.({ type: "session.execution.started", data: {} });
+    await settle();
+    expect(deck.requests("tools/list")).toHaveLength(1);
   });
 
   it("says once when the listing changes state, and not on every turn", async () => {

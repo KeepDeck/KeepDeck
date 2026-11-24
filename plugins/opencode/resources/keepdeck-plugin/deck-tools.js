@@ -79,6 +79,9 @@ export async function startDeckTools({ context }) {
   let tools = [];
   let listedAs = JSON.stringify(tools);
   let listing = false;
+  /** A turn began while a listing was on its way: its answer may predate
+   * what that turn should be offered, so one more listing follows it. */
+  let again = false;
   let stopped = false;
   /** @type {string | undefined} */
   let reported;
@@ -92,12 +95,15 @@ export async function startDeckTools({ context }) {
     console.error(`keepdeck: ${state}`);
   };
 
-  /** @param {string} method @param {Record<string, unknown>} params @param {AbortSignal} [signal] */
-  const ask = (method, params, signal) => request({ path: socket.path, token, method, params, signal, open });
+  /** Nothing goes to the deck once the plugin has stopped: a call whose
+   * permission was granted after the stop included.
+   * @param {string} method @param {Record<string, unknown>} params @param {AbortSignal} [signal] */
+  const ask = (method, params, signal) =>
+    stopped
+      ? Promise.reject(new Error("the KeepDeck plugin has stopped"))
+      : request({ path: socket.path, token, method, params, signal, open });
 
-  const relist = async () => {
-    if (listing || stopped) return;
-    listing = true;
+  const listOnce = async () => {
     try {
       const next = toolsOf(await ask("tools/list", {}));
       const as = JSON.stringify(next);
@@ -107,7 +113,25 @@ export async function startDeckTools({ context }) {
       listedAs = as;
       await context.tool.reload();
     } catch (error) {
-      report(`the deck's commands could not be listed: ${messageOf(error)}`);
+      // A listing the stop itself cut short is not news.
+      if (!stopped) report(`the deck's commands could not be listed: ${messageOf(error)}`);
+    }
+  };
+
+  /** One listing at a time, in order; a trigger that arrives meanwhile is
+   * kept, not dropped. */
+  const relist = async () => {
+    if (stopped) return;
+    if (listing) {
+      again = true;
+      return;
+    }
+    listing = true;
+    try {
+      do {
+        again = false;
+        await listOnce();
+      } while (again && !stopped);
     } finally {
       listing = false;
     }
@@ -116,8 +140,10 @@ export async function startDeckTools({ context }) {
   /** @param {string} name */
   const execute = (name) => async (/** @type {unknown} */ input, /** @type {CallContext} */ call) => {
     const args = isRecord(input) ? input : {};
-    // A rejection propagates as it came: rethrown, it ends the step the way
-    // opencode's own refusal does.
+    // A refusal propagates as it came, as opencode asks of a plugin: what it
+    // makes of it is opencode's (packages/plugin/src/promise/permission.ts at
+    // v2.4.1). Measured on 2.4.1: the model gets a Tool.Error and the turn
+    // goes on.
     await context.permission.assert({
       sessionID: call.sessionID,
       ...(call.agent === undefined ? {} : { agent: call.agent }),
