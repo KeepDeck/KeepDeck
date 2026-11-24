@@ -104,6 +104,9 @@ rfd = { version = "0.16", default-features = false }
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = "0.3"
+# A second copy on a held settings folder asks LaunchServices to reopen the
+# first one. Already in the build through tao, at the same version.
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "libc", "block2", "NSWorkspace", "NSRunningApplication"] }
 
 [dev-dependencies]
 # The lifecycle's waiting door is tested on a tiny machine of its own.

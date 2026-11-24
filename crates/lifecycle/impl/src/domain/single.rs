@@ -121,10 +121,27 @@ pub fn way(patience: Patience, holder: Option<Holder>) -> Way {
     }
 }
 
+/// Whether a copy that does not start should bring the one in its way to
+/// the front: one going about its business, yes; one still quitting, no.
+pub fn reopens(way: Way) -> bool {
+    way == Way::Occupied
+}
+
+/// Whether the first copy was brought forward: only an answer that came
+/// inside the bound (`None` is none), with no error, naming the holder's own
+/// pid counts — an answer naming another application, the newcomer itself
+/// included, does not.
+pub fn handed_over(answered: Option<Result<u32, ()>>, holder: u32) -> bool {
+    answered == Some(Ok(holder))
+}
+
 /// What a copy that does not start tells the person.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Say {
-    /// Another copy runs on this settings folder.
+    /// Nothing: the copy that runs was brought forward, which says it all.
+    Nothing,
+    /// Another copy runs on this settings folder, and could not be brought
+    /// forward.
     AlreadyRunning,
     /// The copy this one was to replace is still quitting.
     StillLeaving,
@@ -132,8 +149,9 @@ pub enum Say {
     Unusable,
 }
 
-pub fn say(way: Way) -> Say {
+pub fn say(way: Way, handed_over: bool) -> Say {
     match way {
+        Way::Occupied if handed_over => Say::Nothing,
         Way::Occupied => Say::AlreadyRunning,
         Way::StillLeaving => Say::StillLeaving,
     }
@@ -143,7 +161,7 @@ pub fn say(way: Way) -> Say {
 /// runs, 4 when something is wrong.
 pub fn exit_code(say: Say) -> i32 {
     match say {
-        Say::AlreadyRunning => 3,
+        Say::Nothing | Say::AlreadyRunning => 3,
         Say::StillLeaving | Say::Unusable => 4,
     }
 }
@@ -183,12 +201,28 @@ mod tests {
     }
 
     #[test]
-    fn a_copy_that_does_not_start_says_why_and_exits_by_it() {
-        assert_eq!(say(Way::Occupied), Say::AlreadyRunning);
-        assert_eq!(say(Way::StillLeaving), Say::StillLeaving);
+    fn a_copy_that_does_not_start_speaks_only_when_it_could_not_bring_the_first_forward() {
+        assert_eq!(say(Way::Occupied, true), Say::Nothing);
+        assert_eq!(say(Way::Occupied, false), Say::AlreadyRunning);
+        assert_eq!(say(Way::StillLeaving, false), Say::StillLeaving);
+        assert_eq!(exit_code(Say::Nothing), 3);
         assert_eq!(exit_code(Say::AlreadyRunning), 3);
         assert_eq!(exit_code(Say::StillLeaving), 4);
         assert_eq!(exit_code(Say::Unusable), 4);
+    }
+
+    #[test]
+    fn only_a_copy_going_about_its_business_is_brought_forward() {
+        assert!(reopens(Way::Occupied));
+        assert!(!reopens(Way::StillLeaving), "a copy still quitting is not reopened");
+    }
+
+    #[test]
+    fn focus_is_handed_over_only_on_the_holders_pid_with_no_error() {
+        assert!(handed_over(Some(Ok(41)), 41));
+        assert!(!handed_over(Some(Ok(42)), 41), "another application, the newcomer itself included");
+        assert!(!handed_over(Some(Err(())), 41), "an error");
+        assert!(!handed_over(None, 41), "no answer inside the bound");
     }
 
     #[test]

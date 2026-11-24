@@ -83,9 +83,12 @@ pub fn enter(home: &Path) -> Copy {
     }
 }
 
-/// The home's claim and its journal — or this process ends, having said
-/// why. What the windowed app asks before anything else.
-pub fn own_home() -> Owned {
+/// The home's claim and its journal — or this process ends, having brought
+/// the copy in its way to the front or said why it could not. What the
+/// windowed app asks before anything else. `ours` is the app's bundle
+/// identifier, as its configuration names it: a build run as a bare binary
+/// has none of its own to compare with.
+pub fn own_home(ours: &str) -> Owned {
     let copy = match crate::paths::keepdeck_home() {
         Some(home) => enter(&home),
         None => Copy::Fault(Fault::NoHome),
@@ -96,38 +99,106 @@ pub fn own_home() -> Owned {
             if let Some(holder) = holder {
                 eprintln!("KeepDeck: the settings folder is held by pid {}", holder.pid);
             }
-            let say = rules::say(way);
-            leave(words(say), rules::exit_code(say))
+            let handed_over = rules::reopens(way) && reopen(ours, holder);
+            leave(rules::say(way, handed_over), None)
         }
-        Copy::Fault(fault) => leave(format!("{} {fault}.", words(Say::Unusable)), rules::exit_code(Say::Unusable)),
+        Copy::Fault(fault) => leave(Say::Unusable, Some(&fault)),
     }
 }
 
-/// The words for what a copy that does not start says.
-fn words(say: Say) -> String {
+/// The words for what a copy that does not start says — none when it has
+/// nothing to say.
+fn words(say: Say, fault: Option<&Fault>) -> Option<String> {
     match say {
-        Say::AlreadyRunning => "KeepDeck is already running. Choose it with ⌘Tab, or click it in the Dock. \
-                                If it does not answer, force-quit it and open KeepDeck again."
-            .to_owned(),
-        Say::StillLeaving => {
-            "KeepDeck could not restart: the copy it is replacing is still quitting. Force-quit KeepDeck and open it again.".to_owned()
-        }
-        Say::Unusable => "KeepDeck could not open its settings folder:".to_owned(),
+        Say::Nothing => None,
+        Say::AlreadyRunning => Some(
+            "KeepDeck is already running. This copy could not bring it forward — choose KeepDeck with ⌘Tab, \
+             or click it in the Dock. If it does not answer, force-quit it and open KeepDeck again."
+                .to_owned(),
+        ),
+        Say::StillLeaving => Some(
+            "KeepDeck could not restart: the copy it is replacing is still quitting. Force-quit KeepDeck and open it again."
+                .to_owned(),
+        ),
+        Say::Unusable => Some(match fault {
+            Some(fault) => format!("KeepDeck could not open its settings folder: {fault}."),
+            None => "KeepDeck could not open its settings folder.".to_owned(),
+        }),
     }
 }
 
-/// Say it — on stderr, and in a dialog, since a copy started from the Dock
-/// has no terminal — and end the process. Nothing of Tauri exists yet: the
-/// dialog runs its own modal loop.
-fn leave(words: String, code: i32) -> ! {
-    eprintln!("KeepDeck: {words}");
-    rfd::MessageDialog::new()
-        .set_level(rfd::MessageLevel::Warning)
-        .set_title("KeepDeck")
-        .set_description(&words)
-        .set_buttons(rfd::MessageButtons::Ok)
-        .show();
-    std::process::exit(code)
+/// Say it, if there is anything to say — on stderr, and in a dialog, since a
+/// copy started from the Dock has no terminal — and end the process.
+/// Nothing of Tauri exists yet: the dialog runs its own modal loop.
+fn leave(say: Say, fault: Option<&Fault>) -> ! {
+    if let Some(words) = words(say, fault) {
+        eprintln!("KeepDeck: {words}");
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Warning)
+            .set_title("KeepDeck")
+            .set_description(&words)
+            .set_buttons(rfd::MessageButtons::Ok)
+            .show();
+    }
+    std::process::exit(rules::exit_code(say))
+}
+
+/// How long the second copy waits for LaunchServices to say it reopened
+/// the first.
+#[cfg(target_os = "macos")]
+const FOCUS_BOUND: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Bring the copy in the way to the front: ask LaunchServices to reopen its
+/// bundle, as a click on its Dock icon does. That reopen unhides it,
+/// restores a minimized window and moves to its full-screen Space, from a
+/// terminal launch too — an activation request does none of that reliably
+/// (measured on macOS 15.7.4). Found by the pid its lock names, or — when it
+/// names none, an older build — as the one other running application of
+/// ours. Only KeepDeck is reopened: a pid can have gone to another app
+/// since. The call answers asynchronously, and this process runs no event
+/// loop: the answer is waited for, bounded. A holder that exits in that
+/// window is launched again by the reopen, and passes the door as any
+/// launch does.
+#[cfg(target_os = "macos")]
+fn reopen(ours: &str, holder: Option<Holder>) -> bool {
+    use objc2_app_kit::{NSRunningApplication, NSWorkspace, NSWorkspaceOpenConfiguration};
+    use objc2_foundation::{NSError, NSString};
+    let me = std::process::id() as libc::pid_t;
+    let ours = NSString::from_str(ours);
+    let target = match holder {
+        Some(holder) => NSRunningApplication::runningApplicationWithProcessIdentifier(holder.pid as libc::pid_t),
+        None => {
+            let running = NSRunningApplication::runningApplicationsWithBundleIdentifier(&ours);
+            let mut others = running.iter().filter(|app| app.processIdentifier() != me);
+            match (others.next(), others.next()) {
+                (Some(one), None) => Some(one),
+                _ => None,
+            }
+        }
+    };
+    let Some(target) = target else { return false };
+    if !target.bundleIdentifier().is_some_and(|identifier| identifier.isEqualToString(&ours)) {
+        return false;
+    }
+    let Some(url) = target.bundleURL() else { return false };
+    let holder_pid = target.processIdentifier() as u32;
+    let configuration = NSWorkspaceOpenConfiguration::new();
+    configuration.setActivates(true);
+    let (done, answered) = std::sync::mpsc::channel::<Result<u32, ()>>();
+    let completion = block2::RcBlock::new(move |app: *mut NSRunningApplication, error: *mut NSError| {
+        // SAFETY: LaunchServices hands the application it opened, or nil,
+        // valid for the call.
+        let opened = if error.is_null() { unsafe { app.as_ref() }.map(|app| app.processIdentifier() as u32) } else { None };
+        let _ = done.send(opened.ok_or(()));
+    });
+    NSWorkspace::sharedWorkspace().openApplicationAtURL_configuration_completionHandler(&url, &configuration, Some(&completion));
+    rules::handed_over(answered.recv_timeout(FOCUS_BOUND).ok(), holder_pid)
+}
+
+/// Nothing to bring forward where LaunchServices is not.
+#[cfg(not(target_os = "macos"))]
+fn reopen(_ours: &str, _holder: Option<Holder>) -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -215,6 +286,32 @@ mod tests {
         let copy = enter(home.path());
         std::fs::set_permissions(root(home.path()), std::fs::Permissions::from_mode(0o700)).unwrap();
         assert!(matches!(copy, Copy::Fault(Fault::Journal { .. })), "a fault");
+    }
+
+    /// The app's identifier, as tauri.conf.json names it.
+    #[cfg(target_os = "macos")]
+    const OURS: &str = "ai.keepdeck.desktop";
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_pid_that_is_no_application_is_not_reopened() {
+        assert!(!reopen(OURS, Some(Holder { pid: 999_999, leaving: false })));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_application_that_is_not_ours_is_not_reopened() {
+        // A pid the lock names may since have gone to another application:
+        // Finder stands for it. Without the guard, Finder would be reopened.
+        let finder = objc2_app_kit::NSRunningApplication::runningApplicationsWithBundleIdentifier(
+            &objc2_foundation::NSString::from_str("com.apple.finder"),
+        );
+        let Some(finder) = finder.iter().next() else {
+            eprintln!("no Finder runs here: no other application to try");
+            return;
+        };
+        let pid = finder.processIdentifier() as u32;
+        assert!(!reopen(OURS, Some(Holder { pid, leaving: false })));
     }
 
     #[test]

@@ -108,9 +108,11 @@ pub fn run() {
     // app was launched with: taken now, before anything could change it.
     plugin_permissions::host_environment();
     // Then the question asked before anything touches the settings folder:
-    // may this process own it. A copy on a folder another one holds says so
-    // and ends here, before it has written a byte into it.
-    let home = single::own_home();
+    // may this process own it. A copy on a folder another one holds brings
+    // that one to the front, or says why it could not, and ends here before
+    // it has written a byte into it.
+    let context = tauri::generate_context!();
+    let home = single::own_home(&context.config().identifier);
     // Trim past runs' log files before the plugin opens this run's own.
     let collected = logging::collect_garbage();
     let builder = tauri::Builder::default()
@@ -178,7 +180,7 @@ pub fn run() {
         price_catalogue::start(app.handle());
         Ok(())
     }, home)
-    .build(tauri::generate_context!())
+    .build(context)
     .expect("error while building tauri application")
     // The app is going — take the agents with it.
     //
