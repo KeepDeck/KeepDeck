@@ -9,6 +9,14 @@
  * the old turn's cancellation, even though UserPromptSubmit ran before it.
  * Both records must travel together; reading only the abort ends new work.
  *
+ * And a turn that goes on past its own end. `/goal` is a Stop hook of the
+ * session's that blocks stopping until its condition holds: every Stop hook
+ * runs, this plugin's reporter too, so the pane hears the turn end — and
+ * then claude carries on in the same turn, with no prompt and no hook to say
+ * so. Each time the check finds the goal not yet met it writes a
+ * `goal_status` attachment; that line is the only witness that the turn
+ * went on.
+ *
  * This used to be the HOST's knowledge: it read `interruptedMessageId` out of
  * a claude record, decided the record meant an interrupt, minted a word for
  * it and routed on the word it had minted, while this plugin translated that
@@ -37,6 +45,11 @@ interface ClaudeRecord {
   promptSource?: unknown;
   isMeta?: unknown;
   isSidechain?: unknown;
+  /** An attachment's kind, and — on a `goal_status` — whether the check
+   * found the goal met, or gave it up. */
+  "attachment.type"?: unknown;
+  "attachment.met"?: unknown;
+  "attachment.failed"?: unknown;
 }
 
 /** Any JSON object: every field above is read as `unknown`. */
@@ -102,6 +115,10 @@ export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
     match: [{ key: "type", equals: "user" }, { key: "origin.kind", equals: "human" }],
     keep: ["type", "timestamp", "origin.kind", "promptSource", "isMeta", "isSidechain"],
     lane: "status",
+  }, {
+    match: [{ key: "type", equals: "attachment" }, { key: "attachment.type", equals: "goal_status" }],
+    keep: ["type", "timestamp", "attachment.type", "attachment.met", "attachment.failed", "isSidechain"],
+    lane: "status",
   }],
 
   /** claude's own reporter names the transcript it writes, so there is no
@@ -111,9 +128,17 @@ export const claudeTail: SessionTailDialect<JsonlRequest, ClaudeRecord> = {
   follow: async (pane) => (pane.store ? { path: pane.store } : null),
 
   read: (record) => {
-    if (record.type !== "user") return null;
     const at = parseInstant(record.timestamp);
     if (at === null || record.isSidechain === true) return null;
+    // The goal not met yet, and not given up: the turn that just ended goes
+    // on. Met, or failed, it ends there — as the Stop already said.
+    if (record.type === "attachment") {
+      return record["attachment.type"] === "goal_status" &&
+        record["attachment.met"] === false && record["attachment.failed"] !== true
+        ? { kind: "turn-observed", at }
+        : null;
+    }
+    if (record.type !== "user") return null;
     if (
       record["origin.kind"] === "human" && record.isMeta !== true &&
       (record.promptSource === "typed" || record.promptSource === "queued")
