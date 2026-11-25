@@ -211,13 +211,27 @@ impl Inbound {
 /// One optional string a reporter MAY have included. Absent, null, the wrong
 /// type and empty all collapse to `None` — every consumer of these fields
 /// already treats "not reported" as one case, and a shell reporter that omits
-/// a field and one that emits `""` mean the same thing.
+/// a field and one that emits `""` mean the same thing. Not for the reporter,
+/// whose wrong type is not the same as its absence ([`reporter`]).
 fn reported(payload: &serde_json::Value, key: &str) -> Option<String> {
     payload
         .get(key)
         .and_then(|value| value.as_str())
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+/// The process an envelope names as its sender. Absent, null and empty name
+/// none — a shell reporter that could not tell its process sends `""` — and
+/// a string is a name, which the door reads as a process. Anything else is no
+/// name at all, and the envelope is malformed rather than read as unnamed: an
+/// unnamed sender is admitted from further out than a named one.
+fn reporter(payload: &serde_json::Value) -> Result<Option<String>, String> {
+    match payload.get("reporter") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(name)) => Ok((!name.is_empty()).then(|| name.clone())),
+        Some(_) => Err("its reporter is not a process name".into()),
+    }
 }
 
 /// The binding's `facts`: its string-valued entries, the rest dropped — a
@@ -268,7 +282,7 @@ pub(super) fn interpret(content: &str) -> Result<Inbound, String> {
                 bound: SessionBound {
                     transcript_path: reported(&envelope.payload, "transcriptPath"),
                     source: reported(&envelope.payload, "source"),
-                    reporter: reported(&envelope.payload, "reporter"),
+                    reporter: reporter(&envelope.payload).map_err(|why| format!("session.bound: {why}"))?,
                     facts: facts(&envelope.payload),
                     pane_id: envelope.pane_id,
                     session_id: session_id.to_string(),
@@ -288,11 +302,12 @@ pub(super) fn interpret(content: &str) -> Result<Inbound, String> {
             if envelope.pane_id.is_empty() || envelope.token.is_empty() || agent.is_empty() {
                 return Err(format!("{kind} with empty fields"));
             }
+            let reporter = reporter(&envelope.payload).map_err(|why| format!("{kind}: {why}"))?;
             Ok(Inbound::Opaque {
                 event,
                 report: Report {
                     pane_id: envelope.pane_id,
-                    reporter: reported(&envelope.payload, "reporter"),
+                    reporter,
                     payload: envelope.payload,
                 },
                 token: envelope.token,
@@ -722,13 +737,30 @@ pub(super) mod tests {
         }).to_string());
         let Ok(Inbound::Opaque { report, .. }) = named else { panic!("expected a report, got {named:?}") };
         assert_eq!(report.reporter.as_deref(), Some("4021"));
-        for blank in [serde_json::json!(""), serde_json::json!(null), serde_json::json!(4021)] {
+        for blank in [serde_json::json!(""), serde_json::json!(null)] {
             let content = serde_json::json!({
                 "v": BRIDGE_PROTOCOL_VERSION, "type": "usage.report", "paneId": "pane-3", "token": "tok",
                 "payload": { "agent": "claude", "reporter": blank },
             });
             let Ok(Inbound::Opaque { report, .. }) = interpret(&content.to_string()) else { panic!("expected a report") };
             assert_eq!(report.reporter, None, "{blank}");
+        }
+    }
+
+    // A reporter that is there and is no name is not the same as one left
+    // out: read as unnamed, it would be admitted from wherever an unnamed
+    // sender is, and no strict check of a named process would ever run.
+    #[test]
+    fn a_reporter_that_is_not_a_name_makes_the_envelope_malformed() {
+        for kind in ["usage.report", "session.bound"] {
+            for odd in [serde_json::json!(4021), serde_json::json!(true), serde_json::json!({ "pid": 4021 }), serde_json::json!(["4021"])] {
+                let content = serde_json::json!({
+                    "v": BRIDGE_PROTOCOL_VERSION, "type": kind, "paneId": "pane-3", "token": "tok",
+                    "payload": { "agent": "claude", "sessionId": "abc", "reporter": odd },
+                });
+                let read = interpret(&content.to_string());
+                assert!(read.as_ref().is_err_and(|why| why.contains("reporter")), "{kind} {odd}: {read:?}");
+            }
         }
     }
 
