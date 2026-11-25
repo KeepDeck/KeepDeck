@@ -78,15 +78,16 @@ export interface SpawnPlan {
    * reporters echo, and every postback would fail verification forever.
    * Only an explicit restart, which drops the spec first, mints fresh. */
   token?: string;
-  /** The PER-PANE MCP secret, minted and retired exactly like `token`: a
-   * connection that announces it proves which pane's agent it belongs to, so
-   * the journal names the actor. Kept SEPARATE from the bridge token — the
-   * two authorize different things, and a leak of one must not widen the
-   * other. Absent when nothing was injected for this pane.
+  /** The PER-PANE MCP secret, minted and retired exactly like `token`: the
+   * one an injected MCP server greets the deck's socket with. Both secrets
+   * go to the spawn and are bound to the pane's terminal session, and the
+   * socket door admits a caller that names EITHER of them from that
+   * terminal while its session is live — the terminal decides the pane, the
+   * secret only proves the caller came from it. Absent when nothing was
+   * injected for this pane.
    *
-   * The slot `pane-3` is reused after a restart, which is exactly why the
-   * secret exists: it dies with the process, so a lingering MCP child of a
-   * dead pane resolves to nobody instead of to whoever holds the slot now.
+   * The secret dies with the session, so a lingering MCP child of a dead
+   * pane is refused instead of acting for whoever runs in that pane now.
    *
    * Minted for EVERY plan, whether or not anything was injected: kimi's
    * servers arrive as a file, so a pane can have a live client and no `mcp`

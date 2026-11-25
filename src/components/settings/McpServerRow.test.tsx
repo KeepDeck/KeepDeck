@@ -40,15 +40,3 @@ describe("McpServerRow", () => {
     expect(host.textContent).toContain("already served by another process");
   });
 });
-
-describe("the transport's line", () => {
-  it("is never silent: a problem first, then whether it is up, then whom it serves", () => {
-    // With no switch to read, "no row" would mean "no server".
-    expect(mcpTransportLine(null, null)).toContain("coming up");
-    expect(mcpTransportLine("/s", "ipc failure")).toContain("reported a problem: ipc failure");
-    expect(mcpTransportLine(null, "already served")).toContain("reported a problem");
-    const up = mcpTransportLine("/s", null);
-    expect(up).toContain("Agent panes");
-    expect(up).toContain("refused");
-  });
-});

@@ -81,9 +81,9 @@ describe("KeepDeck's own server as a bundled contributor", () => {
   });
 
   it("asks for an invocation that NAMES the pane it was asked for", async () => {
-    // The secret is what lets a call be attributed to the pane that made it,
-    // and it is the backend that spells the shim's flags — asking without it
-    // would hand every pane the same anonymous command.
+    // The secret is what the deck's socket admits a pane's call by, and it is
+    // the backend that spells the shim's flags — asking without it would
+    // hand every pane the same command, naming none.
     const connection = vi.fn(async () => invocation);
     const contributor = server(connection);
 
