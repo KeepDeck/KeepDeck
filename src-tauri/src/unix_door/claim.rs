@@ -5,16 +5,27 @@
 //! unlinks the name first, so two instances interleaving there would each
 //! remove the other's socket — hence an flock-backed claim.
 //!
+//! The claim is the NAME's, in a lock file beside it named after it: one
+//! directory can hold several doors, as the bridge's does — one per run. A
+//! claim on the directory let it hold one, and refused a second as "another
+//! instance".
+//!
 //! Whether the DIRECTORY it would serve from is ours is a different question
 //! with a different reason to change (the permission model), and lives in
 //! [`super::socket_dir`].
 
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// The lock file that makes ownership of the socket name exclusive.
-pub(super) const LOCK_FILE: &str = "lock";
+/// The lock file that makes ownership of the socket name at `socket`
+/// exclusive: beside it, named after it. Left behind when the door closes —
+/// removing a lock file others may be waiting on would let two hold it.
+pub(crate) fn claim_of(socket: &Path) -> PathBuf {
+    let mut name = socket.file_name().unwrap_or_default().to_os_string();
+    name.push(".lock");
+    socket.with_file_name(name)
+}
 
 /// How long a claim waits out a lock held only in passing, and how often it
 /// re-checks. A released claim is NOT free instantly: every process this app
@@ -68,7 +79,7 @@ mod tests {
         // app forks constantly (PTY agents, git). A page reload's disable
         // then enable lands in exactly that window.
         let path = temp_sock();
-        let lock_path = path.parent().unwrap().join(LOCK_FILE);
+        let lock_path = claim_of(&path);
         let holder = File::create(&lock_path).expect("lock file");
         holder.try_lock().expect("hold the claim");
         std::thread::spawn(move || {
@@ -83,12 +94,18 @@ mod tests {
     #[test]
     fn a_claim_a_holder_keeps_is_refused_as_contention() {
         let path = temp_sock();
-        let lock_path = path.parent().unwrap().join(LOCK_FILE);
+        let lock_path = claim_of(&path);
         let holder = File::create(&lock_path).expect("lock file");
         holder.try_lock().expect("hold the claim");
 
         let ours = File::create(&lock_path).expect("lock file");
         let refused = claim(&ours, &path).expect_err("a held claim must be refused");
         assert!(refused.contains("another KeepDeck instance"), "{refused}");
+    }
+
+    #[test]
+    fn a_claim_is_its_sockets_own_beside_it() {
+        assert_eq!(claim_of(Path::new("/home/bridge/0a1b2")), Path::new("/home/bridge/0a1b2.lock"));
+        assert_eq!(claim_of(Path::new("/home/mcp/mcp.sock")), Path::new("/home/mcp/mcp.sock.lock"));
     }
 }

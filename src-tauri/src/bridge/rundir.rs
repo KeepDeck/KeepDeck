@@ -19,7 +19,9 @@
 //! deep. Its own per run, because the leftovers of an earlier run — a
 //! daemon some agent started, its workers, all still holding the old
 //! environment — must post into nothing, as they did to an old port, and
-//! never reach the door of the run after. A run's socket is swept with it.
+//! never reach the door of the run after. A run's socket is swept with it,
+//! and so is the claim its door keeps beside it — one directory holds each
+//! run's door, so a door claims its own name, not the directory.
 
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
@@ -133,17 +135,26 @@ fn sweep_orphans(root: &Path) -> usize {
         }
     }
     // A socket whose run is not published — swept just now, or never made
-    // whole — is a leftover nothing answers on.
+    // whole — is a leftover nothing answers on, and so is the claim its door
+    // left beside it.
     if let Ok(entries) = fs::read_dir(root) {
         for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(name) = name.to_str().filter(|name| is_socket_name(name)) else { continue };
-            if !entry.path().is_dir() && !root.join(format!("{RUN_PREFIX}{name}")).is_dir() {
-                let _ = fs::remove_file(entry.path());
+            let path = entry.path();
+            let Some(id) = run_of_leftover(root, &path) else { continue };
+            if !path.is_dir() && !root.join(format!("{RUN_PREFIX}{id}")).is_dir() {
+                let _ = fs::remove_file(&path);
             }
         }
     }
     swept
+}
+
+/// The run `path`, in the root, is a socket or a door's claim of — its id.
+fn run_of_leftover(root: &Path, path: &Path) -> Option<String> {
+    let name = path.file_name()?.to_str()?;
+    let id = name.split('.').next().filter(|id| is_socket_name(id))?;
+    let socket = root.join(id);
+    (path == socket || path == crate::unix_door::claim_of(&socket)).then(|| id.to_string())
 }
 
 /// A dir is an orphan when nobody holds its lock. A live owner ALWAYS holds
@@ -194,13 +205,20 @@ mod tests {
         // A live run dir: lock held by this process, and its socket.
         let live = create_run_dir(root.path()).unwrap();
         fs::write(&live.socket, "").unwrap();
+        let live_claim = crate::unix_door::claim_of(&live.socket);
+        fs::write(&live_claim, "").unwrap();
         // A dead run dir: lock file exists but nobody holds it, and the
-        // socket its run left behind.
+        // socket its run left behind, with its door's claim.
         let dead = root.path().join("run-dead0");
         fs::create_dir(&dead).unwrap();
         File::create(dead.join(LOCK_FILE)).unwrap();
         let dead_socket = root.path().join("dead0");
         fs::write(&dead_socket, "").unwrap();
+        let dead_claim = crate::unix_door::claim_of(&dead_socket);
+        fs::write(&dead_claim, "").unwrap();
+        // A claim whose socket its door took with it as it closed.
+        let lone_claim = crate::unix_door::claim_of(&root.path().join("c0ffe"));
+        fs::write(&lone_claim, "").unwrap();
         // A socket whose run never made it into the root.
         let lone_socket = root.path().join("0a1b2");
         fs::write(&lone_socket, "").unwrap();
@@ -215,8 +233,11 @@ mod tests {
         assert_eq!(sweep_orphans(root.path()), 2);
         assert!(live.dir.is_dir(), "live run dir survives");
         assert!(live.socket.exists(), "and so does its socket");
+        assert!(live_claim.exists(), "and its door's claim");
         assert!(!dead.exists(), "dead run dir swept");
         assert!(!dead_socket.exists(), "with its socket");
+        assert!(!dead_claim.exists(), "and its door's claim");
+        assert!(!lone_claim.exists(), "a claim of no run swept");
         assert!(!lone_socket.exists(), "a socket of no run swept");
         assert!(!torn.exists(), "torn staging leftover swept");
         assert!(root.path().join("stray.txt").is_file());

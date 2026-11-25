@@ -30,7 +30,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
-use claim::{claim, LOCK_FILE};
+use claim::claim;
+pub(crate) use claim::claim_of;
 use socket_dir::prepare_socket_dir;
 
 /// What a door does with one connection: handed the stream and the process
@@ -72,14 +73,15 @@ impl UnixDoor {
     /// Open a door at `path`, named `label` in its threads and log lines,
     /// handing every connection to `serve`.
     pub(crate) fn open(path: &Path, label: &'static str, serve: Serve) -> Result<UnixDoor, String> {
-        let dir = prepare_socket_dir(path)?;
+        prepare_socket_dir(path)?;
         // Own the NAME before touching it. bind(2) alone cannot arbitrate:
         // the stale-socket cleanup below UNLINKS the name first, so two
         // instances interleaving here would each remove the other's freshly
         // bound socket — and a close would then delete a live one. The
         // kernel frees this lock on process death, so a killed run leaves no
-        // stale claim.
-        let lock = File::create(dir.join(LOCK_FILE)).map_err(|e| e.to_string())?;
+        // stale claim. The name's own, not its directory's: a directory can
+        // hold several doors.
+        let lock = File::create(claim_of(path)).map_err(|e| e.to_string())?;
         claim(&lock, path)?;
         // Under the lock, "something is in the way" is decided by
         // symlink_metadata: `exists()` follows links, so a DANGLING symlink
@@ -311,13 +313,27 @@ mod tests {
     }
 
     #[test]
+    fn one_directory_holds_a_door_per_name() {
+        // The bridge's runs share one directory, a socket each: a claim on
+        // the directory refused the second as "another instance".
+        let path = temp_sock();
+        let beside = path.with_file_name("other.sock");
+        let first = UnixDoor::open(&path, "test", upper()).expect("first");
+        let second = UnixDoor::open(&beside, "test", upper());
+        assert!(second.is_ok(), "a second name in the same directory was refused: {:?}", second.err());
+        assert_eq!(roundtrip(&beside, "hi"), "HI");
+        assert_eq!(roundtrip(&path, "hi"), "HI");
+        drop(first);
+    }
+
+    #[test]
     fn a_claim_held_only_in_passing_does_not_refuse_a_reopen() {
         // The whole open path, not just `claim`: a page reload's disable
         // then enable lands in the window where a forked child still holds
         // the released claim, and must not be told another instance owns
         // the socket.
         let path = temp_sock();
-        let holder = File::create(path.parent().unwrap().join(LOCK_FILE)).expect("lock file");
+        let holder = File::create(claim_of(&path)).expect("lock file");
         holder.try_lock().expect("hold the claim");
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(30));
