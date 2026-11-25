@@ -577,16 +577,24 @@ mod tests {
         // connection: the patience is the whole wait from there.
         let probe = served.try_clone().expect("clone");
         let sender = std::thread::spawn(move || {
-            while probe.read_timeout().expect("read bound").is_none() {
+            // A door that never bounds the connection fails this test rather
+            // than hang it: the body goes anyway, and says it was not seen.
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut bounded = false;
+            while !bounded && Instant::now() < deadline {
+                bounded = probe.read_timeout().expect("read bound").is_some();
                 std::thread::sleep(Duration::from_millis(1));
             }
-            std::thread::sleep(HOOK_WAIT);
+            if bounded {
+                std::thread::sleep(HOOK_WAIT);
+            }
             late.write_all(envelope.as_bytes()).unwrap();
+            bounded
         });
         let waiters = Waiters::default();
         let emitted = Mutex::new(0usize);
         serve_connection(&mut served, &waiters, &|_| Ok(()), &|_| *emitted.lock().unwrap() += 1);
-        sender.join().unwrap();
+        assert!(sender.join().unwrap(), "the door read the head with no bound on it");
         drop(served);
         let mut answer = String::new();
         let _ = client.read_to_string(&mut answer);
