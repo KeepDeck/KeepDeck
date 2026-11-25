@@ -543,7 +543,7 @@ pub fn usage_link_session_file(tails: State<UsageTails>, pane_id: String, path: 
 /// Change what a pane's armed tail carries, from where it stands — the
 /// session file is not read again. `false` when there is no tail to change
 /// (an arm still on its way holds the watches it was sent) or the tail
-/// refused (see [`TailState::retarget`]): the caller arms afresh.
+/// refused (see [`Asked::retarget`]): the caller arms afresh.
 #[tauri::command]
 pub fn usage_retarget_session_file(
     tails: State<UsageTails>,
