@@ -32,6 +32,11 @@ pub struct SpawnSpec {
     pub cwd: Option<String>,
     pub cols: u16,
     pub rows: u16,
+    /// The pane's secrets, as its plan minted them: whoever names one from
+    /// this terminal speaks for its pane (`keepdeck_pty::sessions::judge_caller`).
+    /// None for a session that is no pane's.
+    #[serde(default)]
+    pub secrets: Vec<String>,
 }
 
 /// Event DTO streamed to the webview over the per-session channel.
@@ -191,7 +196,8 @@ mod tests {
                 "envDefaults": [["OPENCODE_CONFIG_DIR", "/kd/opencode/ws-1"]],
                 "cwd": "/repo",
                 "cols": 80,
-                "rows": 24
+                "rows": 24,
+                "secrets": ["s-mcp", "s-bridge"]
             }"#,
         )
         .unwrap();
@@ -199,6 +205,7 @@ mod tests {
             spec.env_defaults,
             vec![("OPENCODE_CONFIG_DIR".to_string(), "/kd/opencode/ws-1".to_string())],
         );
+        assert_eq!(spec.secrets, ["s-mcp", "s-bridge"]);
         // And the snake_case spelling must NOT be accepted silently.
         let wrong: SpawnSpec = serde_json::from_str(
             r#"{"command": null, "args": [], "env": [],
@@ -212,8 +219,20 @@ mod tests {
             cwd: None,
             cols: 1,
             rows: 1,
+            secrets: vec![],
         });
         assert!(wrong.env_defaults.is_empty());
+    }
+
+    /// A spec in the form sent before spawns carried secrets still reads,
+    /// and names none: a session that is no pane's.
+    #[test]
+    fn a_spawn_spec_without_secrets_still_reads() {
+        let old: SpawnSpec = serde_json::from_str(
+            r#"{"command": null, "args": [], "env": [], "envDefaults": [], "cwd": null, "cols": 1, "rows": 1}"#,
+        )
+        .expect("a spec without secrets reads");
+        assert!(old.secrets.is_empty());
     }
 
     #[test]

@@ -6,6 +6,8 @@
 
 mod boundary;
 mod table;
+#[cfg(all(test, unix))]
+mod test_support;
 #[cfg(test)]
 mod tests;
 
@@ -15,10 +17,10 @@ pub use table::Table;
 use crate::session::{deliver, resolve_command, DeliveryEnd, SessionEvent, SpawnSpec};
 use keepdeck_fsm_runtime::{supervised, Effects, Events, Runtime};
 use keepdeck_lifecycle::domain::dir::Dir;
-use keepdeck_lifecycle::domain::ids::{AttemptId, PermitId, SessionId};
+use keepdeck_lifecycle::domain::ids::{AttemptId, PaneId, PermitId, SessionId};
 use keepdeck_lifecycle::domain::machine::{Event as LifecycleEvent, LaunchOwner};
 use keepdeck_lifecycle::domain::model::{Answer, Refusal, Reply};
-use keepdeck_pty::sessions::{self, Effect, Event, Over, Sessions};
+use keepdeck_pty::sessions::{self, CallerPlace, CallerRefusal, CallerVerdict, Effect, Event, Over, Secret, Sessions, CALLER_WAIT};
 use keepdeck_pty::{Consumer, PtyEvent, PtySession, PtySpec, TermSize};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -168,6 +170,41 @@ impl SessionMachine {
         }
     }
 
+    /// The pane a caller speaks for: the one whose live terminal process
+    /// `pid` belongs to, when that terminal's session holds `secret`. Asked
+    /// per request by whoever lets a caller act for a pane.
+    ///
+    /// An early caller is waited for, up to [`CALLER_WAIT`] in all, because
+    /// one refused that early would stay refused: what the rule calls too
+    /// early to judge is waited for — the spawns under way, the terminal's
+    /// registration — and judged again, the process located afresh, since
+    /// its terminal may have ended meanwhile. What the spent wait means is
+    /// the rule's ([`sessions::after_caller_wait`]).
+    pub async fn caller(&self, pid: Option<u32>, secret: Option<&Secret>) -> Result<PaneId, CallerRefusal> {
+        let deadline = tokio::time::Instant::now() + CALLER_WAIT;
+        let locate = || pid.map_or(CallerPlace::Outside, |pid| self.table.locate(pid));
+        let mut states = self.machine.state();
+        // A borrow of the state is a read lock the machine publishes under. So
+        // the process is located first, the table's lock and the kernel asked
+        // with no borrow held, and each borrow ends with its statement: one
+        // held across the wait would stop the machine publishing the very row
+        // waited for.
+        let place = locate();
+        let mut verdict = sessions::judge_caller(&states.borrow().value, &place, secret);
+        if verdict == CallerVerdict::NotPlaced {
+            drop(tokio::time::timeout_at(deadline, self.table.opened()).await);
+            let place = locate();
+            verdict = sessions::judge_caller(&states.borrow().value, &place, secret);
+        }
+        if let CallerVerdict::NotRegistered(id) = verdict {
+            let registered = states.wait_for(|at| at.value.rows.contains_key(&id));
+            drop(tokio::time::timeout_at(deadline, registered).await);
+            let place = locate();
+            verdict = sessions::judge_caller(&states.borrow().value, &place, secret);
+        }
+        sessions::after_caller_wait(verdict)
+    }
+
     pub fn resize(&self, session: SessionId, cols: u16, rows: u16) -> std::io::Result<()> {
         match self.table.get(session) {
             Some(handle) => handle.resize(cols, rows),
@@ -232,15 +269,8 @@ impl SessionMachine {
             Reply::Answered { .. } | Reply::Unavailable | Reply::Unknown => return Err(OpenError::Unavailable),
         };
         let command = resolve_command(spec.command, std::env::var("SHELL").ok());
-        // The one line that settles "which build / which args did this pane
-        // get" when a session-identity repro comes in. Env values stay
-        // private — the key names are what debugging needs.
-        log::info!(
-            "spawn: cmd={command} args={:?} env={:?} cwd={:?}",
-            spec.args,
-            spec.env.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
-            spec.cwd,
-        );
+        let secrets: Vec<Secret> = spec.secrets.into_iter().filter(|secret| !secret.is_empty()).map(Secret::new).collect();
+        log::info!("{}", spawn_line(&command, &spec.args, &spec.env, spec.cwd.as_deref(), &secrets));
         let pty = PtySpec {
             command,
             args: spec.args,
@@ -254,6 +284,10 @@ impl SessionMachine {
         let crossed = supervised(move || {
             let mut consumer: Option<Consumer> = None;
             let crossed = this.boundary.cross(attempt, || {
+                // From the OS spawn until the handle is in the table, the
+                // process may run where no terminal places it: an early
+                // caller waits for this to end.
+                let _opening = this.table.opening();
                 let (session, events) = PtySession::spawn(pty).map_err(|e| e.to_string())?;
                 // No machine to own the session, or the app going: the door
                 // stops what it started itself.
@@ -282,7 +316,7 @@ impl SessionMachine {
                 return Err(OpenError::NotStarted(NotStarted::Failed("the spawn did not finish".into())));
             }
         };
-        self.machine.send(Event::Registered { id: id.0, tag: Tag { owner, dir, attempt } });
+        self.machine.send(Event::Registered { id: id.0, tag: Tag { owner, dir, attempt }, secrets });
         let this = self.clone();
         std::thread::spawn(move || {
             let name = format!("session {}", id.0);
@@ -297,6 +331,20 @@ impl SessionMachine {
         });
         Ok(id)
     }
+}
+
+/// The one line that settles "which build / which args did this pane get"
+/// when a session-identity repro comes in. Env values stay private, the key
+/// names are what debugging needs. The pane's secrets are hidden by value
+/// wherever they stand: agents carry them inside arguments, as claude does in
+/// its `--mcp-config` JSON and codex in `-c mcp_servers…`, and nothing keeps
+/// one out of a command or a folder. So each argument is hidden as it is,
+/// before quoting could change how a secret reads, and then the whole line.
+fn spawn_line(command: &str, args: &[String], env: &[(String, String)], cwd: Option<&str>, secrets: &[Secret]) -> String {
+    let hide = |text: &str| secrets.iter().fold(text.to_string(), |text, secret| text.replace(secret.expose(), "<secret>"));
+    let args: Vec<String> = args.iter().map(|arg| hide(arg)).collect();
+    let keys: Vec<&str> = env.iter().map(|(key, _)| key.as_str()).collect();
+    hide(&format!("spawn: cmd={command} args={args:?} env={keys:?} cwd={cwd:?}"))
 }
 
 #[tauri::command]

@@ -4,11 +4,11 @@ import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { act } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CommandResult } from "../../domain/commands";
+import type { RawArgs } from "../../domain/commands";
 import { createFailed, type Workspace } from "../../domain/deck";
 import type { useAppCloseFlow as UseAppCloseFlow } from "../useApplicationUi";
 import { useHost } from "../../testing/host/host";
-import { startDeck, type Deck } from "../../testing/host/deck";
+import { startDeck, type Answer, type Deck } from "../../testing/host/deck";
 import { mountInPage } from "../../testing/host/page";
 import { STUB_AGENT, type StubAgentControl } from "../../testing/host/stubPlugin";
 
@@ -17,10 +17,11 @@ type CloseFlow = ReturnType<typeof UseAppCloseFlow>;
 
 /**
  * The commands an agent drives the deck's lifecycle with, end to end on the
- * app itself: each call goes through the page's own command registry, as an
- * MCP call arrives, to the machine — and what it starts, stops, makes or
- * removes is checked where it happens: on the deck, in the machine's word,
- * in a process, on disk.
+ * app itself: each call is an agent's, sent from its pane through the deck's
+ * MCP socket — judged by the socket door, run by the page's projection on its
+ * command registry — to the machine. What it starts, stops, makes or removes
+ * is checked where it happens: on the deck, in the machine's word, in a
+ * process, on disk.
  */
 describe("the agents' lifecycle commands, on the host", () => {
   const host = useHost();
@@ -37,8 +38,28 @@ describe("the agents' lifecycle commands, on the host", () => {
   const open = async (told: Partial<StubAgentControl> = {}) => (deck = await startDeck(host(), told));
   const until = (label: string, ok: () => boolean, ms = 15_000) => host().until(label, ok, ms);
 
+  /** Commands as one agent calls them. */
+  type Ask = (id: string, args: RawArgs) => Promise<Answer>;
+  const asAgent = (d: Deck, paneId: string): Ask => async (id, args) => {
+    const answer = await d.ask(paneId, id, args);
+    // It ran as that agent's pane, as the journal keeps every call.
+    const journal = d.journal();
+    expect(journal[journal.length - 1]).toMatchObject({ commandId: id, source: { kind: "external", client: "mcp", pane: { id: paneId } } });
+    return answer;
+  };
+  /** The agent a scenario's calls come from when the scenario has none of
+   * its own: a lead on a team in a folder of its own, so the workspace's
+   * root stays the scenario's, up and bound. */
+  async function driver(d: Deck): Promise<Ask> {
+    const folder = join(host().work, "driver");
+    mkdirSync(folder, { recursive: true });
+    const paneId = await d.addAgent({ role: "lead", site: { kind: "existing", cwd: folder } });
+    await d.upAndBound(paneId);
+    return asAgent(d, paneId);
+  }
+
   /** What a command answered, when it was carried out. */
-  function answered(result: CommandResult): object {
+  function answered(result: Answer): object {
     if (!result.ok) throw new Error(`refused: ${result.error.message}`);
     if (typeof result.value !== "object" || result.value === null) throw new Error(`answered no fields: ${JSON.stringify(result.value)}`);
     return result.value;
@@ -56,7 +77,7 @@ describe("the agents' lifecycle commands, on the host", () => {
     return { path: text(worktree, "path"), branch: text(worktree, "branch") };
   }
   /** Why a command was refused. */
-  function refused(result: CommandResult): string {
+  function refused(result: Answer): string {
     if (result.ok) throw new Error(`carried out: ${JSON.stringify(result.value)}`);
     return result.error.message;
   }
@@ -109,7 +130,8 @@ describe("the agents' lifecycle commands, on the host", () => {
     d.gitRepo();
     const ws = await d.workspaceUp();
     await uiOn(d);
-    const made = answered(await d.execute("agent.spawn", { workspace: ws.id, agentType: STUB_AGENT, role: "lead" }));
+    const ask = await driver(d);
+    const made = answered(await ask("agent.spawn", { workspace: ws.id, agentType: STUB_AGENT, role: "lead" }));
     const paneId = text(made, "paneId");
     const teamId = text(made, "teamId");
     const worktree = worktreeIn(made);
@@ -126,14 +148,15 @@ describe("the agents' lifecycle commands, on the host", () => {
   it("team.create makes an empty team at the root, and refuses a second there unless it is meant to share", async () => {
     const d = await open();
     const ws = await d.workspaceUp();
-    const one = answered(await d.execute("team.create", { workspace: ws.id, directory: "root", name: "one" }));
+    const ask = await driver(d);
+    const one = answered(await ask("team.create", { workspace: ws.id, directory: "root", name: "one" }));
     await until("one is made at the root", () => attachedAt(d, text(one, "teamId")) === host().work);
     expect(panesOf(d.workspace(), text(one, "teamId"))).toEqual([]);
 
-    expect(refused(await d.execute("team.create", { workspace: ws.id, directory: "root", name: "two" }))).toContain("one");
+    expect(refused(await ask("team.create", { workspace: ws.id, directory: "root", name: "two" }))).toContain("one");
     expect(teamNamed(d.workspace(), "two")).toBeUndefined();
 
-    const two = answered(await d.execute("team.create", { workspace: ws.id, directory: "root", name: "two", shared: true }));
+    const two = answered(await ask("team.create", { workspace: ws.id, directory: "root", name: "two", shared: true }));
     await until("two shares the root", () => attachedAt(d, text(two, "teamId")) === host().work);
   });
 
@@ -142,29 +165,32 @@ describe("the agents' lifecycle commands, on the host", () => {
     const { ws, paneId: lead } = await d.agentUp();
     const teamId = d.pane(lead).team?.teamId ?? "";
     await uiOn(d);
-    const added = answered(await d.execute("team.add", { workspace: ws.id, team: teamId, agentType: STUB_AGENT, role: "impl-1" }));
+    // The lead puts the member on its own team.
+    const ask = asAgent(d, lead);
+    const added = answered(await ask("team.add", { workspace: ws.id, team: teamId, agentType: STUB_AGENT, role: "impl-1" }));
     const member = text(added, "paneId");
     await d.upAndBound(member);
     expect(d.pane(member).team?.teamId).toBe(teamId);
     expect(d.launches(member).map(({ cwd }) => cwd)).toEqual(d.launches(lead).map(({ cwd }) => cwd));
 
     const panes = d.workspace().panes.length;
-    expect(refused(await d.execute("team.add", { workspace: ws.id, team: teamId, agentType: STUB_AGENT, role: "lead" }))).toContain('role "lead" is taken');
+    expect(refused(await ask("team.add", { workspace: ws.id, team: teamId, agentType: STUB_AGENT, role: "lead" }))).toContain('role "lead" is taken');
     expect(d.workspace().panes).toHaveLength(panes);
   });
 
   it("agent.suspend stops the agent and keeps its pane; agent.resume brings the same conversation back", async () => {
     const d = await open();
     const { ws, paneId, session } = await d.agentUp();
-    answered(await d.execute("agent.suspend", { workspace: ws.id, agent: paneId }));
+    const ask = await driver(d);
+    answered(await ask("agent.suspend", { workspace: ws.id, agent: paneId }));
     await until(`${paneId} suspended`, () => d.phase(paneId) === "suspended" && d.settled() && d.slot(paneId) === "none");
     expect(d.pane(paneId).session?.id).toBe(session);
 
-    answered(await d.execute("agent.resume", { workspace: ws.id, agent: paneId }));
+    answered(await ask("agent.resume", { workspace: ws.id, agent: paneId }));
     await until(`${paneId} back`, () => d.slot(paneId) === "live" && d.launches(paneId).length === 2);
     expect(await d.upAndBound(paneId)).toBe(session);
 
-    expect(refused(await d.execute("agent.resume", { workspace: ws.id, agent: paneId }))).toMatch(/is already running\.$/);
+    expect(refused(await ask("agent.resume", { workspace: ws.id, agent: paneId }))).toMatch(/is already running\.$/);
     expect(d.launches(paneId)).toHaveLength(2);
   });
 
@@ -174,18 +200,19 @@ describe("the agents' lifecycle commands, on the host", () => {
     const ws = await d.workspaceUp();
     const base = join(host().work, "..", "elsewhere");
     mkdirSync(base, { recursive: true });
-    const updated = answered(await d.execute("workspace.update", { workspace: ws.id, name: "renamed", mark: "R", worktreeBaseDir: base }));
+    const ask = await driver(d);
+    const updated = answered(await ask("workspace.update", { workspace: ws.id, name: "renamed", mark: "R", worktreeBaseDir: base }));
     expect(updated).toMatchObject({ workspaceId: ws.id, name: "renamed", mark: "R", worktreeBaseDir: base });
     expect(d.workspace()).toMatchObject({ name: "renamed", mark: "R", worktreeBaseDir: base });
 
-    const team = answered(await d.execute("team.create", { workspace: ws.id, name: "next" }));
+    const team = answered(await ask("team.create", { workspace: ws.id, name: "next" }));
     const worktree = worktreeIn(team);
     expect(worktree.path.startsWith(base)).toBe(true);
     await until("next is made under the new base", () => attachedAt(d, text(team, "teamId")) === worktree.path);
     expect(existsSync(worktree.path)).toBe(true);
 
-    expect(refused(await d.execute("workspace.update", { workspace: ws.id }))).toContain("nothing to change");
-    expect(refused(await d.execute("workspace.update", { workspace: "", name: "x" }))).not.toBe("");
+    expect(refused(await ask("workspace.update", { workspace: ws.id }))).toContain("nothing to change");
+    expect(refused(await ask("workspace.update", { workspace: "", name: "x" }))).not.toBe("");
     expect(d.workspace().name).toBe("renamed");
   });
 
@@ -193,12 +220,13 @@ describe("the agents' lifecycle commands, on the host", () => {
     const d = await open();
     d.gitRepo();
     const ws = await d.workspaceUp();
+    const ask = await driver(d);
     mkdirSync(host().trees, { recursive: true });
     // git cannot make the worktree: its base folder takes no new entry.
     chmodSync(host().trees, 0o555);
     let teamId = "";
     try {
-      const team = answered(await d.execute("team.create", { workspace: ws.id, name: "blocked" }));
+      const team = answered(await ask("team.create", { workspace: ws.id, name: "blocked" }));
       teamId = text(team, "teamId");
       // The create failed, and the machine has let it go: the team's Retry
       // is open, as its menu reads it.
@@ -207,13 +235,13 @@ describe("the agents' lifecycle commands, on the host", () => {
     } finally {
       chmodSync(host().trees, 0o755);
     }
-    const retried = answered(await d.execute("team.retry", { workspace: ws.id, team: teamId }));
+    const retried = answered(await ask("team.retry", { workspace: ws.id, team: teamId }));
     const worktree = worktreeIn(retried);
     await until("the retry made it", () => attachedAt(d, teamId) === worktree.path);
     expect(existsSync(worktree.path)).toBe(true);
     expect(d.intents().map(({ kind }) => kind)).toContain("retry");
 
-    expect(refused(await d.execute("team.retry", { workspace: ws.id, team: teamId }))).toContain("not waiting on a worktree create");
+    expect(refused(await ask("team.retry", { workspace: ws.id, team: teamId }))).toContain("not waiting on a worktree create");
   });
 
   it("agent.close opens the person's confirm, and the agent goes only once they confirm", async () => {
@@ -221,14 +249,16 @@ describe("the agents' lifecycle commands, on the host", () => {
     const { ws, paneId: lead } = await d.agentUp();
     const member = await d.memberUp(d.pane(lead).team?.teamId ?? "", "impl-1");
     const { flow } = await uiOn(d);
+    // The lead asks to close its member.
+    const ask = asAgent(d, lead);
 
-    expect(answered(await d.execute("agent.close", { workspace: ws.id, agent: member }))).toMatchObject({ paneId: member, confirm: "dialog" });
+    expect(answered(await ask("agent.close", { workspace: ws.id, agent: member }))).toMatchObject({ paneId: member, confirm: "dialog" });
     await until("the confirm is open", () => flow().closing !== null);
     await act(async () => flow().cancelClose());
     expect(d.intents().some((intent) => intent.kind === "closeAgent")).toBe(false);
     expect(d.slot(member)).toBe("live");
 
-    answered(await d.execute("agent.close", { workspace: ws.id, agent: member }));
+    answered(await ask("agent.close", { workspace: ws.id, agent: member }));
     await until("the confirm is open again", () => flow().closing !== null);
     await act(async () => flow().confirmClose());
     await until(`${member} has left the deck, its process ended`, () => !d.workspace().panes.some((pane) => pane.id === member) && d.slot(member) === "none");
@@ -240,8 +270,9 @@ describe("the agents' lifecycle commands, on the host", () => {
     d.gitRepo();
     const ws = await d.workspaceUp();
     const { flow } = await uiOn(d);
+    const ask = await driver(d);
     const teamUp = async (name: string) => {
-      const made = answered(await d.execute("team.create", { workspace: ws.id, name }));
+      const made = answered(await ask("team.create", { workspace: ws.id, name }));
       const teamId = text(made, "teamId");
       const worktree = worktreeIn(made);
       await until(`${name} is made`, () => attachedAt(d, teamId) === worktree.path);
@@ -249,7 +280,7 @@ describe("the agents' lifecycle commands, on the host", () => {
       return { teamId, worktree };
     };
     const disband = async (teamId: string, deleting: boolean) => {
-      answered(await d.execute("team.disband", { workspace: ws.id, team: teamId }));
+      answered(await ask("team.disband", { workspace: ws.id, team: teamId }));
       await until("the confirm is open", () => flow().closing !== null);
       await act(async () => flow().setDeleteWorktree(deleting));
       await act(async () => flow().confirmClose());

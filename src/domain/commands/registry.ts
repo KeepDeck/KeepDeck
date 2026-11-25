@@ -38,8 +38,8 @@ export interface CommandInfo {
 /** Who asked. Journaled with every call — the voice history reads it, and
  * an audit trail needs it verbatim. The `external` arm arrived WITH its
  * transport, as its removal note asked: the MCP socket mints it, and
- * nothing else may (`client` is that transport's name, and it is what a
- * future per-connection gate will scope). */
+ * nothing else may (`client` is that transport's name). Its door admits a
+ * caller per request, by the pane it runs in. */
 export type CommandSource =
   | { kind: "host" }
   | { kind: "plugin"; pluginId: string }
@@ -47,12 +47,12 @@ export type CommandSource =
       kind: "external";
       /** The transport that minted the call. */
       client: string;
-      /** The pane whose agent is calling, when the connection proved which
-       * one it is. Absent = an anonymous client (a server the user wired up
-       * by hand, or a secret that no longer resolves — a lingering child of a
-       * pane that is gone). `id` is a REUSABLE slot, so `label` snapshots how
-       * the pane read at call time and stays meaningful afterwards. */
-      pane?: { id: string; workspaceId: string; label: string };
+      /** The pane whose agent is calling. Always there: the socket door
+       * refuses a caller that is no live pane's before anything runs
+       * (src-tauri/src/mcp/bridge.rs). `label` snapshots how the pane read at
+       * call time, so the journal stays readable after it is renamed or
+       * closed. */
+      pane: { id: string; workspaceId: string; label: string };
     };
 
 export type CommandError =

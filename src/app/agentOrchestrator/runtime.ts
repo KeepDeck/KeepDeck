@@ -28,6 +28,7 @@ import {
   dropPaneSpawnSpec,
   markPaneResumeOrigin,
   peekPaneSpawnSpec,
+  planSecrets,
   subscribeSpawnSpecs,
   type SpawnPlanContext,
 } from "../spawnSpecs";
@@ -440,6 +441,7 @@ export function createAgentOrchestratorRuntime(deps: AgentOrchestratorDeps): Age
             env: current.env,
             envDefaults: current.envDefaults,
             cwd,
+            secrets: planSecrets(current),
             ...SPAWN_PLACEHOLDER_SIZE,
           },
           { permit, owner },

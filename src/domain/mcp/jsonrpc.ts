@@ -38,12 +38,22 @@ export function requestIdOf(line: string): JsonRpcId {
   return null;
 }
 
+/** A refused caller: one of the server's own codes, never INTERNAL_ERROR,
+ * which already means "try again later". The socket door refuses with the
+ * same code (src-tauri/src/mcp/bridge.rs); both sides are held to codes.json. */
+export const CALLER_REFUSED = -32001;
+
 /** One serialized error reply for `line`, id echoed per `requestIdOf`. */
-export function errorReply(line: string, code: number, message: string): string {
+export function errorReply(
+  line: string,
+  code: number,
+  message: string,
+  data?: Record<string, unknown>,
+): string {
   return JSON.stringify({
     jsonrpc: "2.0",
     id: requestIdOf(line),
-    error: { code, message },
+    error: data === undefined ? { code, message } : { code, message, data },
   });
 }
 

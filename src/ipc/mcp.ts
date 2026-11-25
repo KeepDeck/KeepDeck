@@ -21,9 +21,9 @@ export interface McpConnection {
 }
 
 /** The connect invocation for this install (the app binary in shim mode).
- * With a `client` secret it also names the pane the connection serves; the
- * copy-pasteable command the settings page shows is asked for WITHOUT one,
- * so a hand-wired server stays anonymous. */
+ * With a `client` secret it also names the pane the connection serves.
+ * Without one, for a pane whose servers come from a file every pane in its
+ * directory reads, the shim names its pane by the bridge secret instead. */
 export async function mcpConnectionCommand(
   client?: string,
 ): Promise<McpConnection> {

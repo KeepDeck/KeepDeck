@@ -25,7 +25,7 @@ function ports() {
     respond,
     unlisten,
     subscribed,
-    request: (id: number, line: string) => deliver?.({ id, line }),
+    request: (id: number, line: string) => deliver?.({ id, line, pane: "pane-1" }),
   };
 }
 

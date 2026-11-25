@@ -19,8 +19,6 @@ vi.mock("../../app/mcp/useMcpStatus", () => ({
   useMcpStatus: () => ({
     socket: mcpStatus.socket,
     error: null,
-    connect: null,
-    connectError: null,
   }),
 }));
 

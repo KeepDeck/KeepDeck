@@ -10,7 +10,7 @@
 //! answer (closed, reloading, wedged) turns into a bounded JSON-RPC error
 //! instead of a hang.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
@@ -20,6 +20,8 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::mcp::server::LineHandler;
+use crate::session_machine::SessionMachine;
+use keepdeck_pty::sessions::{CallerRefusal, Secret};
 
 /// Mirrored by `MCP_REQUEST_EVENT` in src/ipc/mcpBridge.ts.
 pub const MCP_REQUEST_EVENT: &str = "deck://mcp/request";
@@ -41,15 +43,61 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 struct McpRequest {
     id: u64,
     line: String,
-    /// Whatever this connection introduced itself as (see [`client_token`]),
-    /// unresolved: the webview owns what a token MEANS, and an unknown one
-    /// must read as an anonymous client rather than as nobody at all.
-    client: Option<String>,
-    /// The pane whose terminal the connecting process belongs to
-    /// ([`crate::session_machine::Table::pane_of`]), asked once at
-    /// connect. A fact, not a verdict: the webview counts a secret only from
-    /// its own pane's terminal, and only it knows which pane a secret is.
-    host: Option<String>,
+    /// The pane the caller speaks for, as the sessions machine admitted it
+    /// for this very line ([`SessionMachine::caller`]). A caller that is no
+    /// pane's never gets here.
+    pane: String,
+}
+
+/// The JSON-RPC error code of a refused caller: one of the server's own
+/// (-32000 to -32099), never -32603, which already means "try again later".
+const CALLER_REFUSED: i64 = -32001;
+
+/// How a refusal reads on the wire: the reason a client can tell apart, and
+/// the sentence most clients show. A terminal the deck never registered reads
+/// as outside one, since the remedy is the client's either way; the log says
+/// which ([`log_reason`]).
+fn wire_reason(refusal: CallerRefusal) -> (&'static str, &'static str) {
+    match refusal {
+        CallerRefusal::NoSecret => (
+            "no-secret",
+            "this connection did not name a KeepDeck pane; only agents started in KeepDeck panes can use this server",
+        ),
+        CallerRefusal::OutsideTerminal | CallerRefusal::NeverRegistered => (
+            "outside-terminal",
+            "this process does not run in a live KeepDeck pane's terminal, so it cannot use this server",
+        ),
+        CallerRefusal::WrongSecret => ("wrong-secret", "this connection's secret is not this KeepDeck pane's"),
+    }
+}
+
+/// The reason in the log, where the deck's own fault stands apart.
+fn log_reason(refusal: CallerRefusal) -> &'static str {
+    match refusal {
+        CallerRefusal::NeverRegistered => "its terminal was never registered",
+        refusal => wire_reason(refusal).0,
+    }
+}
+
+/// A refused caller's answer: the error code, the reason and its sentence.
+fn refusal_reply(request_line: &str, refusal: CallerRefusal) -> String {
+    let (reason, message) = wire_reason(refusal);
+    error_line(
+        request_line,
+        serde_json::json!({ "code": CALLER_REFUSED, "message": message, "data": { "reason": reason } }),
+    )
+}
+
+/// One line per connection and reason: a refusal said once is not news on
+/// the next request, and an admitted one says nothing. The peer's pid tells a
+/// background worker of a live pane from a leftover of a closed one.
+fn log_refusal(peer: Option<u32>, refusal: CallerRefusal) {
+    let pid = peer.map_or_else(|| "unknown".to_string(), |pid| pid.to_string());
+    if refusal == CallerRefusal::NeverRegistered {
+        log::warn!("mcp: refused a caller (pid {pid}): {}", log_reason(refusal));
+    } else {
+        log::info!("mcp: refused a caller (pid {pid}): {}", log_reason(refusal));
+    }
 }
 
 /// Managed state: replies in flight, keyed by correlation id.
@@ -99,6 +147,12 @@ impl McpBridge {
 /// to include the inputs the two PARSERS disagree on, not only the easy
 /// rejects.
 fn error_reply(request_line: &str, code: i64, message: &str) -> String {
+    error_line(request_line, serde_json::json!({ "code": code, "message": message }))
+}
+
+/// A JSON-RPC error reply carrying `error` whole, under the request's id as
+/// [`error_reply`] echoes it.
+fn error_line(request_line: &str, error: serde_json::Value) -> String {
     let id = serde_json::from_str::<serde_json::Value>(request_line)
         .ok()
         .and_then(|v| v.get("id").cloned())
@@ -107,7 +161,7 @@ fn error_reply(request_line: &str, code: i64, message: &str) -> String {
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
-        "error": { "code": code, "message": message },
+        "error": error,
     })
     .to_string()
 }
@@ -159,10 +213,10 @@ fn echoable_id(id: serde_json::Value) -> Option<serde_json::Value> {
 
 /// The private notification a KeepDeck-injected client opens with, naming
 /// itself: `{"jsonrpc":"2.0","method":"deck/client","params":{"token":"…"}}`.
-/// It is CONSUMED here and never reaches the projection — the webview
-/// receives the token beside each request instead. A connection that sends
-/// none stays anonymous, which is what a server the user wired up by hand
-/// does, and it keeps working exactly as before.
+/// It is CONSUMED here and never reaches the projection: the secret is what
+/// the sessions machine judges the caller by, and the webview receives the
+/// pane it was judged to be. A connection that sends none is refused, a
+/// server the user wired up by hand included.
 const CLIENT_PREAMBLE: &str = "deck/client";
 
 fn client_token(line: &str) -> Option<String> {
@@ -179,25 +233,40 @@ fn client_token(line: &str) -> Option<String> {
 /// parked, so a reply the pump might send anyway lands in `resolve`'s
 /// unknown-id drop.
 ///
+/// Every line is asked of the sessions machine first: who the caller is,
+/// decided anew each time, so a connection whose pane has closed is refused
+/// from then on. A refused request is answered with the refusal and never
+/// reaches the webview; a refused notification is dropped, and the
+/// connection stays, so a client does not reconnect in a loop.
+///
 /// One handler per connection, because the client's own name arrives ON that
 /// connection and must not be read into anyone else's requests.
 pub(crate) fn webview_handler<R: Runtime>(app: AppHandle<R>) -> LineHandler {
     Arc::new(move |peer| {
         let app = app.clone();
-        let mut client: Option<String> = None;
-        let host = peer.and_then(|pid| app.state::<crate::session_machine::SessionMachine>().table.pane_of(pid)).map(|pane| pane.to_string());
+        let mut client: Option<Secret> = None;
+        let mut refused: HashSet<CallerRefusal> = HashSet::new();
         Box::new(move |line: &str| {
         if let Some(token) = client_token(line) {
-            client = Some(token);
+            client = Some(Secret::new(token));
             return None;
         }
+        let sessions = app.state::<SessionMachine>().inner().clone();
+        let pane = match tauri::async_runtime::block_on(sessions.caller(peer, client.as_ref())) {
+            Ok(pane) => pane.to_string(),
+            Err(refusal) => {
+                if refused.insert(refusal) {
+                    log_refusal(peer, refusal);
+                }
+                return (!is_notification(line)).then(|| refusal_reply(line, refusal));
+            }
+        };
         let bridge = app.state::<McpBridge>();
         if is_notification(line) {
             let request = McpRequest {
                 id: NOTIFICATION_ID,
                 line: line.to_string(),
-                client: client.clone(),
-                host: host.clone(),
+                pane,
             };
             if let Err(e) = app.emit(MCP_REQUEST_EVENT, &request) {
                 log::warn!("mcp: emitting notification failed: {e}");
@@ -208,8 +277,7 @@ pub(crate) fn webview_handler<R: Runtime>(app: AppHandle<R>) -> LineHandler {
         let request = McpRequest {
             id,
             line: line.to_string(),
-            client: client.clone(),
-            host: host.clone(),
+            pane,
         };
         if let Err(e) = app.emit(MCP_REQUEST_EVENT, &request) {
             bridge.abandon(id);
@@ -259,6 +327,40 @@ mod tests {
         ] {
             assert_eq!(client_token(line), None, "{line}");
         }
+    }
+
+    #[test]
+    fn a_refusal_answers_under_the_requests_id_with_its_code_reason_and_sentence() {
+        let line = r#"{"jsonrpc":"2.0","id":7,"method":"initialize"}"#;
+        for (refusal, reason) in [
+            (CallerRefusal::NoSecret, "no-secret"),
+            (CallerRefusal::OutsideTerminal, "outside-terminal"),
+            (CallerRefusal::WrongSecret, "wrong-secret"),
+            // The deck's own fault reads on the wire as the client's remedy.
+            (CallerRefusal::NeverRegistered, "outside-terminal"),
+        ] {
+            let reply: serde_json::Value = serde_json::from_str(&refusal_reply(line, refusal)).unwrap();
+            assert_eq!(reply["id"], 7, "{refusal:?}");
+            assert_eq!(reply["error"]["code"], CALLER_REFUSED, "{refusal:?}");
+            assert_ne!(reply["error"]["code"], -32603, "not 'try again later'");
+            assert_eq!(reply["error"]["data"]["reason"], reason, "{refusal:?}");
+            assert_eq!(reply["error"]["message"], wire_reason(refusal).1, "{refusal:?}");
+        }
+    }
+
+    #[test]
+    fn the_refusal_code_is_the_one_the_page_refuses_with() {
+        // src/domain/mcp/protocol.test.ts asserts its constant against the
+        // same file: a bump on either side alone fails both suites.
+        let codes: serde_json::Value =
+            serde_json::from_str(include_str!("../../../src/domain/mcp/codes.json")).expect("codes.json parses");
+        assert_eq!(codes["CALLER_REFUSED"], CALLER_REFUSED);
+    }
+
+    #[test]
+    fn the_log_tells_a_terminal_never_registered_from_one_outside() {
+        assert_ne!(log_reason(CallerRefusal::NeverRegistered), log_reason(CallerRefusal::OutsideTerminal));
+        assert_eq!(log_reason(CallerRefusal::WrongSecret), "wrong-secret");
     }
 
     #[test]

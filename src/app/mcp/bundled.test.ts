@@ -20,16 +20,14 @@ const target: McpContributionTarget = {
 };
 
 let socket: string | null;
-let connect: McpConnection | null;
 
 beforeEach(() => {
   socket = "/home/.config/keepdeck/mcp/mcp.sock";
-  connect = invocation;
 });
 
 /** The server over the status as the tests move it. */
 const server = (connection: KeepdeckServerDeps["connection"] = async () => invocation) =>
-  keepdeckServer({ socket: () => socket, connect: () => connect, connection });
+  keepdeckServer({ socket: () => socket, connection });
 
 describe("KeepDeck's own server as a bundled contributor", () => {
   it("renders the backend's invocation verbatim — it never rebuilds one", async () => {
@@ -83,9 +81,9 @@ describe("KeepDeck's own server as a bundled contributor", () => {
   });
 
   it("asks for an invocation that NAMES the pane it was asked for", async () => {
-    // The secret is what lets a call be attributed to the pane that made it,
-    // and it is the backend that spells the shim's flags — asking without it
-    // would hand every pane the same anonymous command.
+    // The secret is what the deck's socket admits a pane's call by, and it is
+    // the backend that spells the shim's flags — asking without it would
+    // hand every pane the same command, naming none.
     const connection = vi.fn(async () => invocation);
     const contributor = server(connection);
 
@@ -94,7 +92,7 @@ describe("KeepDeck's own server as a bundled contributor", () => {
     expect(connection).toHaveBeenCalledWith("pane-3-secret");
   });
 
-  it("asks for an ANONYMOUS invocation when the pane cannot carry a secret", async () => {
+  it("asks for an invocation without a secret when the pane cannot carry one: its shim names it by the bridge secret", async () => {
     const connection = vi.fn(async () => invocation);
     const contributor = server(connection);
 
@@ -116,22 +114,12 @@ describe("KeepDeck's own server as a bundled contributor", () => {
     expect((await contributor.contribute(target))?.name).toBe(KEEPDECK_MCP_SERVER);
   });
 
-  it("describes itself from the same facts it contributes from", () => {
-    // The panel's row and a pane's def must never disagree about what the
-    // deck's server runs — one contributor answers both, from one status.
-    expect(server().describe()).toEqual({
-      transport: "stdio",
-      command: invocation.command,
-      args: invocation.args,
-      env: {},
-    });
-    // The socket gates the description exactly as it gates a contribution…
+  it("describes itself from the same fact it contributes from", () => {
+    // The panel's row and a pane's def must never disagree: one contributor
+    // answers both, from the confirmed socket. Up, it is handed to each pane
+    // with that pane's own secret, so there is no one command to show.
+    expect(server().describe()).toBe("perPane");
     socket = null;
-    expect(server().describe()).toBeNull();
-    // …and a socket whose invocation has not been looked up yet has nothing
-    // to show either: the panel says so rather than showing an empty command.
-    socket = "/home/.config/keepdeck/mcp/mcp.sock";
-    connect = null;
-    expect(server().describe()).toBeNull();
+    expect(server().describe()).toBe("pending");
   });
 });

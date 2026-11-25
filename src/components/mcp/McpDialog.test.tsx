@@ -7,6 +7,7 @@ import type { McpEditorState } from "../../app/useMcpLibrary";
 import type { BundledMcpDescription } from "../../app/mcp";
 import { sameMcpRef, type McpScope, type McpServerDraft } from "../../domain/mcp";
 import { McpDialog } from "./McpDialog";
+import { bundledMcpStateText } from "../../presentation/mcpWords";
 import { button, buttonByTitle, confirmButton, input, row, textarea, type } from "../library/libraryTestDom";
 import { present } from "@keepdeck/plugin-api/testing";
 
@@ -54,19 +55,9 @@ const lib = vi.hoisted(
 );
 vi.mock("../../app/useMcpLibrary", () => ({ useMcpLibrary: () => lib }));
 
-/** The bundled tier as the service describes it — up, with its invocation. */
+/** The bundled tier as the service describes it — up, handed to each pane. */
 const tierState = vi.hoisted(() => ({
-  current: [
-    {
-      name: "keepdeck",
-      body: {
-        transport: "stdio",
-        command: "/bin/keepdeck",
-        args: ["--mcp-shim", "/home/mcp.sock"],
-        env: {},
-      },
-    },
-  ] as BundledMcpDescription[],
+  current: [{ name: "keepdeck", state: "perPane" }] as BundledMcpDescription[],
 }));
 vi.mock("../../app/mcp/useBundledMcp", () => ({ useBundledMcp: () => tierState.current }));
 
@@ -119,15 +110,17 @@ describe("McpDialog", () => {
     expect(document.querySelectorAll(".library__new")).toHaveLength(2);
   });
 
-  it("opens the deck's own server read-only, showing its invocation", () => {
+  it("opens the deck's own server read-only, as handed to each pane rather than one command", () => {
+    // Every pane's invocation names its own pane, and one run by hand is
+    // refused: the panel says how the server is given out instead.
     render();
     act(() => present(row("keepdeck"), "row \"keepdeck\"").click());
-    expect(input("mcp-command").value).toBe("/bin/keepdeck");
-    expect(textarea("mcp-args").value).toBe("--mcp-shim\n/home/mcp.sock");
+    expect(input("mcp-command").value).toBe("");
     expect(input("mcp-command").readOnly).toBe(true);
     expect(button("Save")).toBeUndefined();
     expect(button("Delete")).toBeUndefined();
     expect(document.body.textContent).toContain("Ships with KeepDeck");
+    expect(document.body.textContent).toContain(bundledMcpStateText("perPane"));
     // Nothing that names the pane's secret is typed into: no environment
     // block is offered for a read-only row.
     expect(document.querySelector("#mcp-env")).toBeNull();
@@ -252,22 +245,21 @@ describe("McpDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("says the deck's server is not up yet when there is no invocation — and fills in LIVE", () => {
-    // The panel reads the row on every render: the invocation lands once
-    // the socket is confirmed, and a form captured at click time would keep
+  it("says the deck's server is not up yet until its socket is — and moves on LIVE", () => {
+    // The panel reads the row on every render: the state moves once the
+    // socket is confirmed, and a hint captured at click time would keep
     // saying "not up yet" until the user clicked again.
     const up = tierState.current;
-    tierState.current = [{ name: "keepdeck", body: null }];
+    tierState.current = [{ name: "keepdeck", state: "pending" }];
     try {
       render();
       act(() => present(row("keepdeck"), "row \"keepdeck\"").click());
       expect(document.body.textContent).toContain("not up yet");
-      expect(input("mcp-command").value).toBe("");
 
       tierState.current = up;
       render();
       expect(document.body.textContent).not.toContain("not up yet");
-      expect(input("mcp-command").value).toBe("/bin/keepdeck");
+      expect(document.body.textContent).toContain(bundledMcpStateText("perPane"));
     } finally {
       tierState.current = up;
     }

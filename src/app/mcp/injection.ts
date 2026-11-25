@@ -146,11 +146,10 @@ export function createMcpInjection({
       // whichever secret was written last — and naming the wrong pane is worse
       // than naming none. A property of the DELIVERY, not of any one CLI.
       //
-      // It is no longer anonymous, though: the shim falls back to the secret
-      // in `KEEPDECK_BRIDGE`, which every process under a pane inherits and
-      // which names that pane exactly. Before that, a file-fed pane sharing a
-      // directory could not use a pane-scoped tool at all — mail refused it
-      // with "this connection is not attached to a pane".
+      // It still names its pane: the shim falls back to the secret in
+      // `KEEPDECK_BRIDGE`, which every process under a pane inherits and
+      // which names that pane exactly. Without it the deck's socket would
+      // refuse such a connection for naming no secret.
       const shared = deliversByCwd(target.agentType) && panesIn(target.cwd) > 1;
       const client = shared ? null : target.client;
       const [bundled, fromLibrary] = await Promise.all([

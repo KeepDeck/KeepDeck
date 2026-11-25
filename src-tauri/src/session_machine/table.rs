@@ -11,10 +11,12 @@
 //! no pane's speaks for nobody.
 
 use keepdeck_lifecycle::domain::ids::{PaneId, SessionId};
+use keepdeck_pty::sessions::CallerPlace;
 use keepdeck_pty::PtySession;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use tokio::sync::watch;
 use std::time::{Duration, Instant};
 
 /// How often the shared exit wait checks again.
@@ -34,9 +36,35 @@ struct Inner {
 #[derive(Default)]
 pub struct Table {
     inner: Mutex<Inner>,
+    /// How many spawns are between the OS spawn and their handle's transfer
+    /// here. Their processes may already run, and nothing places them yet.
+    opening: watch::Sender<usize>,
+}
+
+/// One spawn between the OS spawn and its handle's transfer to the table;
+/// over when it is dropped, whether the transfer happened or not.
+pub struct Opening<'a>(&'a Table);
+
+impl Drop for Opening<'_> {
+    fn drop(&mut self) {
+        self.0.opening.send_modify(|opening| *opening -= 1);
+    }
 }
 
 impl Table {
+    /// A spawn begins: held from before the OS spawn until the handle is
+    /// inserted, so that a process asking that early can be waited for.
+    pub fn opening(&self) -> Opening<'_> {
+        self.opening.send_modify(|opening| *opening += 1);
+        Opening(self)
+    }
+
+    /// Settles once no spawn is under way.
+    pub async fn opened(&self) {
+        let mut opening = self.opening.subscribe();
+        drop(opening.wait_for(|opening| *opening == 0).await);
+    }
+
     /// Take the process over under a new id — never one used before in this
     /// launch — as the terminal of `pane`, when it is one. Refused, the
     /// process handed back, when the app is exiting: the door stops it
@@ -74,17 +102,41 @@ impl Table {
     /// process sits in one session, and so does the parent of one that
     /// detached.
     pub fn pane_of(&self, pid: u32) -> Option<PaneId> {
-        let panes: Vec<(PaneId, Arc<PtySession>)> = {
+        self.terminal_of(pid).map(|(pane, _)| pane)
+    }
+
+    /// Where process `pid` runs, as a caller is judged by it: in the terminal
+    /// of a pane, with the session that is that terminal; in none; or in none
+    /// while a spawn is under way, whose process can run before its terminal
+    /// is held here.
+    ///
+    /// The spawns are read before the terminals. A spawn hands its handle over
+    /// before it is over, so one read as over has its terminal found here,
+    /// and a spawn ending in between cannot leave an empty answer that names
+    /// no spawn.
+    pub fn locate(&self, pid: u32) -> CallerPlace<PaneId> {
+        let spawning = *self.opening.borrow() > 0;
+        match self.terminal_of(pid) {
+            Some((pane, session)) => CallerPlace::Terminal { id: session.0, pane },
+            None if spawning => CallerPlace::OutsideWhileSpawning,
+            None => CallerPlace::Outside,
+        }
+    }
+
+    /// The pane whose terminal process `pid` belongs to, and the session
+    /// that is that terminal. None as for [`Table::pane_of`].
+    fn terminal_of(&self, pid: u32) -> Option<(PaneId, SessionId)> {
+        let panes: Vec<(PaneId, SessionId, Arc<PtySession>)> = {
             let inner = self.inner.lock().expect("session table");
             inner
                 .panes
                 .iter()
-                .filter_map(|(pane, id)| Some((*pane, inner.sessions.get(id)?.clone())))
+                .filter_map(|(pane, id)| Some((*pane, *id, inner.sessions.get(id)?.clone())))
                 .collect()
         };
         // Outside the lock: the kernel is asked per terminal, and the table's
         // lock is never held across a syscall.
-        panes.into_iter().find_map(|(pane, session)| session.hosts(pid).then_some(pane))
+        panes.into_iter().find_map(|(pane, id, session)| session.hosts(pid).then_some((pane, id)))
     }
 
     /// The app is going: stop everyone — one TERM each, one shared wait, a
@@ -127,20 +179,9 @@ impl Table {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use super::super::test_support::{first_pid, named_pid, sleeper};
     use super::*;
-    use keepdeck_pty::{PtyEvent, PtySpec, TermSize};
-
-    fn sleeper(script: &str) -> (PtySession, keepdeck_pty::Consumer) {
-        PtySession::spawn(PtySpec {
-            command: "/bin/sh".into(),
-            args: vec!["-c".into(), script.into()],
-            env: Vec::new(),
-            env_defaults: Vec::new(),
-            cwd: None,
-            size: TermSize::default(),
-        })
-        .expect("spawn sh")
-    }
+    use keepdeck_pty::PtyEvent;
 
     fn exited(events: &keepdeck_pty::Consumer, within: Duration) -> bool {
         let deadline = Instant::now() + within;
@@ -204,6 +245,23 @@ mod tests {
     }
 
     #[test]
+    fn a_process_is_located_in_its_terminal_in_none_or_in_none_while_a_spawn_is_under_way() {
+        let table = Table::default();
+        let (terminal, events) = sleeper("echo PID=$$; sleep 30");
+        let pid = first_pid(&events);
+        // The spawn is under way: its process runs, its handle is not here.
+        let opening = table.opening();
+        assert_eq!(table.locate(pid), CallerPlace::OutsideWhileSpawning);
+        // Once handed over it is found, the spawn not over yet or over.
+        let id = table.insert(terminal, Some(PaneId(1))).ok().unwrap();
+        assert_eq!(table.locate(pid), CallerPlace::Terminal { id: id.0, pane: PaneId(1) });
+        drop(opening);
+        assert_eq!(table.locate(pid), CallerPlace::Terminal { id: id.0, pane: PaneId(1) });
+        assert_eq!(table.locate(std::process::id()), CallerPlace::Outside, "this test runs in no pane");
+        table.shutdown(Duration::from_millis(200));
+    }
+
+    #[test]
     fn a_process_belongs_to_the_pane_whose_current_terminal_hosts_it() {
         let table = Table::default();
         let pane = PaneId(1);
@@ -259,27 +317,4 @@ mod tests {
         table.shutdown(Duration::from_millis(200));
     }
 
-    /// The `PID=<n>` a test script printed first.
-    fn first_pid(events: &keepdeck_pty::Consumer) -> u32 {
-        named_pid(events, &mut String::new(), "PID")
-    }
-
-    /// The `<name>=<n>` a test script printed, waiting for it. `seen` is the
-    /// output read so far from this terminal, kept for the next ask.
-    fn named_pid(events: &keepdeck_pty::Consumer, seen: &mut String, name: &str) -> u32 {
-        let started = Instant::now();
-        let marker = format!("{name}=");
-        while started.elapsed() < Duration::from_secs(5) {
-            if let Some(rest) = seen.split(marker.as_str()).nth(1) {
-                let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-                if rest[digits.len()..].starts_with(['\r', '\n']) {
-                    return digits.parse().expect("a pid");
-                }
-            }
-            if let Some(PtyEvent::Output(bytes)) = events.recv_timeout(Duration::from_millis(50)) {
-                seen.push_str(&String::from_utf8_lossy(&bytes));
-            }
-        }
-        panic!("no {name} printed: {seen}");
-    }
 }

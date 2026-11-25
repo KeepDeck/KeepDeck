@@ -16,8 +16,8 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 /// The argv flag that turns the app binary into the shim. One home for the
-/// string: the connect command the settings page hands out is built from
-/// this same constant, so the producer and the parser cannot drift.
+/// string: the connect invocation each pane is handed is built from this
+/// same constant, so the producer and the parser cannot drift.
 pub(crate) const SHIM_FLAG: &str = "--mcp-shim";
 
 /// Names WHICH pane this shim was spawned for. One home for the string: the
@@ -51,7 +51,7 @@ pub fn shim_mode(args: impl IntoIterator<Item = String>) -> Option<ShimMode> {
             // The slot's value is CONSUMED before it is judged, so a flag
             // found there must be handed back to the scan below rather than
             // dropped: `--mcp-shim --client <secret>` used to eat the
-            // `--client` token and leave the pane anonymous.
+            // `--client` token and leave the connection without its secret.
             let mut socket = None;
             let mut next = args.next();
             match next.as_deref() {
@@ -87,7 +87,8 @@ pub fn shim_mode(args: impl IntoIterator<Item = String>) -> Option<ShimMode> {
 /// the injected flag instead.
 ///
 /// Parsed rather than pattern-matched because the value is KeepDeck's own
-/// JSON. Any failure yields None, which is simply an anonymous session.
+/// JSON. Any failure yields None: the connection names no pane, and the deck
+/// refuses its every request as no-secret.
 fn bridge_secret() -> Option<String> {
     let raw = std::env::var("KEEPDECK_BRIDGE").ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
@@ -128,9 +129,10 @@ pub fn run(mode: ShimMode) -> i32 {
         }
     };
     // Introduce ourselves before a single byte of the client's own traffic:
-    // the deck binds the name to THIS connection, and a request that arrived
-    // first would be attributed to nobody. A failure here is not fatal — an
-    // anonymous session still works, it just cannot be told apart.
+    // the deck binds the name to THIS connection, and refuses a request that
+    // came before it as no-secret. A failed greeting does not stop the pump:
+    // the client then hears the deck refuse each request and why, rather
+    // than a pipe that went dead.
     // The injected flag first, the inherited environment second: an explicit
     // argument is the deck naming this invocation, and it must win over a
     // variable a whole process tree shares.
@@ -225,9 +227,9 @@ mod tests {
             secret_in(r#"{"v":1,"dir":"/run","pane":"pane-2","token":"sec-9"}"#).as_deref(),
             Some("sec-9"),
         );
-        // Anything unusable is an anonymous session, never a guess: no
-        // variable, not JSON, no token, an empty one, or a token that is not
-        // a string at all.
+        // Anything unusable is no secret, never a guess — and the deck
+        // refuses such a connection: no variable, not JSON, no token, an
+        // empty one, or a token that is not a string at all.
         for hostile in [
             "",
             "not json",
@@ -272,10 +274,10 @@ mod tests {
         assert_eq!(injected.socket, Some(PathBuf::from("/tmp/x.sock")));
         assert_eq!(injected.client.as_deref(), Some("5f3c"));
 
-        // The copy-pasteable command the settings page hands out carries no
-        // secret, and such a session is simply anonymous.
-        let by_hand = shim_mode(args(&["keepdeck", "--mcp-shim", "/tmp/x.sock"])).unwrap();
-        assert_eq!(by_hand.client, None);
+        // An invocation without the flag carries no secret of its own: the
+        // shim then names its pane by the bridge secret it inherited.
+        let unflagged = shim_mode(args(&["keepdeck", "--mcp-shim", "/tmp/x.sock"])).unwrap();
+        assert_eq!(unflagged.client, None);
 
         // A flag where the secret should be is not a secret.
         let flagged =
@@ -295,8 +297,8 @@ mod tests {
 
         // And the token in that slot is handed BACK to the scan, not eaten:
         // the socket slot's value is consumed before it is judged, so
-        // `--mcp-shim --client <secret>` used to lose the secret entirely and
-        // leave every call from the pane journaled as anonymous.
+        // `--mcp-shim --client <secret>` used to lose the secret entirely, and
+        // the deck would now refuse every call from the pane.
         let kept =
             shim_mode(args(&["keepdeck", "--mcp-shim", "--client", "5f3c"])).unwrap();
         assert_eq!(kept.socket, None);

@@ -44,7 +44,8 @@ const paneSource = (id = "pane-1"): CommandSource => ({
   pane: { id, workspaceId: "ws-1", label: "support 1" },
 });
 
-const anonymous: CommandSource = { kind: "external", client: "mcp" };
+/** A caller that is no pane's: the person's palette or a hotkey. */
+const noPane: CommandSource = { kind: "host" };
 
 function setup(panes: Workspace["panes"], teams?: Workspace["teams"]) {
   const registry = createCommandRegistry();
@@ -98,7 +99,7 @@ describe("registerArtifactCommands", () => {
     expect(registry.list()).toHaveLength(0);
   });
 
-  it("rung 1: an anonymous caller is refused with the remedy, every tool", async () => {
+  it("rung 1: a caller that is no pane's is refused with the remedy, every tool", async () => {
     const { run } = setup([pane()]);
     for (const [id, args] of [
       ["artifact.publish", { title: "T", format: "html", content: "x" }],
@@ -106,7 +107,7 @@ describe("registerArtifactCommands", () => {
       ["artifact.read", { id: "x" }],
       ["artifact.delete", { id: "x" }],
     ] as const) {
-      await expect(run(id, { ...args }, anonymous)).rejects.toThrow(
+      await expect(run(id, { ...args }, noPane)).rejects.toThrow(
         /deck-internal.*KeepDeck-launched pane/s,
       );
     }
@@ -332,7 +333,7 @@ describe("registerArtifactCommands", () => {
     expect(stringOf(result.note, "note")).toContain("nothing published");
   });
 
-  it("a pane the deck no longer holds is anonymous (no wrong-pane naming)", async () => {
+  it("a pane the deck no longer holds is refused (no wrong-pane naming)", async () => {
     const { run } = setup([pane()]);
     await expect(
       run("artifact.list", {}, paneSource("pane-gone")),

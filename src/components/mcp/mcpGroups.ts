@@ -9,7 +9,7 @@
 import type { McpLibraryRow } from "../../app/mcpLibrary";
 import { mcpScopeKey, sameMcpScope, type McpScope } from "../../domain/mcp";
 import type { LibraryNavCopy, LibraryNavGroup } from "../library/LibraryNav";
-import { BUNDLED_PENDING } from "./bundledTier";
+import { bundledMcpStateText } from "../../presentation/mcpWords";
 import { sameMcpEditorScope, type McpEditorScope, type McpRow } from "./mcpRows";
 
 export interface GroupWorkspace {
@@ -48,9 +48,9 @@ export function labelForMcpScope(groups: McpNavGroup[], scope: McpEditorScope): 
 }
 
 /** One line under a row's name: what the server runs or reaches, why the
- * file could not be read — or, for a bundled server, that it is not up yet. */
+ * file could not be read — or, for a bundled server, what its state means. */
 export function describeMcpRow(row: McpRow): string {
-  if (row.verdict.kind === "pending") return BUNDLED_PENDING;
+  if (row.verdict.kind === "bundled") return bundledMcpStateText(row.verdict.state);
   if (row.verdict.kind === "malformed") return `Cannot be read — ${row.verdict.reason}`;
   const { body } = row.verdict;
   if (body.transport === "http") return body.url;

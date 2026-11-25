@@ -180,4 +180,5 @@ export function from(paneId: string, workspaceId = "ws-1"): CommandSource {
   return { kind: "external", client: "mcp", pane: { id: paneId, workspaceId, label: paneId } };
 }
 
-export const ANONYMOUS: CommandSource = { kind: "external", client: "mcp" };
+/** A caller that is no pane's: the person's palette or a hotkey. */
+export const NO_PANE: CommandSource = { kind: "host" };

@@ -6,7 +6,9 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { inject, vi } from "vitest";
-import type { CommandResult, RawArgs } from "../../domain/commands";
+import { isJsonRecord } from "@keepdeck/plugin-api";
+import type { JournalEntry, RawArgs } from "../../domain/commands";
+import { INVALID_PARAMS, toolNameOf } from "../../domain/mcp";
 import type { Pane, Workspace } from "../../domain/deck";
 import type { Site } from "../../domain/lifecycle";
 import type { Settings } from "../../domain/settings/types";
@@ -49,6 +51,39 @@ export interface Envelope {
   paneId?: string;
   token?: string;
   payload?: Record<string, unknown>;
+}
+
+/** What a call came back with, as its caller reads it: the value it was
+ * carried out with, or why it was not. */
+export type Answer = { ok: true; value: unknown } | { ok: false; error: { message: string } };
+
+/** The line of a pane's output that answers MCP call `id` — the stub prints
+ * `stub: mcp <the answer>` — parsed; null while there is none. */
+function mcpReplyTo(output: string, id: number): Record<string, unknown> | null {
+  // The last piece may be a line still being written.
+  for (const line of output.split("\r\n").slice(0, -1)) {
+    const at = line.indexOf("stub: mcp ");
+    if (at < 0) continue;
+    const text = line.slice(at + "stub: mcp ".length);
+    if (text.startsWith("failed:")) throw new Error(`an MCP call ${text}`);
+    const reply: unknown = JSON.parse(text);
+    if (isJsonRecord(reply) && reply.id === id) return reply;
+  }
+  return null;
+}
+
+/** A tools/call reply as its caller reads it. An argument the registry
+ * refused is an answer; a caller the door or the page refused is not. */
+function answerOf(reply: Record<string, unknown>, command: string): Answer {
+  const { error, result } = reply;
+  if (isJsonRecord(error)) {
+    if (error.code !== INVALID_PARAMS) throw new Error(`${command} was refused: ${JSON.stringify(error)}`);
+    return { ok: false, error: { message: String(error.message) } };
+  }
+  const content = isJsonRecord(result) && Array.isArray(result.content) ? result.content[0] : undefined;
+  const text = isJsonRecord(content) ? content.text : undefined;
+  if (!isJsonRecord(result) || typeof text !== "string") throw new Error(`${command} answered no text: ${JSON.stringify(reply)}`);
+  return result.isError === true ? { ok: false, error: { message: text } } : { ok: true, value: JSON.parse(text) };
 }
 
 /** Who sends a report for a pane: its agent; a process the agent started in
@@ -138,10 +173,13 @@ export interface Deck {
   /** The stub program as a plain process, in no folder: it says `stub:
    * ready` at start — or nothing, `silent` — then what its typed cues ask. */
   stubProcess(silent?: boolean): PaneSpawnSpec;
-  /** An agent's command as its MCP call arrives — through the page's own
-   * command registry, the one its controller registered the core commands
-   * in — from a client tied to no pane. */
-  execute(id: string, args: RawArgs): Promise<CommandResult>;
+  /** A command as the agent in `paneId` calls it: a tools/call line through
+   * the deck's MCP socket, from the stub agent running there and greeted
+   * with its pane's secret — judged by the socket door, run by the page's
+   * projection over its own registry. A refused caller fails the test. */
+  ask(paneId: string, id: string, args: RawArgs): Promise<Answer>;
+  /** What that registry ran, oldest first, with who asked for each. */
+  journal(): readonly JournalEntry[];
   dispose(): void;
 }
 
@@ -338,6 +376,9 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
 
   /** The stub agents run outside the deck, ended with it. */
   const outside: ChildProcess[] = [];
+  /** The MCP calls the deck's agents were cued to make: each one's JSON-RPC
+   * id, so its answer is told apart in the pane's output. */
+  let mcpCalls = 0;
   const workspace = (): Workspace => {
     const ws = runtime.deckStore.getSnapshot().workspaces[0];
     if (!ws) throw new Error("no workspace on the deck");
@@ -548,7 +589,17 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
       rows: 24,
     }),
     updateSettings: (patch) => settings.updateSettings(patch),
-    execute: (id, args) => registry.execute(id, args, { kind: "external", client: "mcp" }),
+    async ask(paneId, id, args) {
+      await host.until("the MCP socket is up", () => runtime.mcp.status().socket !== null, 15_000);
+      const call = ++mcpCalls;
+      const line = JSON.stringify({ jsonrpc: "2.0", id: call, method: "tools/call", params: { name: toolNameOf(id), arguments: args } });
+      sessions.writePane(paneId, `mcp ${runtime.mcp.status().socket ?? ""} ${line}\r`);
+      const heard: { reply: Record<string, unknown> | null } = { reply: null };
+      await host.until(`${paneId}'s ${id} is answered`, () => (heard.reply = mcpReplyTo(output(paneId), call)) !== null, 15_000);
+      if (heard.reply === null) throw new Error(`${id} was never answered`);
+      return answerOf(heard.reply, id);
+    },
+    journal: () => registry.journal(),
     gitRepo() {
       const git = (...args: string[]) => execFileSync("git", args, { cwd: host.work, stdio: "pipe" });
       git("init", "-q", "-b", "main");

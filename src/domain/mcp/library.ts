@@ -157,6 +157,12 @@ export type McpServerVerdict =
   | { kind: "ok"; body: McpServerBody }
   | { kind: "malformed"; reason: string };
 
+/** A server KeepDeck ships, as a surface shows it: not up yet (its gate is
+ * closed), or handed to each pane at spawn with a secret of that pane's own.
+ * There is no one command to show then: every pane's names its own pane, and
+ * one that names none is refused. */
+export type BundledMcpState = "pending" | "perPane";
+
 const malformed = (reason: string): McpServerVerdict => ({ kind: "malformed", reason });
 
 

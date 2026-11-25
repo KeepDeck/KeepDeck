@@ -46,7 +46,6 @@ export {
   hasPaneSpawnSpec,
   isPaneSpawnSpecPending,
   markPaneResumeOrigin,
-  paneIdBySpawnSecret,
   peekPanePlanError,
   peekPaneSpawnSpec,
   subscribeSpawnSpecs,

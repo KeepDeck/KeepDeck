@@ -28,6 +28,7 @@ function wired(storage: Partial<McpStorage> = {}) {
     pumpPorts: { subscribe: () => Promise.resolve(() => {}), respond: () => Promise.resolve() },
     identitySource: () => Promise.resolve({ name: "KeepDeck", version: "0" }),
     connection: () => Promise.resolve({ command: "/bin/keepdeck", args: ["--mcp-shim", "/sock"] }),
+    identify: () => null,
   });
   return { mcp, store, disable };
 }

@@ -59,7 +59,8 @@ function from(paneId: string, workspaceId: string, label: string): CommandSource
   };
 }
 
-const ANONYMOUS: CommandSource = { kind: "external", client: "mcp" };
+/** A caller that is no pane's: the person's palette or a hotkey. */
+const NO_PANE: CommandSource = { kind: "host" };
 
 function setup(teamed = false) {
   /** What the orchestrator would answer for each pane; running unless a test
@@ -237,7 +238,7 @@ describe("mail.send", () => {
       registry,
       "mail.send",
       { to: "pane-2", kind: "note", body: "hello" },
-      ANONYMOUS,
+      NO_PANE,
     );
     expect(result.ok).toBe(false);
     expect(mail.takeAtTurnEnd("pane-2")).toEqual([]);
@@ -423,7 +424,7 @@ describe("mail.inbox", () => {
 
   it("refuses a caller it cannot name", async () => {
     const { registry } = setup();
-    const result = await run(registry, "mail.inbox", {}, ANONYMOUS);
+    const result = await run(registry, "mail.inbox", {}, NO_PANE);
     expect(result.ok).toBe(false);
   });
 });

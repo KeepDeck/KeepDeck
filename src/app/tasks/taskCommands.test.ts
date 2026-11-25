@@ -4,7 +4,7 @@ import type { WriteSource } from "../../domain/lifecycle";
 import { WORKER_STEPS } from "../../domain/tasks";
 import { STATUS_ARG, registerTaskCommands } from "./taskCommands";
 import { createTasksService } from "./tasksService";
-import { ANONYMOUS, fakeStore, from, teamedWorkspaces } from "./testSupport";
+import { NO_PANE, fakeStore, from, teamedWorkspaces } from "./testSupport";
 import { booleanOf, listOf, numberOf, recordsOf, recordOf, stringOf } from "../../testing/values.test-support";
 
 function setup(forgotten: (source: WriteSource) => boolean = () => false) {
@@ -69,9 +69,9 @@ describe("task commands", () => {
     expect(registry.list()).toEqual([]);
   });
 
-  it("refuses a caller it cannot place: anonymous, or a pane on no team", async () => {
+  it("refuses a caller it cannot place: no pane at all, or a pane on no team", async () => {
     const { refused } = setup();
-    expect(await refused("task.create", { title: "x" }, ANONYMOUS)).toContain("not attached to one");
+    expect(await refused("task.create", { title: "x" }, NO_PANE)).toContain("not attached to one");
     expect(await refused("task.create", { title: "x" }, LONER)).toContain("on no team");
     expect(await refused("task.list", { status: "todo" }, LONER)).toContain("on no team");
   });

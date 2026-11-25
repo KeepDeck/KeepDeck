@@ -288,8 +288,9 @@ const remoteAttach = (endpoint: string) =>
  * An unknown version runs as 1.x, the launch 1.x survives. A 2.x binary whose
  * version could not be read then gets neither `--standalone` nor the deck
  * tools: it joins opencode's shared service, and the MCP server it is handed
- * runs where no pane can place it, so its KeepDeck calls are nobody's. Only
- * the version probe keeps a 2.x pane right. */
+ * runs where no pane can place it, so the deck refuses it from its first
+ * request and the pane has no KeepDeck tools until it is restarted. Only the
+ * version probe keeps a 2.x pane right. */
 export function launchFor(
   ctx: LaunchPorts,
   input: LaunchInput,

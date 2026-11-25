@@ -1,7 +1,8 @@
 import { LibraryDialog } from "../library/LibraryDialog";
 import { LibraryNav } from "../library/LibraryNav";
 import { McpEditor } from "./McpEditor";
-import { BUNDLED_NOTICE, BUNDLED_PENDING } from "./bundledTier";
+import { MCP_BUNDLED_NOTICE } from "../../presentation/mcpWords";
+import { bundledHint } from "./bundledTier";
 import { MCP_NAV_COPY, labelForMcpScope } from "./mcpGroups";
 import { useMcpEditor } from "./useMcpEditor";
 import { useAgents } from "../../app/useAgents";
@@ -62,8 +63,8 @@ export function McpDialog({ activeWs, onClose, canClose = true }: McpDialogProps
               selection.mode === "view" ? { kind: "bundled" } : selection.scope,
             )}
             readOnly={verdicts.isView}
-            readOnlyNotice={verdicts.isView ? BUNDLED_NOTICE : undefined}
-            readOnlyHint={editor.viewRow?.verdict.kind === "pending" ? BUNDLED_PENDING : undefined}
+            readOnlyNotice={verdicts.isView ? MCP_BUNDLED_NOTICE : undefined}
+            readOnlyHint={bundledHint(editor.viewRow)}
             repairing={verdicts.repairReason}
             form={form}
             dirty={editor.dirty}
