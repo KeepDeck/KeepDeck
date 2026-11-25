@@ -1,6 +1,6 @@
 [package]
 name = "keepdeck"
-version = "0.34.12"
+version = "0.34.13"
 description = "Desktop deck for a fleet of coding agents."
 edition = "2021"
 # The app is what `cargo run` (and so `tauri dev`) starts: kd-host, the
