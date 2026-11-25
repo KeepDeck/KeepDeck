@@ -116,6 +116,12 @@ impl Rig {
     /// and s-bridge, and wait for the pid of each `NAME=<pid>` in `names`
     /// it prints.
     async fn open_printing(&self, permit: PermitId, pane: u64, script: &str, names: &[&str]) -> (SessionId, Vec<u32>) {
+        let secrets = SpawnSecrets { mcp: Some("s-mcp".into()), bridge: Some("s-bridge".into()) };
+        self.open_printing_with(permit, pane, script, names, secrets).await
+    }
+
+    /// [`Self::open_printing`], with the secrets the spawn is handed.
+    async fn open_printing_with(&self, permit: PermitId, pane: u64, script: &str, names: &[&str], secrets: SpawnSecrets) -> (SessionId, Vec<u32>) {
         use base64::Engine as _;
         let (tell, heard) = std::sync::mpsc::channel::<String>();
         let on_event = move |event| {
@@ -126,7 +132,7 @@ impl Rig {
             true
         };
         let mut spec = self.spec(script);
-        spec.secrets = SpawnSecrets { mcp: Some("s-mcp".into()), bridge: Some("s-bridge".into()) };
+        spec.secrets = secrets;
         let owner = LaunchOwner::Pane { pane: PaneId(pane) };
         let session = self.sessions.open(&self.door(), permit, owner, spec, on_event).await.expect("started");
         let mut seen = String::new();
@@ -274,6 +280,24 @@ async fn a_caller_speaks_for_the_pane_whose_live_terminal_holds_a_secret_its_doo
         let closed = caller(Some(pid), Some("s-bridge"), Named::None, door).await;
         assert_eq!(closed, Err(CallerRefusal::OutsideTerminal), "a closed pane's secret");
     }
+}
+
+/// An empty secret handed to a spawn is none: no door counts it, so a caller
+/// naming the empty string speaks for nobody. Decided here alone — the page
+/// hands its plan's secrets over as it holds them.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_empty_secret_handed_to_a_spawn_opens_no_door() {
+    use sessions::Door::{Bridge, Mcp};
+    let rig = rig().await;
+    let permit = rig.permit(1).await;
+    let secrets = SpawnSecrets { mcp: Some(String::new()), bridge: Some(String::new()) };
+    let (session, pids) = rig.open_printing_with(permit, 1, "echo PID=$$; sleep 30", &["PID"], secrets).await;
+    for door in [Mcp, Bridge] {
+        let caller = rig.sessions.caller(Some(pids[0]), Some(&Secret::new("")), Named::None, door).await;
+        assert_eq!(caller, Err(CallerRefusal::WrongSecret), "{door:?}");
+    }
+    assert_eq!(rig.sessions.stop_and_wait(session).await, Stopped::Exited);
 }
 
 /// An agent runs its hooks detached, behind a shell that leads a session of

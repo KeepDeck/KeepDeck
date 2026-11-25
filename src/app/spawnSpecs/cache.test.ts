@@ -236,6 +236,5 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
     expect(spec.token).not.toBe(spec.mcpToken);
     expect(planSecrets(spec)).toEqual({ mcp: spec.mcpToken, bridge: spec.token });
     expect(planSecrets({ args: [], env: [] })).toEqual({});
-    expect(planSecrets({ args: [], env: [], token: "", mcpToken: "" })).toEqual({});
   });
 });

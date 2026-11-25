@@ -141,11 +141,11 @@ export function planReports(plan: SpawnPlan | undefined): boolean {
 /** The secrets a plan's process tree is given, one per door, for the
  * sessions machine to judge its callers by: whoever names one a door counts,
  * from the pane's terminal, speaks for the pane. The MCP door counts either
- * — see [`SpawnPlan.mcpToken`] — the bridge only its own. An empty one is
- * none. */
+ * — see [`SpawnPlan.mcpToken`] — the bridge only its own. Handed over as the
+ * plan holds them: what counts as a secret at all — an empty one does not —
+ * is the sessions machine's to say. */
 export function planSecrets(plan: SpawnPlan): SpawnSecrets {
-  const given = (secret: string | undefined) => (secret === "" ? undefined : secret);
-  return { mcp: given(plan.mcpToken), bridge: given(plan.token) };
+  return { mcp: plan.mcpToken, bridge: plan.token };
 }
 
 /** Whether a pane's RESUME died before ever becoming a session: its plan is
