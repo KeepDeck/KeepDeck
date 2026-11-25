@@ -157,12 +157,12 @@ send_envelope() {
   send_body=$1
   [ -n "$socket" ] || return 0
   command -v curl >/dev/null 2>&1 || return 0
-  # The host is a name for the request line only: on a unix socket nothing
-  # resolves it. The path is the bridge's one route.
+  # On a unix socket nothing resolves the host; it is one that cannot leave
+  # the machine all the same. The path is the bridge's one route.
   send_answer=$(printf '%s' "$send_body" \
     | curl -s --max-time "$SEND_MAX" -w '\n%{http_code}' \
         --unix-socket "$socket" -X POST --data-binary @- \
-        http://keepdeck/envelope 2>/dev/null)
+        http://localhost/envelope 2>/dev/null)
   # The status is the last line curl wrote and the body everything before
   # it — cut apart in place, the body printed as `sed '$d'` printed it.
   case ${send_answer##*"

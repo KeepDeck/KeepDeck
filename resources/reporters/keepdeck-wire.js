@@ -29,9 +29,11 @@
 export const BRIDGE_PROTOCOL = 3;
 
 /** What an envelope is posted to, over the deck's socket: the bridge's one
- * route. The host is a name for the request line only — on a unix socket
- * nothing resolves it. The shell reporters post to the same. */
-export const ENVELOPE_URL = "http://keepdeck/envelope";
+ * route. On a unix socket nothing resolves the host, so it is one that
+ * cannot leave the machine should a client ever drop the socket and dial it
+ * — an envelope carries the pane's secret. The shell reporters post to the
+ * same. */
+export const ENVELOPE_URL = "http://localhost/envelope";
 
 /** How long to give the whole round trip, matching the shell reporters'
  * `SEND_MAX`: one number for one rule, so no two lanes disagree about it.

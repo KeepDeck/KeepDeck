@@ -144,7 +144,7 @@ describe("KeepDeck's claude Mod", () => {
     // names to the deck's door.
     expect(mod.posted).toEqual([
       {
-        url: "http://keepdeck/envelope",
+        url: "http://localhost/envelope",
         socketPath: "/home/bridge/a1b2c",
         envelope: {
           v: 3,

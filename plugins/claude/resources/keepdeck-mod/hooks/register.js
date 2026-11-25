@@ -23,8 +23,12 @@
  * calls are static literals, nothing is imported from outside this plugin,
  * and there is no `process`, `require` or global `fetch` — the wire is
  * handed `$.http.fetch`, which goes over the deck's unix socket when given
- * its `socketPath` (claude 2.1.331's API): claude itself is then the process
- * the kernel names to the deck.
+ * its `socketPath`: claude itself is then the process the kernel names to
+ * the deck. Every build checked carries the field (2.1.329 to 2.1.332); when
+ * it first appeared after 2.1.303 is not known. A build without it drops
+ * the field and dials the envelope's URL instead — a loopback one, so the
+ * pane's secret stays on the machine, nothing answers, and the Mod says
+ * nothing: the deck reads the transcript and types its lines, as before it.
  */
 import { createWire, ENVELOPE_URL, parseBridge } from "./keepdeck-wire.js";
 

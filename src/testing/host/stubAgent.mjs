@@ -164,7 +164,7 @@ if (lingering !== undefined) {
  * @param {string} socket @param {string} body @returns {Promise<number>} */
 function postTo(socket, body) {
   return new Promise((resolve, reject) => {
-    const asked = request("http://keepdeck/envelope", { socketPath: socket, method: "POST" }, (answer) => {
+    const asked = request("http://localhost/envelope", { socketPath: socket, method: "POST" }, (answer) => {
       answer.resume();
       answer.on("end", () => resolve(answer.statusCode ?? 0));
     });
