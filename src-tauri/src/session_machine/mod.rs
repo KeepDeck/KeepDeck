@@ -186,13 +186,19 @@ impl SessionMachine {
         let deadline = tokio::time::Instant::now() + REGISTRATION_WAIT;
         let terminal_of = || pid.and_then(|pid| self.table.terminal_of(pid));
         let host = |terminal: Option<(PaneId, SessionId)>| terminal.map(|(_, session)| session.0);
+        // Whether a spawn is under way is read BEFORE the table. The door
+        // inserts a handle before its spawn is over, so a spawn read as over
+        // has its terminal in the table by the time the table is asked, and
+        // one read as under way is waited for. Read the other way round, a
+        // spawn ending in between would leave an empty answer standing.
+        let spawning = self.table.is_opening();
         let mut terminal = terminal_of();
         let mut states = self.machine.state();
         // Each borrow ends with its statement: one held across the wait would
         // stop the machine publishing the very row waited for.
         let mut verdict = sessions::judge_caller(&states.borrow().value, host(terminal), secret);
         let unplaced = matches!(verdict, CallerVerdict::Refuse(CallerRefusal::OutsideTerminal)) && terminal.is_none();
-        if unplaced && pid.is_some() && self.table.is_opening() {
+        if unplaced && pid.is_some() && spawning {
             drop(tokio::time::timeout_at(deadline, self.table.opened()).await);
             terminal = terminal_of();
             verdict = sessions::judge_caller(&states.borrow().value, host(terminal), secret);
