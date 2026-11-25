@@ -19,8 +19,10 @@ export const TAIL_RETRY_MS = 20_000;
 
 export interface UsageTailsLane extends UsageLane {
   /** Follow, in `paneId`'s tail, the stores its records named by these ids
-   * (codex's subagent threads), as its agent locates them. */
-  link(paneId: string, ids: readonly string[]): void;
+   * (codex's subagent threads), as its agent locates them — named by records
+   * of the session `sessionId`, so only into a tail armed for that session:
+   * a late report of the session the pane just left names its own stores. */
+  link(paneId: string, ids: readonly string[], sessionId?: string): void;
 }
 
 /** What a pane was armed with. `token` is the pane's plan's secret at the
@@ -35,8 +37,10 @@ interface Armed {
 }
 
 /** One arming of a pane's tail, as this lane holds it: what it was armed
- * with, and whether its store's status records are its companion's now. */
-type Arming = Armed & { covered: boolean };
+ * with, whether its store's status records are its companion's now, and
+ * when it ended — let go of before its watch went, it gives up its place in
+ * the pane's turn at once. */
+type Arming = Armed & { covered: boolean; ended: Promise<void>; end(): void };
 
 /** Session-file watcher lane, including Codex's resume-without-binding fallback. */
 export function createUsageTailsLane({
@@ -137,21 +141,27 @@ export function createUsageTailsLane({
     const watches = watchesFor(paneId, agentId);
     const siblings = declarations.current().get(agentId)?.tail?.siblings?.(path) ?? null;
     letGo(paneId);
-    const armed: Arming = { path, token, agentId, sessionId, covered: statusCovered(paneId, agentId) };
+    let end = () => {};
+    const ended = new Promise<void>((resolve) => (end = resolve));
+    const armed: Arming = { path, token, agentId, sessionId, covered: statusCovered(paneId, agentId), ended, end };
     armedWith.set(paneId, armed);
     links.set(paneId, new Set());
+    // Asked at once, outside the pane's turn: it changes nothing in the core,
+    // and an arming let go of while it is out must not hold up what is sent
+    // after it.
+    const since = sinceFor(paneId, agentId, sessionId).then((value) => ({ value }));
     return inTurn(paneId, async () => {
-      const since = await sinceFor(paneId, agentId, sessionId);
-      // Let go of while the ledger answered — retired, or armed afresh:
+      const answered = await Promise.race([since, ended.then(() => null)]);
+      // Let go of before the ledger answered — retired, or armed afresh:
       // nothing is left for it to follow.
-      if (armedWith.get(paneId) !== armed) return;
+      if (!answered || armedWith.get(paneId) !== armed) return;
       await watchSessionFile(paneId, {
         path,
         agent: agentId,
         session: sessionId,
         watches,
         siblings,
-        since,
+        since: answered.value,
       });
     }).catch((error: unknown) => {
       if (armedWith.get(paneId) === armed) {
@@ -178,9 +188,12 @@ export function createUsageTailsLane({
     if (!linked) known.delete(id);
   };
 
-  const link = (paneId: string, ids: readonly string[]) => {
+  const link = (paneId: string, ids: readonly string[], sessionId?: string) => {
     const known = links.get(paneId);
-    if (disposed || !known) return;
+    // Named by another session's records — a report of the tail the pane
+    // just left, still on its way — the stores are that session's, not the
+    // one this pane's tail now follows.
+    if (disposed || !known || sessionId === undefined || armedWith.get(paneId)?.sessionId !== sessionId) return;
     for (const id of ids) {
       if (known.has(id)) continue;
       known.add(id);
@@ -195,7 +208,10 @@ export function createUsageTailsLane({
    * pane's turn behind whatever was sent for it before. Nothing waits on it,
    * so a failure is said rather than left unhandled. */
   const letGo = (paneId: string) => {
-    if (!armedWith.delete(paneId)) return;
+    const armed = armedWith.get(paneId);
+    if (!armed) return;
+    armedWith.delete(paneId);
+    armed.end();
     links.delete(paneId);
     void inTurn(paneId, () => unwatchSessionFile(paneId)).catch((error: unknown) => {
       log.warn("web:usage", `${paneId}: session file not let go: ${errorMessage(error)}`);

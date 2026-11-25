@@ -119,7 +119,7 @@ describe("following a pane's file, on the host", () => {
   });
 
   describe("letting an arming go", () => {
-    it("sends no watch for an arming let go of while the ledger answered, and lets it go after it in its turn", async () => {
+    it("sends no watch for an arming let go of while the ledger answered, and does not wait for the answer to let it go", async () => {
       const d = await open();
       const { paneId } = await followedUp(d);
       const asking = host().hold({ reply: "usage_since" });
@@ -130,12 +130,12 @@ describe("following a pane's file, on the host", () => {
       expect(await d.report(paneId, { type: "session.bound", payload: { sessionId: "s-next", source: "clear", transcriptPath: file } })).toBe(204);
       await asking.caught;
       // The pane goes before the ledger answers. The first arming was let go
-      // of as the second armed; the second's let-go waits behind it.
+      // of as the second armed, and the second as the pane went — at once:
+      // an arming that never sent its watch holds the pane's turn no longer.
       await d.closeAgent(paneId);
-      await aWhile();
-      expect(unwatches(host(), paneId, moved)).toBe(1);
-      asking.release();
       await until("the second is let go of", () => unwatches(host(), paneId, moved) === 2);
+      asking.release();
+      await aWhile();
       expect(tailsOf(host(), paneId, moved)).toEqual([]);
     });
   });

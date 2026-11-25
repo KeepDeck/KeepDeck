@@ -80,8 +80,12 @@ const usageWatch: TailWatch = { match: [{ key: "type", equals: "usage" }], keep:
 /** Let every promise already settled run its handlers. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-/** The last command the core was told. */
-const lastSaid = () => core.said[core.said.length - 1];
+/** What the core was told that changes a tail, in order: the ledger's
+ * questions left out, which change nothing and go when they are asked. */
+const changes = () => core.said.filter((name) => name !== "since");
+
+/** The last change the core was told of. */
+const lastChange = () => changes()[changes().length - 1];
 
 describe("the session-file tail lane", () => {
   afterEach(() => core.reset());
@@ -135,17 +139,28 @@ describe("the session-file tail lane", () => {
     return { lane, bind, hello, retirePlan, deck };
   };
 
-  it("lets an arming go only behind it, and sends no watch for one let go of while the ledger answered", async () => {
+  it("sends no watch for an arming let go of while the ledger answered, and does not wait for the answer", async () => {
     const { lane, bind, retirePlan } = mount();
     core.hold("since");
     bind("s-1", "/store/s-1.jsonl");
     await settle();
     retirePlan();
     await settle();
-    expect(core.said).toEqual(["since"]);
+    expect(core.said).toEqual(["since", "unwatch"]);
     core.answer("since", null);
     await settle();
     expect(core.said).toEqual(["since", "unwatch"]);
+    lane.dispose();
+  });
+
+  it("holds up neither the let-go nor the next arming behind an answer the ledger owes a gone arming", async () => {
+    const { lane, bind } = mount();
+    core.hold("since");
+    bind("s-1", "/store/s-1.jsonl");
+    await settle();
+    bind("s-2", "/store/s-2.jsonl");
+    await settle();
+    expect(core.said).toEqual(["since", "since", "unwatch", "watch /store/s-2.jsonl"]);
     lane.dispose();
   });
 
@@ -156,10 +171,10 @@ describe("the session-file tail lane", () => {
     await settle();
     bind("s-2", "/store/s-2.jsonl");
     await settle();
-    expect(core.said).toEqual(["since", "watch /store/s-1.jsonl"]);
+    expect(changes()).toEqual(["watch /store/s-1.jsonl"]);
     core.answer("watch /store/s-1");
     await settle();
-    expect(core.said).toEqual(["since", "watch /store/s-1.jsonl", "unwatch", "since", "watch /store/s-2.jsonl"]);
+    expect(changes()).toEqual(["watch /store/s-1.jsonl", "unwatch", "watch /store/s-2.jsonl"]);
     lane.dispose();
   });
 
@@ -172,10 +187,10 @@ describe("the session-file tail lane", () => {
     await settle();
     bind("s-2", "/store/s-2.jsonl");
     await settle();
-    expect(lastSaid()).toBe("retarget");
+    expect(lastChange()).toBe("retarget");
     core.answer("retarget", false);
     await settle();
-    expect(core.said).toEqual(["since", "watch /store/s-1.jsonl", "retarget", "unwatch", "since", "watch /store/s-2.jsonl"]);
+    expect(changes()).toEqual(["watch /store/s-1.jsonl", "retarget", "unwatch", "watch /store/s-2.jsonl"]);
     lane.dispose();
   });
 
@@ -188,14 +203,14 @@ describe("the session-file tail lane", () => {
     await settle();
     bind("s-2", "/store/s-2.jsonl");
     await settle();
-    expect(lastSaid()).toBe("retarget");
+    expect(lastChange()).toBe("retarget");
     core.fail("retarget", new Error("the core went away"));
     await settle();
     // No let-go of the newer arming: only the one before it, as it armed.
-    expect(core.said).toEqual(["since", "watch /store/s-1.jsonl", "retarget", "unwatch", "since", "watch /store/s-2.jsonl"]);
+    expect(changes()).toEqual(["watch /store/s-1.jsonl", "retarget", "unwatch", "watch /store/s-2.jsonl"]);
     lane.dispose();
     await settle();
-    expect(lastSaid()).toBe("unwatch");
+    expect(lastChange()).toBe("unwatch");
   });
 
   it("links a store into the tail it was named in, never a newer one", async () => {
@@ -204,7 +219,7 @@ describe("the session-file tail lane", () => {
     const { lane, bind } = mount({ locate });
     bind("s-1", "/store/s-1.jsonl");
     await settle();
-    lane.link("pane-1", ["child-1"]);
+    lane.link("pane-1", ["child-1"], "s-1");
     await settle();
     // The pane moves on while the child's store is being found.
     bind("s-2", "/store/s-2.jsonl");
@@ -212,6 +227,42 @@ describe("the session-file tail lane", () => {
     found("/store/child-1.jsonl");
     await settle();
     expect(core.said.filter((name) => name.startsWith("link"))).toEqual([]);
+    lane.dispose();
+  });
+
+  it("lets a link on its way to the core land before a newer arming lets its tail go", async () => {
+    const { lane, bind } = mount({ locate: (id) => Promise.resolve(`/store/${id}.jsonl`) });
+    bind("s-1", "/store/s-1.jsonl");
+    await settle();
+    core.hold("link");
+    lane.link("pane-1", ["child-1"], "s-1");
+    await settle();
+    bind("s-2", "/store/s-2.jsonl");
+    await settle();
+    // Held: the core still follows the first tail, which the link was for.
+    expect(lastChange()).toBe("link /store/child-1.jsonl");
+    core.answer("link", true);
+    await settle();
+    expect(changes()).toEqual(["watch /store/s-1.jsonl", "link /store/child-1.jsonl", "unwatch", "watch /store/s-2.jsonl"]);
+    lane.dispose();
+  });
+
+  it("links into a tail only the stores its own session's records named", async () => {
+    const { lane, bind } = mount({ locate: (id) => Promise.resolve(`/store/${id}.jsonl`) });
+    bind("s-1", "/store/s-1.jsonl");
+    await settle();
+    core.hold("unwatch");
+    bind("s-2", "/store/s-2.jsonl");
+    await settle();
+    // A report of the tail just let go of, still on its way, names a store
+    // of its own session: not the new tail's to read.
+    lane.link("pane-1", ["child-old"], "s-1");
+    lane.link("pane-1", ["child-new"], "s-2");
+    await settle();
+    core.answer("unwatch");
+    await settle();
+    expect(core.said.filter((name) => name.startsWith("link"))).toEqual(["link /store/child-new.jsonl"]);
+    expect(core.said.indexOf("link /store/child-new.jsonl")).toBeGreaterThan(core.said.indexOf("watch /store/s-2.jsonl"));
     lane.dispose();
   });
 
