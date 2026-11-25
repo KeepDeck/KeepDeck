@@ -7,7 +7,7 @@ import type { McpEditorState } from "../../app/useMcpLibrary";
 import type { BundledMcpDescription } from "../../app/mcp";
 import { sameMcpRef, type McpScope, type McpServerDraft } from "../../domain/mcp";
 import { McpDialog } from "./McpDialog";
-import { BUNDLED_PER_PANE } from "./bundledTier";
+import { bundledMcpStateText } from "../../presentation/mcpWords";
 import { button, buttonByTitle, confirmButton, input, row, textarea, type } from "../library/libraryTestDom";
 import { present } from "@keepdeck/plugin-api/testing";
 
@@ -120,7 +120,7 @@ describe("McpDialog", () => {
     expect(button("Save")).toBeUndefined();
     expect(button("Delete")).toBeUndefined();
     expect(document.body.textContent).toContain("Ships with KeepDeck");
-    expect(document.body.textContent).toContain(BUNDLED_PER_PANE);
+    expect(document.body.textContent).toContain(bundledMcpStateText("perPane"));
     // Nothing that names the pane's secret is typed into: no environment
     // block is offered for a read-only row.
     expect(document.querySelector("#mcp-env")).toBeNull();
@@ -259,7 +259,7 @@ describe("McpDialog", () => {
       tierState.current = up;
       render();
       expect(document.body.textContent).not.toContain("not up yet");
-      expect(document.body.textContent).toContain(BUNDLED_PER_PANE);
+      expect(document.body.textContent).toContain(bundledMcpStateText("perPane"));
     } finally {
       tierState.current = up;
     }

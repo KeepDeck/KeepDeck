@@ -43,5 +43,6 @@ export {
   type McpServerRef,
   type McpServerSummary,
   type McpServerVerdict,
+  type BundledMcpState,
   type McpStdioBody,
 } from "./library";

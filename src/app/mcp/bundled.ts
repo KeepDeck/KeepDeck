@@ -20,6 +20,7 @@
  * others.
  */
 import { errorMessage, type McpServerSpec } from "@keepdeck/plugin-api";
+import type { BundledMcpState } from "../../domain/mcp";
 import { log } from "../../ipc/log";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
 
@@ -48,12 +49,6 @@ export interface BundledMcpContributor {
    */
   describe(): BundledMcpState;
 }
-
-/** A shipped server's state on a surface: not up yet (its gate is closed),
- * or handed to each pane at spawn with a secret of that pane's own. There is
- * no one command to show then: every pane's names its own pane, and one
- * that names none is refused. */
-export type BundledMcpState = "pending" | "perPane";
 
 /** One bundled server as a surface lists it. */
 export interface BundledMcpDescription {

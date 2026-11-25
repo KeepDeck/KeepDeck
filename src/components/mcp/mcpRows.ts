@@ -8,17 +8,16 @@
  * not a library at all. Every "which row is this" and "same scope?" question
  * the dialog asks is answered here, once.
  */
-import { sameMcpScope, type McpScope, type McpServerVerdict } from "../../domain/mcp";
+import { sameMcpScope, type BundledMcpState, type McpScope, type McpServerVerdict } from "../../domain/mcp";
 
 /** The scopes the dialog shows: the two the library stores, and the tier
  * KeepDeck ships. A write never names the tier — see the machine's
  * `WriteScope`, which is the domain's [`McpScope`] alone. */
 export type McpEditorScope = McpScope | { kind: "bundled" };
 
-/** What a listed row holds: a stored file's verdict, or a bundled server's
- * state — not up yet (`pending`), or handed to each pane with its own secret
- * (`perPane`). Both are the tier's own, never a file's. */
-export type McpRowVerdict = McpServerVerdict | { kind: "pending" } | { kind: "perPane" };
+/** What a listed row holds: a stored file's verdict, or the state of a
+ * server KeepDeck ships — the tier's own, never a file's. */
+export type McpRowVerdict = McpServerVerdict | { kind: "bundled"; state: BundledMcpState };
 
 /** One row as the dialog lists it. */
 export interface McpRow {

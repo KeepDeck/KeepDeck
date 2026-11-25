@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { BundledMcpDescription } from "../../app/mcp";
 import type { McpLibraryRow } from "../../app/mcpLibrary";
-import { BUNDLED_PENDING, BUNDLED_PER_PANE, bundledHint, bundledMcpRows } from "./bundledTier";
+import { bundledMcpStateText } from "../../presentation/mcpWords";
+import { bundledHint, bundledMcpRows } from "./bundledTier";
 import {
   MCP_NAV_COPY,
   buildMcpGroups,
@@ -43,14 +44,14 @@ describe("the server nav's groups", () => {
     // Every pane's invocation names its own pane, and one run by hand is
     // refused: there is no one command to show.
     const [keepdeck] = bundledMcpRows(tier(true));
-    expect(present(keepdeck, "keepdeck").verdict).toEqual({ kind: "perPane" });
-    expect(describeMcpRow(present(keepdeck, "keepdeck"))).toBe(BUNDLED_PER_PANE);
-    expect(bundledHint(keepdeck)).toBe(BUNDLED_PER_PANE);
+    expect(present(keepdeck, "keepdeck").verdict).toEqual({ kind: "bundled", state: "perPane" });
+    expect(describeMcpRow(present(keepdeck, "keepdeck"))).toBe(bundledMcpStateText("perPane"));
+    expect(bundledHint(keepdeck)).toBe(bundledMcpStateText("perPane"));
     // Until the socket is confirmed it is not up at all.
     const [pending] = bundledMcpRows(tier(false));
-    expect(present(pending, "pending").verdict).toEqual({ kind: "pending" });
-    expect(describeMcpRow(present(pending, "pending"))).toBe(BUNDLED_PENDING);
-    expect(bundledHint(pending)).toBe(BUNDLED_PENDING);
+    expect(present(pending, "pending").verdict).toEqual({ kind: "bundled", state: "pending" });
+    expect(describeMcpRow(present(pending, "pending"))).toBe(bundledMcpStateText("pending"));
+    expect(bundledHint(pending)).toBe(bundledMcpStateText("pending"));
     // A library row's panel shows the file itself.
     expect(bundledHint(row("github"))).toBeUndefined();
   });
