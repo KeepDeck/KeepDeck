@@ -6,10 +6,10 @@
 use super::{OpenError, SessionMachine, Stopped, Tag};
 #[cfg(unix)]
 use super::test_support::{first_pid, pid_after, sleeper};
-use keepdeck_pty::sessions::{CallerRefusal, Event as SessionsEvent, Secret, CALLER_WAIT};
+use keepdeck_pty::sessions::{self, CallerRefusal, Event as SessionsEvent, Named, PaneSecrets, Secret, CALLER_WAIT};
 use crate::lifecycle::{AppDoors, Lifecycle};
 use keepdeck_lifecycle::infrastructure::door::Door;
-use crate::session::SpawnSpec;
+use crate::session::{SpawnSecrets, SpawnSpec};
 use keepdeck_lifecycle::domain::dir::Dir;
 use keepdeck_lifecycle::domain::ids::{PaneId, PermitId, SessionId, TeamId, WorkspaceId};
 use keepdeck_lifecycle::domain::machine::{Event, LaunchOwner, LeaseAsk, Load};
@@ -108,13 +108,14 @@ impl Rig {
             cwd: Some(self.cwd.clone()),
             cols: 80,
             rows: 24,
-            secrets: Vec::new(),
+            secrets: SpawnSecrets::default(),
         }
     }
 
-    /// Open pane `pane`'s process with `secrets`, and wait for the pid of its
-    /// leader.
-    async fn open_with_secrets(&self, permit: PermitId, pane: u64, secrets: &[&str]) -> (SessionId, u32) {
+    /// Open pane `pane`'s process running `script`, with the secrets s-mcp
+    /// and s-bridge, and wait for the pid of each `NAME=<pid>` in `names`
+    /// it prints.
+    async fn open_printing(&self, permit: PermitId, pane: u64, script: &str, names: &[&str]) -> (SessionId, Vec<u32>) {
         use base64::Engine as _;
         let (tell, heard) = std::sync::mpsc::channel::<String>();
         let on_event = move |event| {
@@ -124,16 +125,16 @@ impl Rig {
             }
             true
         };
-        let mut spec = self.spec("echo PID=$$; sleep 30");
-        spec.secrets = secrets.iter().map(|secret| secret.to_string()).collect();
+        let mut spec = self.spec(script);
+        spec.secrets = SpawnSecrets { mcp: Some("s-mcp".into()), bridge: Some("s-bridge".into()) };
         let owner = LaunchOwner::Pane { pane: PaneId(pane) };
         let session = self.sessions.open(&self.door(), permit, owner, spec, on_event).await.expect("started");
         let mut seen = String::new();
         loop {
-            if let Some(pid) = pid_after(&seen, "PID") {
-                return (session, pid);
+            if let Some(pids) = names.iter().map(|name| pid_after(&seen, name)).collect() {
+                return (session, pids);
             }
-            seen.push_str(&heard.recv_timeout(Duration::from_secs(5)).expect("PID"));
+            seen.push_str(&heard.recv_timeout(Duration::from_secs(5)).expect("the pids"));
         }
     }
 
@@ -231,30 +232,81 @@ async fn no_permit_no_process_and_one_permit_one_process() {
     assert_eq!(rig.sessions.stop_and_wait(first.unwrap()).await, Stopped::Exited);
 }
 
-/// A caller from a pane's live terminal speaks for it by either of the
-/// secrets its plan handed `pty_open`, and for nobody otherwise: another
-/// secret, none, a process in no pane's terminal, or once the pane is gone.
+/// A caller from a pane's live terminal speaks for it by a secret its plan
+/// handed `pty_open` that the door counts — either at the MCP door, only the
+/// bridge's at the bridge — naming no process or one of that terminal; and
+/// for nobody otherwise: another secret, none, a named process elsewhere, a
+/// process in no pane's terminal, or once the pane is gone.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn a_caller_speaks_for_the_pane_whose_live_terminal_holds_its_secret() {
+async fn a_caller_speaks_for_the_pane_whose_live_terminal_holds_a_secret_its_door_counts() {
+    use sessions::Door::{Bridge, Mcp};
     let rig = rig().await;
     let permit = rig.permit(1).await;
-    let (session, pid) = rig.open_with_secrets(permit, 1, &["s-mcp", "s-bridge"]).await;
-    let caller = |pid: Option<u32>, secret: Option<&'static str>| {
+    let (session, pids) = rig.open_printing(permit, 1, "echo PID=$$; sleep 30", &["PID"]).await;
+    let pid = pids[0];
+    let caller = |pid: Option<u32>, secret: Option<&'static str>, named: Named<u32>, door: sessions::Door| {
         let sessions = rig.sessions.clone();
-        async move { sessions.caller(pid, secret.map(Secret::new).as_ref()).await }
+        async move { sessions.caller(pid, secret.map(Secret::new).as_ref(), named, door).await }
     };
 
     for secret in ["s-mcp", "s-bridge"] {
-        assert_eq!(caller(Some(pid), Some(secret)).await, Ok(PaneId(1)), "{secret}");
+        assert_eq!(caller(Some(pid), Some(secret), Named::None, Mcp).await, Ok(PaneId(1)), "{secret}");
     }
-    assert_eq!(caller(Some(pid), Some("another")).await, Err(CallerRefusal::WrongSecret));
-    assert_eq!(caller(Some(pid), None).await, Err(CallerRefusal::NoSecret));
-    assert_eq!(caller(Some(std::process::id()), Some("s-mcp")).await, Err(CallerRefusal::OutsideTerminal), "this test runs in no pane");
-    assert_eq!(caller(None, Some("s-mcp")).await, Err(CallerRefusal::OutsideTerminal), "a peer the kernel could not name");
+    assert_eq!(caller(Some(pid), Some("s-bridge"), Named::None, Bridge).await, Ok(PaneId(1)));
+    assert_eq!(caller(Some(pid), Some("s-mcp"), Named::None, Bridge).await, Err(CallerRefusal::WrongSecret), "the bridge counts its own");
+    // The process a caller names is located too.
+    assert_eq!(caller(Some(pid), Some("s-bridge"), Named::Process(pid), Bridge).await, Ok(PaneId(1)));
+    let elsewhere = Named::Process(std::process::id());
+    assert_eq!(caller(Some(pid), Some("s-bridge"), elsewhere, Bridge).await, Err(CallerRefusal::NamedOutside));
+    assert_eq!(caller(Some(pid), Some("s-bridge"), Named::NotAProcess, Bridge).await, Err(CallerRefusal::NamedNotAProcess));
+    for door in [Mcp, Bridge] {
+        assert_eq!(caller(Some(pid), Some("another"), Named::None, door).await, Err(CallerRefusal::WrongSecret));
+        assert_eq!(caller(Some(pid), None, Named::None, door).await, Err(CallerRefusal::NoSecret));
+        let outside = caller(Some(std::process::id()), Some("s-bridge"), Named::None, door).await;
+        assert_eq!(outside, Err(CallerRefusal::OutsideTerminal), "this test runs in no pane");
+        let unnamed = caller(None, Some("s-bridge"), Named::None, door).await;
+        assert_eq!(unnamed, Err(CallerRefusal::OutsideTerminal), "a peer the kernel could not name");
+    }
 
     assert_eq!(rig.sessions.stop_and_wait(session).await, Stopped::Exited);
-    assert_eq!(caller(Some(pid), Some("s-mcp")).await, Err(CallerRefusal::OutsideTerminal), "a closed pane's secret");
+    for door in [Mcp, Bridge] {
+        let closed = caller(Some(pid), Some("s-bridge"), Named::None, door).await;
+        assert_eq!(closed, Err(CallerRefusal::OutsideTerminal), "a closed pane's secret");
+    }
+}
+
+/// An agent runs its hooks detached, behind a shell that leads a session of
+/// its own, and a hook names its agent's group: the bridge takes its word
+/// from one session out, the MCP door does not. A daemon's worker stands
+/// where a hook does, and names itself: refused.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hook_reports_from_one_session_out_and_a_process_naming_itself_there_is_refused() {
+    use sessions::Door::{Bridge, Mcp};
+    let rig = rig().await;
+    let permit = rig.permit(1).await;
+    let script = "echo AGENT=$$; \
+        perl -e 'use POSIX; setsid(); print \"LEADER=$$\\n\"; \
+          if (fork()) { sleep 30; exit } print \"HOOK=$$\\n\"; sleep 30' & wait";
+    let (session, pids) = rig.open_printing(permit, 1, script, &["AGENT", "LEADER", "HOOK"]).await;
+    let (agent, leader, hook) = (pids[0], pids[1], pids[2]);
+    let caller = |named: Named<u32>, door: sessions::Door| {
+        let sessions = rig.sessions.clone();
+        async move { sessions.caller(Some(hook), Some(&Secret::new("s-bridge")), named, door).await }
+    };
+
+    assert_eq!(caller(Named::Process(agent), Bridge).await, Ok(PaneId(1)));
+    assert_eq!(caller(Named::None, Bridge).await, Ok(PaneId(1)), "as one naming no process is today");
+    assert_eq!(caller(Named::Process(hook), Bridge).await, Err(CallerRefusal::NamedOutside));
+    assert_eq!(caller(Named::None, Mcp).await, Err(CallerRefusal::OutsideTerminal));
+
+    for pid in [hook, leader] {
+        // SAFETY: processes this test started; they left the terminal's
+        // group, so its stop would not reach them.
+        unsafe { libc::kill(pid as i32, libc::SIGKILL) };
+    }
+    assert_eq!(rig.sessions.stop_and_wait(session).await, Stopped::Exited);
 }
 
 /// What the machine's own row says of a pane whose terminal is in the table:
@@ -266,6 +318,18 @@ fn tag(pane: u64) -> Tag {
         dir: None,
         attempt: keepdeck_lifecycle::domain::ids::AttemptId(1),
     }
+}
+
+/// The secrets of a pane whose plan minted only the MCP one, "s".
+#[cfg(unix)]
+fn mcp_only() -> PaneSecrets {
+    PaneSecrets { mcp: Some(Secret::new("s")), bridge: None }
+}
+
+/// The MCP door's word on `pid` naming `secret`, for the tests of the wait.
+#[cfg(unix)]
+async fn mcp_caller(sessions: &SessionMachine, pid: u32, secret: Option<&str>) -> Result<PaneId, CallerRefusal> {
+    sessions.caller(Some(pid), secret.map(Secret::new).as_ref(), Named::None, sessions::Door::Mcp).await
 }
 
 /// The spawn door puts a process in the table before the machine hears of
@@ -282,10 +346,10 @@ async fn a_caller_early_in_its_terminal_is_admitted_once_the_session_is_register
     let late = sessions.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(100)).await;
-        late.machine.send(SessionsEvent::Registered { id: id.0, tag: tag(1), secrets: vec![Secret::new("s")] });
+        late.machine.send(SessionsEvent::Registered { id: id.0, tag: tag(1), secrets: mcp_only() });
     });
 
-    assert_eq!(sessions.caller(Some(pid), Some(&Secret::new("s"))).await, Ok(PaneId(1)));
+    assert_eq!(mcp_caller(&sessions, pid, Some("s")).await, Ok(PaneId(1)));
     sessions.table.shutdown(Duration::from_millis(200));
 }
 
@@ -300,11 +364,11 @@ async fn a_terminal_never_registered_is_refused_once_the_wait_is_spent() {
     sessions.table.insert(terminal, Some(PaneId(1))).ok().unwrap();
 
     let asked = tokio::time::Instant::now();
-    assert_eq!(sessions.caller(Some(pid), Some(&Secret::new("s"))).await, Err(CallerRefusal::NeverRegistered));
+    assert_eq!(mcp_caller(&sessions, pid, Some("s")).await, Err(CallerRefusal::NeverRegistered));
     assert!(asked.elapsed() >= CALLER_WAIT, "refused after {:?}", asked.elapsed());
     // No secret is refused at once, unregistered terminal or not.
     let asked = tokio::time::Instant::now();
-    assert_eq!(sessions.caller(Some(pid), None).await, Err(CallerRefusal::NoSecret));
+    assert_eq!(mcp_caller(&sessions, pid, None).await, Err(CallerRefusal::NoSecret));
     assert_eq!(asked.elapsed(), Duration::ZERO);
     sessions.table.shutdown(Duration::from_millis(200));
 }
@@ -326,11 +390,11 @@ async fn a_caller_whose_terminal_is_not_in_the_table_yet_is_admitted_once_it_is(
         tokio::time::sleep(Duration::from_millis(100)).await;
         let id = door.table.insert(terminal, Some(PaneId(1))).ok().unwrap();
         drop(opening);
-        door.machine.send(SessionsEvent::Registered { id: id.0, tag: tag(1), secrets: vec![Secret::new("s")] });
+        door.machine.send(SessionsEvent::Registered { id: id.0, tag: tag(1), secrets: mcp_only() });
     });
     spawning.await.unwrap();
 
-    assert_eq!(sessions.caller(Some(pid), Some(&Secret::new("s"))).await, Ok(PaneId(1)));
+    assert_eq!(mcp_caller(&sessions, pid, Some("s")).await, Ok(PaneId(1)));
     sessions.table.shutdown(Duration::from_millis(200));
 }
 
@@ -351,10 +415,10 @@ async fn a_terminal_that_ends_while_its_row_is_awaited_is_refused() {
         // The exit is seen by the table first; the machine hears of the
         // registration before it hears of the exit.
         late.table.remove(id);
-        late.machine.send(SessionsEvent::Registered { id: id.0, tag: tag(1), secrets: vec![Secret::new("s")] });
+        late.machine.send(SessionsEvent::Registered { id: id.0, tag: tag(1), secrets: mcp_only() });
     });
 
-    assert_eq!(sessions.caller(Some(pid), Some(&Secret::new("s"))).await, Err(CallerRefusal::OutsideTerminal));
+    assert_eq!(mcp_caller(&sessions, pid, Some("s")).await, Err(CallerRefusal::OutsideTerminal));
     handle.force_stop();
 }
 
@@ -362,6 +426,7 @@ async fn a_terminal_that_ends_while_its_row_is_awaited_is_refused() {
 /// argument too, and prints no environment value.
 #[test]
 fn the_spawn_line_carries_no_secret_and_no_env_value() {
+    let given = PaneSecrets { mcp: Some(Secret::new("5f3c-mcp")), bridge: Some(Secret::new("9a1e-bridge")) };
     let secrets = [Secret::new("5f3c-mcp"), Secret::new("9a1e-bridge")];
     let line = super::spawn_line(
         "claude",
@@ -371,7 +436,7 @@ fn the_spawn_line_carries_no_secret_and_no_env_value() {
         ],
         &[("KEEPDECK_BRIDGE".into(), r#"{"token":"9a1e-bridge"}"#.into())],
         Some("/repo"),
-        &secrets,
+        &given,
     );
     for secret in &secrets {
         assert!(!line.contains(secret.expose()), "{line}");
@@ -379,7 +444,7 @@ fn the_spawn_line_carries_no_secret_and_no_env_value() {
     assert!(line.contains("KEEPDECK_BRIDGE") && line.contains("<secret>") && line.contains("--mcp-config"), "{line}");
 
     // Outside the arguments as well: in the command, and in the folder.
-    let line = super::spawn_line("/bin/5f3c-mcp", &[], &[], Some("/tmp/9a1e-bridge/repo"), &secrets);
+    let line = super::spawn_line("/bin/5f3c-mcp", &[], &[], Some("/tmp/9a1e-bridge/repo"), &given);
     for secret in &secrets {
         assert!(!line.contains(secret.expose()), "{line}");
     }

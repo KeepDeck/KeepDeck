@@ -16,6 +16,8 @@ pub mod sessions;
 
 pub use output::{parse_drop_marker, Consumer, OutputQueue, Producer, PushOutcome, OUTPUT_CAP_BYTES};
 
+use sessions::Standing;
+
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -236,44 +238,57 @@ impl PtySession {
         self.exited.load(Ordering::Relaxed)
     }
 
-    /// Whether process `pid` belongs to this terminal: it runs in it, or was
-    /// started directly by a process that does.
-    ///
-    /// Ownership does not chain further: a process admitted only through its
-    /// parent is not itself one whose children count, or a daemon started from
-    /// here would bring in every worker under it (task-376, verified live).
-    /// opencode 2.x runs its agent in a `serve` it starts detached: `serve` is
-    /// admitted through its parent, the TUI, but the MCP servers `serve` starts
-    /// are not. So KeepDeck's own tools reach the deck from `serve` itself, and
-    /// opencode is handed no KeepDeck server to start.
+    /// How process `pid` stands to this terminal, or None when it does not
+    /// belong to it. Where it fits more than one standing, the strictest is
+    /// the answer.
     ///
     /// The spawn made the child a session leader, and everything it starts
     /// stays in that session unless it leaves on purpose — a tool call, a
-    /// nested CLI, a hook all run in it. Some agents start their own helpers
-    /// detached all the same (kimi spawns every MCP server with `setsid`),
-    /// and those are still the agent's: their PARENT runs here. What does not
-    /// belong is a daemon's worker. The daemon some agent started from here
-    /// inherited this terminal's environment, secrets included, then left the
-    /// session; its workers are its children, so neither they nor anything
-    /// they start has a parent in this terminal (claude 2.1.303, verified
-    /// live). False too once the child has been reaped, because its id may
-    /// already belong to a stranger.
+    /// nested CLI all run in it: [`Standing::InTerminal`]. Some agents start
+    /// their own helpers detached all the same (kimi spawns every MCP server
+    /// with `setsid`, opencode 2.x runs its agent in a `serve` it starts
+    /// detached), and those are still the agent's: their PARENT runs here,
+    /// [`Standing::ChildOfTerminal`]. Each leads a session of its own as
+    /// well, which is why the strictest standing wins: read one step further
+    /// out, the MCP door would refuse them. The agents start their hooks
+    /// detached too, behind a shell that leads the new session (claude,
+    /// codex and kimi alike): such a hook's session was started from here,
+    /// [`Standing::SessionFromTerminal`].
     ///
-    /// Non-Unix has no sessions to ask about, and answers yes.
-    pub fn hosts(&self, pid: u32) -> bool {
+    /// Nothing chains further. A process admitted through its parent is not
+    /// one whose children count, or a daemon started from here would bring
+    /// in every worker under it (task-376, verified live). The daemon some
+    /// agent started from here inherited this terminal's environment, secrets
+    /// included, then left the session; its workers are its children, so
+    /// neither they nor anything they start — their hooks' sessions included
+    /// — has a parent in this terminal (claude 2.1.303, verified live). None
+    /// too once the child has been reaped, because its id may already belong
+    /// to a stranger, and for a session whose leader is gone: a pid the
+    /// kernel no longer names is told by no parent.
+    ///
+    /// Non-Unix has no sessions to ask about, and answers in the terminal.
+    pub fn standing(&self, pid: u32) -> Option<Standing> {
         #[cfg(unix)]
         {
-            let Some(leader) = self.pid else { return false };
+            let leader = self.pid?;
             if self.has_exited() {
-                return false;
+                return None;
             }
             let inside = |pid| session_of(pid) == Some(leader);
-            inside(pid) || parent_of(pid).is_some_and(inside)
+            if inside(pid) {
+                Some(Standing::InTerminal)
+            } else if parent_of(pid).is_some_and(inside) {
+                Some(Standing::ChildOfTerminal)
+            } else if session_of(pid).and_then(parent_of).is_some_and(inside) {
+                Some(Standing::SessionFromTerminal)
+            } else {
+                None
+            }
         }
         #[cfg(not(unix))]
         {
             let _ = pid;
-            true
+            Some(Standing::InTerminal)
         }
     }
 

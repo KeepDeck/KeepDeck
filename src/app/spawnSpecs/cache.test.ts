@@ -222,18 +222,20 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
     again();
   });
 
-  it("hands the process both of its pane's secrets, two distinct ones", async () => {
-    // Either one names the pane to the socket door: the MCP one is what an
+  it("hands the process both of its pane's secrets, two distinct ones, each for its door", async () => {
+    // Either one names the pane to the MCP door: the MCP one is what an
     // injected `--client` carries, the bridge one is all a client can name
     // when nothing was injected (kimi's servers come from a per-install
-    // manifest). They authorize different things, so they differ.
+    // manifest). The bridge counts only its own, which stands in no argv.
+    // They authorize different things, so they differ.
     await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
     const spec = present(peekPaneSpawnSpec("pane-1"), "the plan");
 
     expect(spec.token).toBeDefined();
     expect(spec.mcpToken).toBeDefined();
     expect(spec.token).not.toBe(spec.mcpToken);
-    expect(planSecrets(spec)).toEqual([spec.mcpToken, spec.token]);
-    expect(planSecrets({ args: [], env: [] })).toEqual([]);
+    expect(planSecrets(spec)).toEqual({ mcp: spec.mcpToken, bridge: spec.token });
+    expect(planSecrets({ args: [], env: [] })).toEqual({});
+    expect(planSecrets({ args: [], env: [], token: "", mcpToken: "" })).toEqual({});
   });
 });

@@ -17,6 +17,7 @@
  * UI with a CLI.
  */
 import type { ResumeOrigin, UnconnectedLaunch } from "../../domain/agents";
+import type { SpawnSecrets } from "../../ipc/session";
 
 /** Bridge protocol version this app speaks — a plain change counter over the
  * env schema AND the envelope schema.
@@ -133,11 +134,14 @@ export function planReports(plan: SpawnPlan | undefined): boolean {
   return plan?.env.some(([key]) => key === BRIDGE_ENV) ?? false;
 }
 
-/** The secrets a plan's process tree is given, for the sessions machine to
- * judge its callers by: whoever names one from the pane's terminal speaks
- * for the pane. Either answers — see [`SpawnPlan.mcpToken`]. */
-export function planSecrets(plan: SpawnPlan): string[] {
-  return [plan.mcpToken, plan.token].filter((secret): secret is string => secret !== undefined && secret !== "");
+/** The secrets a plan's process tree is given, one per door, for the
+ * sessions machine to judge its callers by: whoever names one a door counts,
+ * from the pane's terminal, speaks for the pane. The MCP door counts either
+ * — see [`SpawnPlan.mcpToken`] — the bridge only its own. An empty one is
+ * none. */
+export function planSecrets(plan: SpawnPlan): SpawnSecrets {
+  const given = (secret: string | undefined) => (secret === "" ? undefined : secret);
+  return { mcp: given(plan.mcpToken), bridge: given(plan.token) };
 }
 
 /** Whether a pane's RESUME died before ever becoming a session: its plan is
