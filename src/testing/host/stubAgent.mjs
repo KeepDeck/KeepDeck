@@ -18,6 +18,8 @@
 //                  agent
 //   --store <dir>  keep the conversation's file there, `<id>.jsonl`, as a
 //                  CLI keeps its transcript, and name it in its binding
+//   --linger <socket> <file> <agent pid>
+//                  the daemon a `linger` cue starts: nothing else
 //
 // With KEEPDECK_STUB_LIVE set — a process run outside the deck's panes —
 // it keeps a file named for its conversation in that folder while it runs:
@@ -39,9 +41,20 @@
 //   record <json>  write one record to the conversation's file, as a CLI
 //                  writes a line of its transcript; then print
 //                  `stub: recorded <type>`
+//   mcp <socket> <line>
+//                  ask the deck's MCP socket one JSON-RPC line, greeting it
+//                  with the pane's secret as an injected shim does; then
+//                  print `stub: mcp <the one line that answers it>`
+//   linger <socket> <file>
+//                  start a process that leaves this terminal's session, as
+//                  a daemon an agent starts does, and outlives the pane: once
+//                  this agent is gone it asks the socket `initialize` with the
+//                  pane's secret and writes the answer to <file>; print
+//                  `stub: lingering`
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { appendFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -58,6 +71,51 @@ function valueOf(name) {
 
 /** @param {string} line */
 const print = (line) => process.stdout.write(`${line}\r\n`);
+
+/** The pane's bridge, as its process tree inherits it — its secret too. */
+const armed = process.env.KEEPDECK_BRIDGE;
+const bridge = armed ? JSON.parse(armed) : null;
+
+/** One line asked of the deck's MCP socket, greeted with `token`: the one
+ * line that answers it.
+ * @param {string} socket @param {string | undefined} token @param {string} line
+ * @returns {Promise<string>} */
+function askDeck(socket, token, line) {
+  return new Promise((resolve, reject) => {
+    const connection = connect(socket);
+    let buffer = "";
+    connection.setEncoding("utf8");
+    connection.on("connect", () => {
+      if (token) connection.write(`${JSON.stringify({ jsonrpc: "2.0", method: "deck/client", params: { token } })}\n`);
+      connection.write(`${line}\n`);
+    });
+    connection.on("data", (/** @type {string} */ chunk) => {
+      buffer += chunk;
+      const end = buffer.indexOf("\n");
+      if (end < 0) return;
+      connection.destroy();
+      resolve(buffer.slice(0, end));
+    });
+    connection.on("error", reject);
+    connection.on("close", () => reject(new Error("the deck closed the connection")));
+  });
+}
+
+// A daemon the agent started: in a session of its own, its parent the agent.
+// It waits for the agent to go, then asks as the pane it came from.
+// The agent names itself: by the time this process runs, it may be gone.
+const lingering = valueOf("--linger");
+if (lingering !== undefined) {
+  const [answerTo = "", agent = ""] = args.slice(args.indexOf("--linger") + 2);
+  const until = Date.now() + 30_000;
+  while (String(process.ppid) === agent && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50));
+  const asked = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+  const answer = await askDeck(lingering, bridge?.token, asked).catch((error) => JSON.stringify({ failed: String(error) }));
+  // Whole or not at all: a reader that sees the file sees the answer.
+  writeFileSync(`${answerTo}.part`, answer);
+  renameSync(`${answerTo}.part`, answerTo);
+  process.exit(0);
+}
 
 const child = flag("--child");
 const resumed = valueOf("--resume");
@@ -85,9 +143,6 @@ if (live && !child) {
   writeFileSync(held, String(process.pid));
   process.on("exit", () => rmSync(held, { force: true }));
 }
-
-const armed = process.env.KEEPDECK_BRIDGE;
-const bridge = armed ? JSON.parse(armed) : null;
 
 /** Send one envelope through the bridge the plan armed, as a hook does: by
  * the pane's token, from this process.
@@ -129,6 +184,18 @@ cues.on("line", (line) => {
       .catch((error) => print(`stub: post failed: ${String(error)}`));
   }
   if (cue === "child") toHelper(rest);
+  if (cue === "mcp") {
+    const [socket = "", ...line] = words;
+    void askDeck(socket, bridge?.token, line.join(" "))
+      .then((answer) => print(`stub: mcp ${answer}`))
+      .catch((error) => print(`stub: mcp failed: ${String(error)}`));
+  }
+  if (cue === "linger") {
+    const [socket = "", answerTo = ""] = words;
+    const daemon = [process.argv[1], "--linger", socket, answerTo, String(process.pid)];
+    spawn(process.execPath, daemon, { detached: true, stdio: "ignore" }).unref();
+    print("stub: lingering");
+  }
   if (cue === "record" && transcript !== undefined) {
     appendFileSync(transcript, `${rest}\n`);
     print(`stub: recorded ${String(JSON.parse(rest).type)}`);

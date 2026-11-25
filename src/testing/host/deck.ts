@@ -6,7 +6,7 @@ import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { inject, vi } from "vitest";
-import type { CommandResult, RawArgs } from "../../domain/commands";
+import type { CommandResult, JournalEntry, RawArgs } from "../../domain/commands";
 import type { Pane, Workspace } from "../../domain/deck";
 import type { Site } from "../../domain/lifecycle";
 import type { Settings } from "../../domain/settings/types";
@@ -143,6 +143,8 @@ export interface Deck {
    * agent's call comes through the MCP socket instead, where the sessions
    * machine judges which pane it is. */
   execute(id: string, args: RawArgs): Promise<CommandResult>;
+  /** What that registry ran, oldest first, with who asked for each. */
+  journal(): readonly JournalEntry[];
   dispose(): void;
 }
 
@@ -550,6 +552,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     }),
     updateSettings: (patch) => settings.updateSettings(patch),
     execute: (id, args) => registry.execute(id, args, { kind: "host" }),
+    journal: () => registry.journal(),
     gitRepo() {
       const git = (...args: string[]) => execFileSync("git", args, { cwd: host.work, stdio: "pipe" });
       git("init", "-q", "-b", "main");
