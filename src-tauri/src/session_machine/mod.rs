@@ -20,7 +20,7 @@ use keepdeck_lifecycle::domain::dir::Dir;
 use keepdeck_lifecycle::domain::ids::{AttemptId, PaneId, PermitId, SessionId};
 use keepdeck_lifecycle::domain::machine::{Event as LifecycleEvent, LaunchOwner};
 use keepdeck_lifecycle::domain::model::{Answer, Refusal, Reply};
-use keepdeck_pty::sessions::{self, CallerRefusal, CallerVerdict, Effect, Event, Over, Secret, Sessions, REGISTRATION_WAIT};
+use keepdeck_pty::sessions::{self, CallerPlace, CallerRefusal, CallerVerdict, Effect, Event, Over, Secret, Sessions, CALLER_WAIT};
 use keepdeck_pty::{Consumer, PtyEvent, PtySession, PtySpec, TermSize};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -174,43 +174,29 @@ impl SessionMachine {
     /// `pid` belongs to, when that terminal's session holds `secret`. Asked
     /// per request by whoever lets a caller act for a pane.
     ///
-    /// An early caller is waited for, up to [`REGISTRATION_WAIT`] in all,
-    /// because one refused that early would stay refused. Its process can
-    /// run before the spawn door hands it to the table, so a caller no
-    /// terminal places is asked about again once the spawns under way are
-    /// over. And the table holds a terminal before the machine hears of it,
-    /// so a terminal not registered yet is awaited. After a wait the terminal
-    /// is looked up again too, since it may have ended meanwhile. What the
-    /// spent wait means is the rule's ([`sessions::after_registration_wait`]).
+    /// An early caller is waited for, up to [`CALLER_WAIT`] in all, because
+    /// one refused that early would stay refused: what the rule calls too
+    /// early to judge is waited for — the spawns under way, the terminal's
+    /// registration — and judged again, the process located afresh, since
+    /// its terminal may have ended meanwhile. What the spent wait means is
+    /// the rule's ([`sessions::after_caller_wait`]).
     pub async fn caller(&self, pid: Option<u32>, secret: Option<&Secret>) -> Result<PaneId, CallerRefusal> {
-        let deadline = tokio::time::Instant::now() + REGISTRATION_WAIT;
-        let terminal_of = || pid.and_then(|pid| self.table.terminal_of(pid));
-        let host = |terminal: Option<(PaneId, SessionId)>| terminal.map(|(_, session)| session.0);
-        // Whether a spawn is under way is read BEFORE the table. The door
-        // inserts a handle before its spawn is over, so a spawn read as over
-        // has its terminal in the table by the time the table is asked, and
-        // one read as under way is waited for. Read the other way round, a
-        // spawn ending in between would leave an empty answer standing.
-        let spawning = self.table.is_opening();
-        let mut terminal = terminal_of();
+        let deadline = tokio::time::Instant::now() + CALLER_WAIT;
+        let locate = || pid.map_or(CallerPlace::Outside, |pid| self.table.locate(pid));
         let mut states = self.machine.state();
         // Each borrow ends with its statement: one held across the wait would
         // stop the machine publishing the very row waited for.
-        let mut verdict = sessions::judge_caller(&states.borrow().value, host(terminal), secret);
-        let unplaced = matches!(verdict, CallerVerdict::Refuse(CallerRefusal::OutsideTerminal)) && terminal.is_none();
-        if unplaced && pid.is_some() && spawning {
+        let mut verdict = sessions::judge_caller(&states.borrow().value, &locate(), secret);
+        if verdict == CallerVerdict::NotPlaced {
             drop(tokio::time::timeout_at(deadline, self.table.opened()).await);
-            terminal = terminal_of();
-            verdict = sessions::judge_caller(&states.borrow().value, host(terminal), secret);
+            verdict = sessions::judge_caller(&states.borrow().value, &locate(), secret);
         }
-        if let (CallerVerdict::NotRegistered, Some(id)) = (verdict, host(terminal)) {
+        if let CallerVerdict::NotRegistered(id) = verdict {
             let registered = states.wait_for(|at| at.value.rows.contains_key(&id));
             drop(tokio::time::timeout_at(deadline, registered).await);
-            terminal = terminal_of();
-            verdict = sessions::judge_caller(&states.borrow().value, host(terminal), secret);
+            verdict = sessions::judge_caller(&states.borrow().value, &locate(), secret);
         }
-        sessions::after_registration_wait(verdict)?;
-        terminal.map(|(pane, _)| pane).ok_or(CallerRefusal::OutsideTerminal)
+        sessions::after_caller_wait(verdict)
     }
 
     pub fn resize(&self, session: SessionId, cols: u16, rows: u16) -> std::io::Result<()> {

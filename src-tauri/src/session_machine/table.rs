@@ -11,6 +11,7 @@
 //! no pane's speaks for nobody.
 
 use keepdeck_lifecycle::domain::ids::{PaneId, SessionId};
+use keepdeck_pty::sessions::CallerPlace;
 use keepdeck_pty::PtySession;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -56,11 +57,6 @@ impl Table {
     pub fn opening(&self) -> Opening<'_> {
         self.opening.send_modify(|opening| *opening += 1);
         Opening(self)
-    }
-
-    /// Whether a spawn is under way that no terminal of the table places yet.
-    pub fn is_opening(&self) -> bool {
-        *self.opening.borrow() > 0
     }
 
     /// Settles once no spawn is under way.
@@ -109,10 +105,27 @@ impl Table {
         self.terminal_of(pid).map(|(pane, _)| pane)
     }
 
+    /// Where process `pid` runs, as a caller is judged by it: in the terminal
+    /// of a pane, with the session that is that terminal; in none; or in none
+    /// while a spawn is under way, whose process can run before its terminal
+    /// is held here.
+    ///
+    /// The spawns are read before the terminals. A spawn hands its handle over
+    /// before it is over, so one read as over has its terminal found here,
+    /// and a spawn ending in between cannot leave an empty answer that names
+    /// no spawn.
+    pub fn locate(&self, pid: u32) -> CallerPlace<PaneId> {
+        let spawning = *self.opening.borrow() > 0;
+        match self.terminal_of(pid) {
+            Some((pane, session)) => CallerPlace::Terminal { id: session.0, pane },
+            None if spawning => CallerPlace::OutsideWhileSpawning,
+            None => CallerPlace::Outside,
+        }
+    }
+
     /// The pane whose terminal process `pid` belongs to, and the session
-    /// that is that terminal — the row the sessions machine judges a caller
-    /// by. None as for [`Table::pane_of`].
-    pub fn terminal_of(&self, pid: u32) -> Option<(PaneId, SessionId)> {
+    /// that is that terminal. None as for [`Table::pane_of`].
+    fn terminal_of(&self, pid: u32) -> Option<(PaneId, SessionId)> {
         let panes: Vec<(PaneId, SessionId, Arc<PtySession>)> = {
             let inner = self.inner.lock().expect("session table");
             inner
@@ -229,6 +242,23 @@ mod tests {
         assert!(exited(&first_events, Duration::from_secs(5)));
         assert!(exited(&second_events, Duration::from_secs(5)));
         assert!(waited < Duration::from_secs(5), "waited {waited:?} of a 30s grace for two prompt exits — the wait is not shared");
+    }
+
+    #[test]
+    fn a_process_is_located_in_its_terminal_in_none_or_in_none_while_a_spawn_is_under_way() {
+        let table = Table::default();
+        let (terminal, events) = sleeper("echo PID=$$; sleep 30");
+        let pid = first_pid(&events);
+        // The spawn is under way: its process runs, its handle is not here.
+        let opening = table.opening();
+        assert_eq!(table.locate(pid), CallerPlace::OutsideWhileSpawning);
+        // Once handed over it is found, the spawn not over yet or over.
+        let id = table.insert(terminal, Some(PaneId(1))).ok().unwrap();
+        assert_eq!(table.locate(pid), CallerPlace::Terminal { id: id.0, pane: PaneId(1) });
+        drop(opening);
+        assert_eq!(table.locate(pid), CallerPlace::Terminal { id: id.0, pane: PaneId(1) });
+        assert_eq!(table.locate(std::process::id()), CallerPlace::Outside, "this test runs in no pane");
+        table.shutdown(Duration::from_millis(200));
     }
 
     #[test]

@@ -171,68 +171,89 @@ pub enum CallerRefusal {
     OutsideTerminal,
     /// The live session of its terminal holds another secret.
     WrongSecret,
-    /// Its terminal was never registered within [`REGISTRATION_WAIT`]: the
-    /// table holds it, the machine does not. A fault of the deck's, not the
+    /// Its terminal was never registered within [`CALLER_WAIT`]: the table
+    /// holds it, the machine does not. A fault of the deck's, not the
     /// caller's.
     NeverRegistered,
 }
 
-/// What the rule says of one caller.
+/// Where a caller's process runs, as the session table answers it: in the
+/// terminal that is session `id`, of `pane`; in no terminal; or in none while
+/// a spawn is under way, whose process can run before the table holds its
+/// terminal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CallerVerdict {
-    Admit,
-    Refuse(CallerRefusal),
-    /// Its process sits in a terminal the table holds and the machine has not
-    /// registered yet: too early to say. A row is never removed, so this can
-    /// only mean "not registered yet", and once false it stays false.
-    NotRegistered,
+pub enum CallerPlace<P> {
+    Terminal { id: Id, pane: P },
+    Outside,
+    OutsideWhileSpawning,
 }
 
-/// How long a caller in a terminal not yet registered is waited for.
+/// What the rule says of one caller.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallerVerdict<P> {
+    /// It speaks for `pane`.
+    Admit(P),
+    Refuse(CallerRefusal),
+    /// Its process runs in no terminal while a spawn is under way: its own
+    /// terminal may not be held yet. Too early to say.
+    NotPlaced,
+    /// Its process sits in the terminal of session `id`, which the table holds
+    /// and the machine has not registered yet: too early to say. A row is
+    /// never removed, so this can only mean "not registered yet", and once
+    /// false it stays false.
+    NotRegistered(Id),
+}
+
+/// How long an early caller is waited for, in all: for the spawn under way
+/// to hand its terminal to the table, and for the machine to register that
+/// terminal.
 ///
 /// From below: the real window is one resumption of the spawn door after the
 /// spawn and one hop of the machine's mailbox, far under a second unless the
 /// runtime is starved. From above: under a client's handshake timeout
-/// (opencode 1.19.6 waits 30 s). It cannot stack: a machine that is gone ends
-/// the wait at once, and a registered session never turns unregistered.
-pub const REGISTRATION_WAIT: Duration = Duration::from_secs(2);
+/// (opencode 1.19.6 waits 30 s). It cannot stack: both waits share this one
+/// deadline, a machine that is gone ends the wait at once, and a registered
+/// session never turns unregistered.
+pub const CALLER_WAIT: Duration = Duration::from_secs(2);
 
-/// Whether a caller speaks for the pane whose terminal is session `host`, by
-/// the `secret` it named. `host` is the session whose terminal the caller's
-/// process belongs to, None when it belongs to none.
+/// Whether a caller speaks for a pane, by where its process runs and the
+/// `secret` it named.
 ///
 /// The terminal first: the pane is the one the process runs in, and the
 /// secret only has to belong to that terminal's live session. So a secret two
 /// sessions happen to hold still cannot name the other's pane. A caller that
 /// named no secret is refused before anything else and never waited for.
-pub fn judge_caller<T>(sessions: &Sessions<T>, host: Option<Id>, secret: Option<&Secret>) -> CallerVerdict {
+pub fn judge_caller<T, P: Copy>(sessions: &Sessions<T>, place: &CallerPlace<P>, secret: Option<&Secret>) -> CallerVerdict<P> {
     let Some(secret) = secret else {
         return CallerVerdict::Refuse(CallerRefusal::NoSecret);
     };
-    let Some(id) = host else {
-        return CallerVerdict::Refuse(CallerRefusal::OutsideTerminal);
+    let (id, pane) = match *place {
+        CallerPlace::Terminal { id, pane } => (id, pane),
+        CallerPlace::Outside => return CallerVerdict::Refuse(CallerRefusal::OutsideTerminal),
+        CallerPlace::OutsideWhileSpawning => return CallerVerdict::NotPlaced,
     };
     let Some(row) = sessions.rows.get(&id) else {
-        return CallerVerdict::NotRegistered;
+        return CallerVerdict::NotRegistered(id);
     };
     if !row.live() {
         return CallerVerdict::Refuse(CallerRefusal::OutsideTerminal);
     }
     if row.secrets.contains(secret) {
-        CallerVerdict::Admit
+        CallerVerdict::Admit(pane)
     } else {
         CallerVerdict::Refuse(CallerRefusal::WrongSecret)
     }
 }
 
-/// The verdict once the wait for registration is spent: a terminal still
-/// unregistered is refused as never registered. A decision, so it is here and
-/// not in the door that waited.
-pub fn after_registration_wait(verdict: CallerVerdict) -> Result<(), CallerRefusal> {
+/// The verdict once the wait is spent: a caller still in no terminal is
+/// outside it, and a terminal still unregistered is refused as never
+/// registered. A decision, so it is here and not in the door that waited.
+pub fn after_caller_wait<P>(verdict: CallerVerdict<P>) -> Result<P, CallerRefusal> {
     match verdict {
-        CallerVerdict::Admit => Ok(()),
+        CallerVerdict::Admit(pane) => Ok(pane),
         CallerVerdict::Refuse(refusal) => Err(refusal),
-        CallerVerdict::NotRegistered => Err(CallerRefusal::NeverRegistered),
+        CallerVerdict::NotPlaced => Err(CallerRefusal::OutsideTerminal),
+        CallerVerdict::NotRegistered(_) => Err(CallerRefusal::NeverRegistered),
     }
 }
 
@@ -342,13 +363,19 @@ mod tests {
         step(&registered(), Event::Registered { id: 2, tag: "pane-2", secrets: vec![secret("q")] }).0
     }
 
+    /// A process in the terminal that is session `id`, of the pane numbered
+    /// the same.
+    fn in_terminal(id: Id) -> CallerPlace<Id> {
+        CallerPlace::Terminal { id, pane: id }
+    }
+
     #[test]
-    fn a_caller_is_admitted_from_its_live_terminal_by_either_of_its_secrets() {
+    fn a_caller_is_admitted_from_its_live_terminal_by_either_of_its_secrets_for_that_terminals_pane() {
         let sessions = two_panes();
         for named in ["p-mcp", "p-bridge"] {
-            assert_eq!(judge_caller(&sessions, Some(1), Some(&secret(named))), CallerVerdict::Admit, "{named}");
+            assert_eq!(judge_caller(&sessions, &in_terminal(1), Some(&secret(named))), CallerVerdict::Admit(1), "{named}");
         }
-        assert_eq!(judge_caller(&sessions, Some(2), Some(&secret("q"))), CallerVerdict::Admit);
+        assert_eq!(judge_caller(&sessions, &in_terminal(2), Some(&secret("q"))), CallerVerdict::Admit(2));
     }
 
     #[test]
@@ -356,44 +383,54 @@ mod tests {
         // A process of pane 2's terminal that names pane 1's secret is not
         // pane 1: the terminal comes first.
         let sessions = two_panes();
-        assert_eq!(judge_caller(&sessions, Some(2), Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::WrongSecret));
-        assert_eq!(judge_caller(&sessions, Some(1), Some(&secret("stale"))), CallerVerdict::Refuse(CallerRefusal::WrongSecret));
+        assert_eq!(judge_caller(&sessions, &in_terminal(2), Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::WrongSecret));
+        assert_eq!(judge_caller(&sessions, &in_terminal(1), Some(&secret("stale"))), CallerVerdict::Refuse(CallerRefusal::WrongSecret));
     }
 
     #[test]
     fn a_caller_in_no_terminal_or_in_one_that_is_not_live_is_outside() {
         let sessions = two_panes();
         // A daemon's worker, a leftover of a closed pane: in no pane's terminal.
-        assert_eq!(judge_caller(&sessions, None, Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::OutsideTerminal));
+        let outside: CallerPlace<Id> = CallerPlace::Outside;
+        assert_eq!(judge_caller(&sessions, &outside, Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::OutsideTerminal));
         // A closing session's row exists and is not live, whatever it is in.
         let (stopping, _) = step(&sessions, Event::Stop { id: 1 });
-        assert_eq!(judge_caller(&stopping, Some(1), Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::OutsideTerminal));
+        assert_eq!(judge_caller(&stopping, &in_terminal(1), Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::OutsideTerminal));
         let (killing, _) = step(&stopping, Event::Grace { id: 1 });
-        assert_eq!(judge_caller(&killing, Some(1), Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::OutsideTerminal));
+        assert_eq!(judge_caller(&killing, &in_terminal(1), Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::OutsideTerminal));
         let over = step(&killing, Event::Exited { id: 1 }).0;
-        assert_eq!(judge_caller(&over, Some(1), Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::OutsideTerminal));
+        assert_eq!(judge_caller(&over, &in_terminal(1), Some(&secret("p-mcp"))), CallerVerdict::Refuse(CallerRefusal::OutsideTerminal));
     }
 
     #[test]
     fn a_terminal_not_yet_registered_is_too_early_to_judge() {
-        assert_eq!(judge_caller(&two_panes(), Some(3), Some(&secret("r"))), CallerVerdict::NotRegistered);
+        assert_eq!(judge_caller(&two_panes(), &in_terminal(3), Some(&secret("r"))), CallerVerdict::NotRegistered(3));
+    }
+
+    #[test]
+    fn a_caller_in_no_terminal_while_a_spawn_is_under_way_is_too_early_to_judge() {
+        // Its own terminal may be the one not handed to the table yet.
+        let spawning: CallerPlace<Id> = CallerPlace::OutsideWhileSpawning;
+        assert_eq!(judge_caller(&two_panes(), &spawning, Some(&secret("p-mcp"))), CallerVerdict::NotPlaced);
     }
 
     #[test]
     fn no_secret_is_refused_at_once_wherever_the_caller_is() {
-        // Never waited for, not even in a terminal not registered yet.
+        // Never waited for, not even in a terminal not registered yet or
+        // while a spawn is under way.
         let sessions = two_panes();
-        for host in [None, Some(1), Some(3)] {
-            assert_eq!(judge_caller(&sessions, host, None), CallerVerdict::Refuse(CallerRefusal::NoSecret), "{host:?}");
+        for place in [CallerPlace::Outside, CallerPlace::OutsideWhileSpawning, in_terminal(1), in_terminal(3)] {
+            assert_eq!(judge_caller(&sessions, &place, None), CallerVerdict::Refuse(CallerRefusal::NoSecret), "{place:?}");
         }
     }
 
     #[test]
-    fn a_spent_wait_refuses_a_terminal_still_unregistered_and_keeps_every_other_verdict() {
-        assert_eq!(after_registration_wait(CallerVerdict::NotRegistered), Err(CallerRefusal::NeverRegistered));
-        assert_eq!(after_registration_wait(CallerVerdict::Admit), Ok(()));
+    fn a_spent_wait_refuses_what_is_still_too_early_and_keeps_every_other_verdict() {
+        assert_eq!(after_caller_wait::<Id>(CallerVerdict::NotPlaced), Err(CallerRefusal::OutsideTerminal));
+        assert_eq!(after_caller_wait::<Id>(CallerVerdict::NotRegistered(3)), Err(CallerRefusal::NeverRegistered));
+        assert_eq!(after_caller_wait(CallerVerdict::Admit(1)), Ok(1));
         for refusal in [CallerRefusal::NoSecret, CallerRefusal::OutsideTerminal, CallerRefusal::WrongSecret] {
-            assert_eq!(after_registration_wait(CallerVerdict::Refuse(refusal)), Err(refusal));
+            assert_eq!(after_caller_wait::<Id>(CallerVerdict::Refuse(refusal)), Err(refusal));
         }
     }
 

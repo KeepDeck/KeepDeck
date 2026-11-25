@@ -6,7 +6,7 @@
 use super::{OpenError, SessionMachine, Stopped, Tag};
 #[cfg(unix)]
 use super::test_support::{first_pid, pid_after, sleeper};
-use keepdeck_pty::sessions::{CallerRefusal, Event as SessionsEvent, Secret, REGISTRATION_WAIT};
+use keepdeck_pty::sessions::{CallerRefusal, Event as SessionsEvent, Secret, CALLER_WAIT};
 use crate::lifecycle::{AppDoors, Lifecycle};
 use keepdeck_lifecycle::infrastructure::door::Door;
 use crate::session::SpawnSpec;
@@ -301,7 +301,7 @@ async fn a_terminal_never_registered_is_refused_once_the_wait_is_spent() {
 
     let asked = tokio::time::Instant::now();
     assert_eq!(sessions.caller(Some(pid), Some(&Secret::new("s"))).await, Err(CallerRefusal::NeverRegistered));
-    assert!(asked.elapsed() >= REGISTRATION_WAIT, "refused after {:?}", asked.elapsed());
+    assert!(asked.elapsed() >= CALLER_WAIT, "refused after {:?}", asked.elapsed());
     // No secret is refused at once, unregistered terminal or not.
     let asked = tokio::time::Instant::now();
     assert_eq!(sessions.caller(Some(pid), None).await, Err(CallerRefusal::NoSecret));
