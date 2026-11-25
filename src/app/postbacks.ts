@@ -1,6 +1,7 @@
 /**
- * Per-pane count of ACCEPTED bridge postbacks (token-verified session
- * reports). Module scope, like the spawn-spec cache it works with.
+ * Per-pane count of ACCEPTED bridge postbacks (session reports the door
+ * admitted and the binding lane accepted). Module scope, like the
+ * spawn-spec cache it works with.
  *
  * The one consumer is the resume-failure detector: a resume spawn that
  * exits WITHOUT having produced a single postback never became a session

@@ -9,7 +9,7 @@
 # $1 because the payload does not name its CLI and the webview dispatches
 # normalizers by agent.
 #
-# Speaks bridge protocol v2: the whole hook payload (JSON on stdin) rides
+# The whole hook payload (JSON on stdin) rides
 # VERBATIM under payload.event — no field extraction, so this script never
 # chases a CLI's schema. Posted to the deck, which answers on the same
 # connection when this hook asked a question.

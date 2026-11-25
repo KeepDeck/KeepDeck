@@ -35,25 +35,34 @@ Shared cores in `packages/plugin-api` so far:
   envelope, ask, ordered publishing — with the environment and the POST
   supplied by each adapter. Copied beside each adapter by
   `scripts/sync-reporters.mjs`; a test fails while a copy is stale.
-- Report origin: every process under a pane inherits its secret — in
-  `KEEPDECK_BRIDGE`, and in the MCP config a spawn injects — and keeps it
-  after it detaches. So a sender counts for a pane only when its process
-  belongs to the pane now: it runs in the pane's terminal's session, or
-  its direct parent does (`PtySession::hosts`, asked through
-  `Table::pane_of`). The parent clause admits agents that start their own
-  helpers detached: kimi's MCP servers, and opencode 2.x's `serve`, whose
-  parent is the TUI. Being admitted through a parent does not extend to
-  one's own children, so a daemon's workers have no own parent in any pane
-  (task-376, verified live 2026-10-22). For the same reason the MCP
+- Report origin: every process under a pane inherits its secrets — in
+  `KEEPDECK_BRIDGE`, and in the MCP config a spawn injects — and keeps them
+  after it detaches. So the secret alone proves nothing, and both doors —
+  the MCP socket and the bridge's, unix sockets each — take the sender's
+  process from the kernel and judge it by one rule (`judge_caller` in
+  `crates/keepdeck-pty/src/sessions.rs`): where it stands to a live pane's
+  terminal (`PtySession::standing`), and whether it names a secret that
+  door counts in that terminal's session.
+  - In the terminal's session, or started directly by a process that is
+    (`ChildOfTerminal`): both doors. The parent clause admits agents that
+    start their own helpers detached: kimi's MCP servers, and opencode
+    2.x's `serve`, whose parent is the TUI. The strictest standing wins.
+  - One session further out (`SessionFromTerminal`), where claude, codex
+    and kimi run their hooks: the bridge only. A process the envelope names
+    as its reporter must still stand strictly in that same terminal.
+  - The MCP door counts either secret; the bridge only its own.
+
+  Being admitted through a parent does not extend to one's own children,
+  so a daemon's workers stand in no pane, and one that names itself is
+  refused (task-376, verified live 2026-10-22). For the same reason the MCP
   servers opencode 2.x's `serve` starts are nobody's: on 2.x KeepDeck's
-  tools are the plugin's own (`deck-tools.js`), which calls the socket
-  from `serve` itself, and opencode is handed no KeepDeck server. The bridge answers 403 to an envelope whose named
-  reporter fails this (`src-tauri/src/bridge/origin.rs`); the MCP socket
-  takes the client's pid from the socket, and the webview counts its secret
-  only from that pane (`src/app/mcp/paneIdentity.ts`), else the connection
-  is anonymous. This keeps a daemon an agent started from one pane from
-  acting as a pane forever (claude's background workers did, task-422 and
-  task-424).
+  tools are the plugin's own (`deck-tools.js`), which calls the socket from
+  `serve` itself, and opencode is handed no KeepDeck server. A refused
+  sender gets 403 at the bridge, an anonymous connection at the MCP socket;
+  the page checks no secret, and takes a report only while the pane holds
+  a plan that reports. This keeps a daemon an agent started from one pane
+  from acting as a pane forever (claude's background workers did, task-422
+  and task-424).
 - Companions: a reporter inside the agent announces itself once
   (`companion.hello`); `AgentContribution.companion` declares what that
   takes over for the announcing process, and `wake: "companion"` rings it

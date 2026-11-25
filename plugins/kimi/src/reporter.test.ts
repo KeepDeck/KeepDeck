@@ -80,7 +80,7 @@ describe("Kimi SessionStart reporter", () => {
     expect(deck.envelopes).toEqual([]);
   });
 
-  it("reports one bridge-v2 session binding", async () => {
+  it("reports one session binding", async () => {
     await runHook(
       {
         hook_event_name: "SessionStart",

@@ -431,11 +431,14 @@ export async function buildPlan(
   //
   // The token is PER PANE, not per build: a rebuild while the pane's
   // process is alive (observed: a double-revive rebuilding the resume
-  // plan) must not orphan the token that process's reporters echo — every
-  // postback would fail verification forever. Every path that RETIRES a
-  // process drops the spec first (`dropPaneSpawnSpec` — restart, suspend,
-  // close), so a genuinely new process still gets a fresh token and the
-  // dead one's credential stops being accepted.
+  // plan) must keep the one that process was given. The door counts the
+  // secret its session was registered with whatever the plan says, but the
+  // plan would then name a secret no process holds, and the tail lane —
+  // which follows a pane while its plan's token stands — would re-arm for
+  // nothing. Every path that RETIRES a process drops the spec first
+  // (`dropPaneSpawnSpec` — restart, suspend, close), so a genuinely new
+  // process still gets a fresh token, and the dead one's dies with its
+  // session.
   const token = ctx.bridgeDir
     ? (peekPaneSpawnSpec(paneId)?.token ?? mintBridgeToken())
     : null;
