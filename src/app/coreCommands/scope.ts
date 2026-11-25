@@ -46,14 +46,7 @@ export function libraryScopeOf(
   if (scope !== "workspace") {
     throw new Error(`scope must be "global" or "workspace", not "${scope}"`);
   }
-  if (source.kind === "external") {
-    if (!source.pane) {
-      throw new Error(
-        'this client is not tied to a pane, so it has no workspace — use scope "global"',
-      );
-    }
-    return { kind: "workspace", wsId: source.pane.workspaceId };
-  }
+  if (source.kind === "external") return { kind: "workspace", wsId: source.pane.workspaceId };
   // Resolve the workspace, not just its id, through the DOMAIN's by-id
   // selector: `activeId` is a plain string whose "none" is `""`, and it can
   // outlive the workspace it names, so an id check alone would let a stale id
@@ -70,7 +63,7 @@ export function libraryScopeOf(
  * pane, its team and workspace as the deck holds them — or null for a host
  * or plugin caller, which writes as the person. */
 export function libraryWriterOf(source: CommandSource, deck: () => CommandDeck): WriteSource | null {
-  if (source.kind !== "external" || !source.pane) return null;
+  if (source.kind !== "external") return null;
   const paneId = source.pane.id;
   const ws = findWorkspaceOfPane(deck().workspaces, paneId);
   const pane = ws?.panes.find((candidate) => candidate.id === paneId);

@@ -123,16 +123,14 @@ export interface Mail {
 /**
  * The sender behind a command call, or null when the caller cannot be named.
  *
- * Null is a REFUSAL, not a degradation. Three callers land here: the host
- * (no pane behind a palette or a hotkey), a plugin, and an anonymous MCP
- * client — a server the user wired by hand, or a kimi pane sharing its cwd
- * with another, which is deliberately left anonymous rather than risk naming
- * the wrong pane (`src/app/mcp/injection.ts`). None of them can receive a
- * reply, so a message from any of them is a dead end the receiver would
- * spend a turn discovering.
+ * Null is a REFUSAL, not a degradation. Two callers land here: the host (no
+ * pane behind a palette or a hotkey) and a plugin. Neither can receive a
+ * reply, so a message from either is a dead end the receiver would spend a
+ * turn discovering. An external caller always has its pane: the socket door
+ * refuses one that is no live pane's.
  */
 export function senderOf(source: CommandSource): MailSender | null {
-  if (source.kind !== "external" || !source.pane) return null;
+  if (source.kind !== "external") return null;
   const { id, workspaceId, label } = source.pane;
   return { paneId: id, workspaceId, label };
 }

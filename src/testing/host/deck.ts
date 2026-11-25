@@ -138,9 +138,10 @@ export interface Deck {
   /** The stub program as a plain process, in no folder: it says `stub:
    * ready` at start — or nothing, `silent` — then what its typed cues ask. */
   stubProcess(silent?: boolean): PaneSpawnSpec;
-  /** An agent's command as its MCP call arrives — through the page's own
-   * command registry, the one its controller registered the core commands
-   * in — from a client tied to no pane. */
+  /** A command as the person asks it — through the page's own command
+   * registry, the one its controller registered the core commands in. An
+   * agent's call comes through the MCP socket instead, where the sessions
+   * machine judges which pane it is. */
   execute(id: string, args: RawArgs): Promise<CommandResult>;
   dispose(): void;
 }
@@ -548,7 +549,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
       rows: 24,
     }),
     updateSettings: (patch) => settings.updateSettings(patch),
-    execute: (id, args) => registry.execute(id, args, { kind: "external", client: "mcp" }),
+    execute: (id, args) => registry.execute(id, args, { kind: "host" }),
     gitRepo() {
       const git = (...args: string[]) => execFileSync("git", args, { cwd: host.work, stdio: "pipe" });
       git("init", "-q", "-b", "main");

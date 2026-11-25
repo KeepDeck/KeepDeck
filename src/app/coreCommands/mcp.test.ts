@@ -23,9 +23,6 @@ const paneIn = (wsId: string): CommandSource => ({
   pane: { id: "p1", workspaceId: wsId, label: "Claude 1" },
 });
 
-/** A client the user wired up by hand: no pane, so no workspace. */
-const ANONYMOUS: CommandSource = { kind: "external", client: "some-editor" };
-
 const github: McpServerBody = {
   transport: "stdio",
   command: "npx",
@@ -142,16 +139,6 @@ describe("mcp.list and mcp.read", () => {
     }
     // The caller's OWN workspace, not the one on screen (ws-1 is active).
     expect(mcpLibrary.read).toHaveBeenCalledWith({ kind: "workspace", wsId: "ws-2" }, "remote");
-  });
-
-  it("refuses a workspace scope for a client with no pane, through the shared rule", async () => {
-    const { registry, mcpLibrary } = setup([workspace({})]);
-
-    const result = await registry.execute("mcp.list", { scope: "workspace" }, ANONYMOUS);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toContain('scope "global"');
-    expect(mcpLibrary.list).not.toHaveBeenCalled();
   });
 });
 

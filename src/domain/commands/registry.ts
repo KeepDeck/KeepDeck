@@ -47,12 +47,12 @@ export type CommandSource =
       kind: "external";
       /** The transport that minted the call. */
       client: string;
-      /** The pane whose agent is calling, when the connection proved which
-       * one it is. Absent = an anonymous client (a server the user wired up
-       * by hand, or a secret that no longer resolves — a lingering child of a
-       * pane that is gone). `id` is a REUSABLE slot, so `label` snapshots how
-       * the pane read at call time and stays meaningful afterwards. */
-      pane?: { id: string; workspaceId: string; label: string };
+      /** The pane whose agent is calling. Always there: the socket door
+       * refuses a caller that is no live pane's before anything runs
+       * (src-tauri/src/mcp/bridge.rs). `label` snapshots how the pane read at
+       * call time, so the journal stays readable after it is renamed or
+       * closed. */
+      pane: { id: string; workspaceId: string; label: string };
     };
 
 export type CommandError =

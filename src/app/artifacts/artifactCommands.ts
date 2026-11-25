@@ -3,8 +3,9 @@
  * deck's command registry (which IS the MCP projection: registering here
  * makes the tools appear for every connected pane).
  *
- * The THREE-RUNG LADDER (§D1): (1) anonymous caller → refusal with the
- * remedy, all four tools; (2) resolved sender, no pane cwd (provisioning
+ * The THREE-RUNG LADDER (§D1): (1) a caller that is no pane's (the host, a
+ * plugin) or a pane the deck no longer holds → refusal with the remedy, all
+ * four tools; (2) resolved sender, no pane cwd (provisioning
  * or remote pane) → publish CONTINUES, `path` refused with remedy,
  * `content` allowed, `cwd: null` rides the payload; (3) cwd resolved →
  * full publish with the §6 enforcement Rust-side. No rung short-circuits
@@ -68,9 +69,9 @@ export interface ArtifactCommandDeps {
   changed: () => void;
 }
 
-/** The refusal every artifact tool gives an anonymous caller — reason
- * AND remedy, per the design's §3 populations. */
-function anonymousRefusal(): Error {
+/** The refusal every artifact tool gives a caller with no live pane —
+ * reason AND remedy, per the design's §3 populations. */
+function noPaneRefusal(): Error {
   return new Error(
     "artifact tools are deck-internal: publishing needs a KeepDeck-launched pane (no workspace to scope to); run the agent inside a KeepDeck pane or via the injected shim",
   );
@@ -97,16 +98,16 @@ interface CallerContext {
 }
 
 /** Rungs 1-3 of the ladder. Returns the context, or throws the refusal.
- * The source's pane `{id, workspaceId, label}` is the RESOLVED identity
- * (spawn-secret → pane at call time); findWorkspaceOfPane turns the
- * reusable id into this deck's live pane+workspace for the cwd. */
+ * The source's pane `{id, workspaceId, label}` is the one the socket door
+ * admitted the caller for; findWorkspaceOfPane turns its id into this deck's
+ * live pane and workspace for the cwd. A caller that is no pane's — the
+ * host, a plugin — and a pane the deck no longer holds are refused alike. */
 function callerContext(
   source: CommandSource,
   deps: ArtifactCommandDeps,
 ): CallerContext {
-  const pane =
-    source.kind === "external" && source.pane ? source.pane : undefined;
-  if (!pane) throw anonymousRefusal();
+  if (source.kind !== "external") throw noPaneRefusal();
+  const pane = source.pane;
   const deck = deps.deck();
   const owner = findWorkspaceOfPane(deck?.workspaces ?? [], pane.id);
   const found = owner?.panes.find((p) => p.id === pane.id);
@@ -121,7 +122,7 @@ function callerContext(
       remote: remoteEndpointOf(found) !== null,
     };
   }
-  throw anonymousRefusal();
+  throw noPaneRefusal();
 }
 
 export function registerArtifactCommands(
