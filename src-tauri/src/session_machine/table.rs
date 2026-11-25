@@ -15,6 +15,7 @@ use keepdeck_pty::PtySession;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use tokio::sync::watch;
 use std::time::{Duration, Instant};
 
 /// How often the shared exit wait checks again.
@@ -34,9 +35,40 @@ struct Inner {
 #[derive(Default)]
 pub struct Table {
     inner: Mutex<Inner>,
+    /// How many spawns are between the OS spawn and their handle's transfer
+    /// here. Their processes may already run, and nothing places them yet.
+    opening: watch::Sender<usize>,
+}
+
+/// One spawn between the OS spawn and its handle's transfer to the table;
+/// over when it is dropped, whether the transfer happened or not.
+pub struct Opening<'a>(&'a Table);
+
+impl Drop for Opening<'_> {
+    fn drop(&mut self) {
+        self.0.opening.send_modify(|opening| *opening -= 1);
+    }
 }
 
 impl Table {
+    /// A spawn begins: held from before the OS spawn until the handle is
+    /// inserted, so that a process asking that early can be waited for.
+    pub fn opening(&self) -> Opening<'_> {
+        self.opening.send_modify(|opening| *opening += 1);
+        Opening(self)
+    }
+
+    /// Whether a spawn is under way that no terminal of the table places yet.
+    pub fn is_opening(&self) -> bool {
+        *self.opening.borrow() > 0
+    }
+
+    /// Settles once no spawn is under way.
+    pub async fn opened(&self) {
+        let mut opening = self.opening.subscribe();
+        drop(opening.wait_for(|opening| *opening == 0).await);
+    }
+
     /// Take the process over under a new id — never one used before in this
     /// launch — as the terminal of `pane`, when it is one. Refused, the
     /// process handed back, when the app is exiting: the door stops it

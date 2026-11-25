@@ -222,8 +222,17 @@ mod tests {
             secrets: vec![],
         });
         assert!(wrong.env_defaults.is_empty());
-        // A session that is no pane's names no secrets at all.
-        assert!(wrong.secrets.is_empty());
+    }
+
+    /// A spec in the form sent before spawns carried secrets still reads,
+    /// and names none: a session that is no pane's.
+    #[test]
+    fn a_spawn_spec_without_secrets_still_reads() {
+        let old: SpawnSpec = serde_json::from_str(
+            r#"{"command": null, "args": [], "env": [], "envDefaults": [], "cwd": null, "cols": 1, "rows": 1}"#,
+        )
+        .expect("a spec without secrets reads");
+        assert!(old.secrets.is_empty());
     }
 
     #[test]

@@ -309,6 +309,55 @@ async fn a_terminal_never_registered_is_refused_once_the_wait_is_spent() {
     sessions.table.shutdown(Duration::from_millis(200));
 }
 
+/// A process runs from the OS spawn on, before the spawn door hands it to the
+/// table. A caller that early is asked about again once the spawn is over,
+/// and admitted once its row lands.
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn a_caller_whose_terminal_is_not_in_the_table_yet_is_admitted_once_it_is() {
+    let sessions = SessionMachine::start();
+    let (terminal, events) = sleeper("echo PID=$$; sleep 30");
+    let pid = first_pid(&events);
+    let (begun, spawning) = tokio::sync::oneshot::channel();
+    let door = sessions.clone();
+    tokio::spawn(async move {
+        let opening = door.table.opening();
+        begun.send(()).unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let id = door.table.insert(terminal, Some(PaneId(1))).ok().unwrap();
+        drop(opening);
+        door.machine.send(SessionsEvent::Registered { id: id.0, tag: tag(1), secrets: vec![Secret::new("s")] });
+    });
+    spawning.await.unwrap();
+
+    assert_eq!(sessions.caller(Some(pid), Some(&Secret::new("s"))).await, Ok(PaneId(1)));
+    sessions.table.shutdown(Duration::from_millis(200));
+}
+
+/// A terminal that ends while its row is awaited is not judged by what the
+/// table said before the wait: the row lands live, the terminal is gone, and
+/// the caller is refused.
+#[cfg(unix)]
+#[tokio::test(start_paused = true)]
+async fn a_terminal_that_ends_while_its_row_is_awaited_is_refused() {
+    let sessions = SessionMachine::start();
+    let (terminal, events) = sleeper("echo PID=$$; sleep 30");
+    let pid = first_pid(&events);
+    let id = sessions.table.insert(terminal, Some(PaneId(1))).ok().unwrap();
+    let handle = sessions.table.get(id).unwrap();
+    let late = sessions.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        // The exit is seen by the table first; the machine hears of the
+        // registration before it hears of the exit.
+        late.table.remove(id);
+        late.machine.send(SessionsEvent::Registered { id: id.0, tag: tag(1), secrets: vec![Secret::new("s")] });
+    });
+
+    assert_eq!(sessions.caller(Some(pid), Some(&Secret::new("s"))).await, Err(CallerRefusal::OutsideTerminal));
+    handle.force_stop();
+}
+
 /// The spawn line hides a pane's secrets wherever they stand, inside a JSON
 /// argument too, and prints no environment value.
 #[test]
@@ -328,6 +377,13 @@ fn the_spawn_line_carries_no_secret_and_no_env_value() {
         assert!(!line.contains(secret.expose()), "{line}");
     }
     assert!(line.contains("KEEPDECK_BRIDGE") && line.contains("<secret>") && line.contains("--mcp-config"), "{line}");
+
+    // Outside the arguments as well: in the command, and in the folder.
+    let line = super::spawn_line("/bin/5f3c-mcp", &[], &[], Some("/tmp/9a1e-bridge/repo"), &secrets);
+    for secret in &secrets {
+        assert!(!line.contains(secret.expose()), "{line}");
+    }
+    assert!(line.contains("cmd=/bin/<secret>") && line.contains("/tmp/<secret>/repo"), "{line}");
 }
 
 #[cfg(unix)]

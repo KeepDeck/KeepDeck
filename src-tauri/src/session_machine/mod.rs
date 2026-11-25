@@ -174,22 +174,34 @@ impl SessionMachine {
     /// `pid` belongs to, when that terminal's session holds `secret`. Asked
     /// per request by whoever lets a caller act for a pane.
     ///
-    /// A terminal the table holds and the machine has not registered yet is
-    /// waited for, up to [`REGISTRATION_WAIT`]: the spawn door puts the
-    /// process in the table before the machine hears of it, and an early
-    /// caller refused for that would stay refused. What the spent wait means
-    /// is the rule's ([`sessions::after_registration_wait`]).
+    /// An early caller is waited for, up to [`REGISTRATION_WAIT`] in all,
+    /// because one refused that early would stay refused. Its process can
+    /// run before the spawn door hands it to the table, so a caller no
+    /// terminal places is asked about again once the spawns under way are
+    /// over. And the table holds a terminal before the machine hears of it,
+    /// so a terminal not registered yet is awaited. After a wait the terminal
+    /// is looked up again too, since it may have ended meanwhile. What the
+    /// spent wait means is the rule's ([`sessions::after_registration_wait`]).
     pub async fn caller(&self, pid: Option<u32>, secret: Option<&Secret>) -> Result<PaneId, CallerRefusal> {
-        let terminal = pid.and_then(|pid| self.table.terminal_of(pid));
-        let host = terminal.map(|(_, session)| session.0);
+        let deadline = tokio::time::Instant::now() + REGISTRATION_WAIT;
+        let terminal_of = || pid.and_then(|pid| self.table.terminal_of(pid));
+        let host = |terminal: Option<(PaneId, SessionId)>| terminal.map(|(_, session)| session.0);
+        let mut terminal = terminal_of();
         let mut states = self.machine.state();
         // Each borrow ends with its statement: one held across the wait would
         // stop the machine publishing the very row waited for.
-        let mut verdict = sessions::judge_caller(&states.borrow().value, host, secret);
-        if let (CallerVerdict::NotRegistered, Some(id)) = (verdict, host) {
+        let mut verdict = sessions::judge_caller(&states.borrow().value, host(terminal), secret);
+        let unplaced = matches!(verdict, CallerVerdict::Refuse(CallerRefusal::OutsideTerminal)) && terminal.is_none();
+        if unplaced && pid.is_some() && self.table.is_opening() {
+            drop(tokio::time::timeout_at(deadline, self.table.opened()).await);
+            terminal = terminal_of();
+            verdict = sessions::judge_caller(&states.borrow().value, host(terminal), secret);
+        }
+        if let (CallerVerdict::NotRegistered, Some(id)) = (verdict, host(terminal)) {
             let registered = states.wait_for(|at| at.value.rows.contains_key(&id));
-            drop(tokio::time::timeout(REGISTRATION_WAIT, registered).await);
-            verdict = sessions::judge_caller(&states.borrow().value, host, secret);
+            drop(tokio::time::timeout_at(deadline, registered).await);
+            terminal = terminal_of();
+            verdict = sessions::judge_caller(&states.borrow().value, host(terminal), secret);
         }
         sessions::after_registration_wait(verdict)?;
         terminal.map(|(pane, _)| pane).ok_or(CallerRefusal::OutsideTerminal)
@@ -274,6 +286,10 @@ impl SessionMachine {
         let crossed = supervised(move || {
             let mut consumer: Option<Consumer> = None;
             let crossed = this.boundary.cross(attempt, || {
+                // From the OS spawn until the handle is in the table, the
+                // process may run where no terminal places it: an early
+                // caller waits for this to end.
+                let _opening = this.table.opening();
                 let (session, events) = PtySession::spawn(pty).map_err(|e| e.to_string())?;
                 // No machine to own the session, or the app going: the door
                 // stops what it started itself.
@@ -323,12 +339,14 @@ impl SessionMachine {
 /// when a session-identity repro comes in. Env values stay private, the key
 /// names are what debugging needs. The pane's secrets are hidden by value
 /// wherever they stand: agents carry them inside arguments, as claude does in
-/// its `--mcp-config` JSON and codex in `-c mcp_servers…`.
+/// its `--mcp-config` JSON and codex in `-c mcp_servers…`, and nothing keeps
+/// one out of a command or a folder. So each argument is hidden as it is,
+/// before quoting could change how a secret reads, and then the whole line.
 fn spawn_line(command: &str, args: &[String], env: &[(String, String)], cwd: Option<&str>, secrets: &[Secret]) -> String {
     let hide = |text: &str| secrets.iter().fold(text.to_string(), |text, secret| text.replace(secret.expose(), "<secret>"));
     let args: Vec<String> = args.iter().map(|arg| hide(arg)).collect();
     let keys: Vec<&str> = env.iter().map(|(key, _)| key.as_str()).collect();
-    format!("spawn: cmd={command} args={args:?} env={keys:?} cwd={cwd:?}")
+    hide(&format!("spawn: cmd={command} args={args:?} env={keys:?} cwd={cwd:?}"))
 }
 
 #[tauri::command]
