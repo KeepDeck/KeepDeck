@@ -78,6 +78,21 @@ describe("building one plan through the agent hook", () => {
 
     const env = Object.fromEntries(h.seen["pane-1"].env);
     expect(env).not.toHaveProperty("KEEPDECK_BRIDGE");
+    // And the plan says so, for the pane's dot and the bell: the agent runs,
+    // and the deck hears nothing of it until the deck starts again.
+    expect(h.seen["pane-1"].unconnected).toEqual({ cause: "bridge-down" });
+  });
+
+  it("says a pane whose own bridge folder could not be made is heard by nobody", async () => {
+    h.register(adopting);
+    await h.mount(ws([{ id: "pane-1", agentType: "claude" }]), {
+      ...ctx,
+      paneBridgeDir: () => Promise.reject(new Error("no space left on device")),
+    });
+    await settle();
+
+    expect(Object.fromEntries(h.seen["pane-1"].env)).not.toHaveProperty("KEEPDECK_BRIDGE");
+    expect(h.seen["pane-1"].unconnected).toEqual({ cause: "pane-dir-failed", error: "no space left on device" });
   });
 
   it("a pane's YOLO mode reaches the hook input on spawn AND resume", async () => {

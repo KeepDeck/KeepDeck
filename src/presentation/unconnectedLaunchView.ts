@@ -14,13 +14,31 @@ export interface UnconnectedLaunchView {
 }
 
 export function unconnectedLaunchView(launch: UnconnectedLaunch): UnconnectedLaunchView {
-  const why =
-    launch.cause === "plan-failed"
-      ? launch.error
-      : `${launch.pluginId} asked to run "${launch.command}", which it is not allowed to run`;
-  return {
-    label: "Not connected to KeepDeck",
-    sentence: "not connected to KeepDeck",
-    reason: `KeepDeck could not set this agent up: ${why}. Status, mail and resume won't work until the agent restarts.`,
-  };
+  switch (launch.cause) {
+    case "plan-failed":
+    case "command-refused": {
+      const why =
+        launch.cause === "plan-failed"
+          ? launch.error
+          : `${launch.pluginId} asked to run "${launch.command}", which it is not allowed to run`;
+      return {
+        label: "Not connected to KeepDeck",
+        sentence: "not connected to KeepDeck",
+        reason: `KeepDeck could not set this agent up: ${why}. Status, mail and resume won't work until the agent restarts.`,
+      };
+    }
+    // Its tools and skills still work: what is lost is the deck hearing it.
+    case "bridge-down":
+      return {
+        label: "KeepDeck can't hear this agent",
+        sentence: "KeepDeck can't hear this agent",
+        reason: "KeepDeck's bridge to its agents did not start, so this agent's status, conversation and mail asks never reach it. Status, mail and resume won't work until KeepDeck restarts.",
+      };
+    case "pane-dir-failed":
+      return {
+        label: "KeepDeck can't hear this agent",
+        sentence: "KeepDeck can't hear this agent",
+        reason: `KeepDeck could not make this agent's bridge folder: ${launch.error}. Status, mail and resume won't work until the agent restarts.`,
+      };
+  }
 }
