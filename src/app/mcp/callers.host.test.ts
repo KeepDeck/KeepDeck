@@ -102,19 +102,25 @@ describe("the deck's MCP callers, on the host", () => {
     expect(d.journal().length).toBe(before);
   });
 
-  it("refuses what a closed pane left behind, its secret and all", async () => {
+  it("refuses what a closed pane left behind on the connection it was served on, its secret and all", async () => {
     // A daemon the agent started keeps the pane's environment, secret
-    // included, and outlives the pane.
+    // included, and outlives the pane. While the agent runs it is the
+    // pane's, and served; once the pane is closed the same connection is
+    // refused: an admission is never kept for a connection, every line is
+    // judged as it arrives.
     const d = (deck = await startDeck(host()));
     const { paneId } = await d.agentUp();
     const socket = await socketOf(d);
     const answerTo = join(host().work, "lingered.json");
 
     d.type(paneId, `linger ${socket} ${answerTo}`);
-    await host().until("the daemon is started", () => d.output(paneId).includes("stub: lingering"), 15_000);
-    await d.closeAgent(paneId);
-    await host().until("the leftover has asked", () => existsSync(answerTo), 15_000);
+    await host().until("the daemon is served while its pane lives", () => existsSync(`${answerTo}.held`), 15_000);
+    const held = parsed(readFileSync(`${answerTo}.held`, "utf8"));
+    expect(reasonOf(held)).toBeNull();
+    expect(isJsonRecord(held.result) && held.result.protocolVersion).toBeTruthy();
 
+    await d.closeAgent(paneId);
+    await host().until("the leftover has asked again", () => existsSync(answerTo), 15_000);
     expect(reasonOf(parsed(readFileSync(answerTo, "utf8")))).toBe("outside-terminal");
   });
 });

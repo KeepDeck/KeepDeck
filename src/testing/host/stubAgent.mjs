@@ -47,10 +47,12 @@
 //                  print `stub: mcp <the one line that answers it>`
 //   linger <socket> <file>
 //                  start a process that leaves this terminal's session, as
-//                  a daemon an agent starts does, and outlives the pane: once
-//                  this agent is gone it asks the socket `initialize` with the
-//                  pane's secret and writes the answer to <file>; print
-//                  `stub: lingering`
+//                  a daemon an agent starts does, and outlives the pane. It
+//                  opens ONE connection greeted with the pane's secret, asks
+//                  `initialize` on it while this agent runs and writes the
+//                  answer to <file>.held; once this agent is gone it asks
+//                  `tools/list` on the same connection and writes that answer
+//                  to <file>. Print `stub: lingering`
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -76,44 +78,70 @@ const print = (line) => process.stdout.write(`${line}\r\n`);
 const armed = process.env.KEEPDECK_BRIDGE;
 const bridge = armed ? JSON.parse(armed) : null;
 
-/** One line asked of the deck's MCP socket, greeted with `token`: the one
- * line that answers it.
- * @param {string} socket @param {string | undefined} token @param {string} line
- * @returns {Promise<string>} */
-function askDeck(socket, token, line) {
+/** A connection to the deck's MCP socket, greeted with `token` as an injected
+ * shim greets it: each line asked is answered by the next line it sends.
+ * @param {string} socket @param {string | undefined} token
+ * @returns {Promise<{ ask(line: string): Promise<string>, close(): void }>} */
+function openDeck(socket, token) {
   return new Promise((resolve, reject) => {
     const connection = connect(socket);
+    /** @type {{ resolve(line: string): void, reject(error: Error): void }[]} */
+    const waiting = [];
     let buffer = "";
+    const fail = (/** @type {Error} */ error) => {
+      for (const asker of waiting.splice(0)) asker.reject(error);
+      reject(error);
+    };
     connection.setEncoding("utf8");
-    connection.on("connect", () => {
-      if (token) connection.write(`${JSON.stringify({ jsonrpc: "2.0", method: "deck/client", params: { token } })}\n`);
-      connection.write(`${line}\n`);
-    });
     connection.on("data", (/** @type {string} */ chunk) => {
       buffer += chunk;
-      const end = buffer.indexOf("\n");
-      if (end < 0) return;
-      connection.destroy();
-      resolve(buffer.slice(0, end));
+      for (let end = buffer.indexOf("\n"); end >= 0; end = buffer.indexOf("\n")) {
+        const line = buffer.slice(0, end);
+        buffer = buffer.slice(end + 1);
+        waiting.shift()?.resolve(line);
+      }
     });
-    connection.on("error", reject);
-    connection.on("close", () => reject(new Error("the deck closed the connection")));
+    connection.on("error", fail);
+    connection.on("close", () => fail(new Error("the deck closed the connection")));
+    connection.on("connect", () => {
+      if (token) connection.write(`${JSON.stringify({ jsonrpc: "2.0", method: "deck/client", params: { token } })}\n`);
+      resolve({
+        ask: (line) =>
+          new Promise((answered, failed) => {
+            waiting.push({ resolve: answered, reject: failed });
+            connection.write(`${line}\n`);
+          }),
+        close: () => connection.destroy(),
+      });
+    });
   });
 }
 
+/** Whole or not at all: a reader that sees the file sees the answer.
+ * @param {string} file @param {string} text */
+function writeWhole(file, text) {
+  writeFileSync(`${file}.part`, text);
+  renameSync(`${file}.part`, file);
+}
+
 // A daemon the agent started: in a session of its own, its parent the agent.
-// It waits for the agent to go, then asks as the pane it came from.
-// The agent names itself: by the time this process runs, it may be gone.
+// It asks on one connection while the agent runs, then again on the same one
+// once the agent is gone. The agent names itself: by the time this process
+// runs, it may be gone already.
 const lingering = valueOf("--linger");
 if (lingering !== undefined) {
   const [answerTo = "", agent = ""] = args.slice(args.indexOf("--linger") + 2);
-  const until = Date.now() + 30_000;
-  while (String(process.ppid) === agent && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50));
-  const asked = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
-  const answer = await askDeck(lingering, bridge?.token, asked).catch((error) => JSON.stringify({ failed: String(error) }));
-  // Whole or not at all: a reader that sees the file sees the answer.
-  writeFileSync(`${answerTo}.part`, answer);
-  renameSync(`${answerTo}.part`, answerTo);
+  const failed = (/** @type {unknown} */ error) => JSON.stringify({ failed: String(error) });
+  try {
+    const deck = await openDeck(lingering, bridge?.token);
+    writeWhole(`${answerTo}.held`, await deck.ask(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })).catch(failed));
+    const until = Date.now() + 30_000;
+    while (String(process.ppid) === agent && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 50));
+    writeWhole(answerTo, await deck.ask(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })).catch(failed));
+  } catch (error) {
+    writeWhole(`${answerTo}.held`, failed(error));
+    writeWhole(answerTo, failed(error));
+  }
   process.exit(0);
 }
 
@@ -186,8 +214,11 @@ cues.on("line", (line) => {
   if (cue === "child") toHelper(rest);
   if (cue === "mcp") {
     const [socket = "", ...line] = words;
-    void askDeck(socket, bridge?.token, line.join(" "))
-      .then((answer) => print(`stub: mcp ${answer}`))
+    void openDeck(socket, bridge?.token)
+      .then(async (deck) => {
+        const answer = await deck.ask(line.join(" ")).finally(() => deck.close());
+        print(`stub: mcp ${answer}`);
+      })
       .catch((error) => print(`stub: mcp failed: ${String(error)}`));
   }
   if (cue === "linger") {
