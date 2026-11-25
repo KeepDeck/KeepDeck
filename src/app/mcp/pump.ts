@@ -43,12 +43,12 @@ export function createMcpRequestPump(
   let unlisten: (() => void) | null = null;
 
   const ready = ports
-    .subscribe(({ id, line, client, host }) => {
+    .subscribe(({ id, line, pane }) => {
       if (disposed) return;
       void (async () => {
         let reply: string | null;
         try {
-          reply = await handleLine(line, { client: client ?? null, host: host ?? null });
+          reply = await handleLine(line, { pane });
         } catch (e) {
           reply = errorReply(line, INTERNAL_ERROR, errorMessage(e));
         }

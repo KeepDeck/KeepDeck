@@ -50,6 +50,7 @@ async function projectMcpTools(registry: CommandRegistry): Promise<Map<string, u
     },
     () => ({ name: "KeepDeck", version: "test" }),
     JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    { pane: "pane-1" },
   );
   const parsed = recordOf(JSON.parse(reply ?? "{}"), "tools reply");
   const tools = recordsOf(recordOf(parsed.result, "tools result").tools, "tools");

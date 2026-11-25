@@ -13,12 +13,9 @@ export const MCP_REQUEST_EVENT = "deck://mcp/request";
 export interface McpRequest {
   id: number;
   line: string;
-  /** What the connection introduced itself as, unresolved — null for one
-   * that said nothing (a server the user wired up by hand). */
-  client?: string | null;
-  /** The pane whose terminal the connecting process belongs to, as the
-   * kernel answered at connect — null for none. */
-  host?: string | null;
+  /** The pane the caller speaks for, as the socket door admitted it for
+   * this very line. A caller that is no pane's never gets here. */
+  pane: string;
 }
 
 /** Subscribe to socket requests; resolves to the unlisten function. */

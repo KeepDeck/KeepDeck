@@ -74,17 +74,24 @@ impl Table {
     /// process sits in one session, and so does the parent of one that
     /// detached.
     pub fn pane_of(&self, pid: u32) -> Option<PaneId> {
-        let panes: Vec<(PaneId, Arc<PtySession>)> = {
+        self.terminal_of(pid).map(|(pane, _)| pane)
+    }
+
+    /// The pane whose terminal process `pid` belongs to, and the session
+    /// that is that terminal — the row the sessions machine judges a caller
+    /// by. None as for [`Table::pane_of`].
+    pub fn terminal_of(&self, pid: u32) -> Option<(PaneId, SessionId)> {
+        let panes: Vec<(PaneId, SessionId, Arc<PtySession>)> = {
             let inner = self.inner.lock().expect("session table");
             inner
                 .panes
                 .iter()
-                .filter_map(|(pane, id)| Some((*pane, inner.sessions.get(id)?.clone())))
+                .filter_map(|(pane, id)| Some((*pane, *id, inner.sessions.get(id)?.clone())))
                 .collect()
         };
         // Outside the lock: the kernel is asked per terminal, and the table's
         // lock is never held across a syscall.
-        panes.into_iter().find_map(|(pane, session)| session.hosts(pid).then_some(pane))
+        panes.into_iter().find_map(|(pane, id, session)| session.hosts(pid).then_some((pane, id)))
     }
 
     /// The app is going: stop everyone — one TERM each, one shared wait, a
@@ -127,20 +134,9 @@ impl Table {
 
 #[cfg(all(test, unix))]
 mod tests {
+    use super::super::test_support::{first_pid, named_pid, sleeper};
     use super::*;
-    use keepdeck_pty::{PtyEvent, PtySpec, TermSize};
-
-    fn sleeper(script: &str) -> (PtySession, keepdeck_pty::Consumer) {
-        PtySession::spawn(PtySpec {
-            command: "/bin/sh".into(),
-            args: vec!["-c".into(), script.into()],
-            env: Vec::new(),
-            env_defaults: Vec::new(),
-            cwd: None,
-            size: TermSize::default(),
-        })
-        .expect("spawn sh")
-    }
+    use keepdeck_pty::PtyEvent;
 
     fn exited(events: &keepdeck_pty::Consumer, within: Duration) -> bool {
         let deadline = Instant::now() + within;
@@ -259,27 +255,4 @@ mod tests {
         table.shutdown(Duration::from_millis(200));
     }
 
-    /// The `PID=<n>` a test script printed first.
-    fn first_pid(events: &keepdeck_pty::Consumer) -> u32 {
-        named_pid(events, &mut String::new(), "PID")
-    }
-
-    /// The `<name>=<n>` a test script printed, waiting for it. `seen` is the
-    /// output read so far from this terminal, kept for the next ask.
-    fn named_pid(events: &keepdeck_pty::Consumer, seen: &mut String, name: &str) -> u32 {
-        let started = Instant::now();
-        let marker = format!("{name}=");
-        while started.elapsed() < Duration::from_secs(5) {
-            if let Some(rest) = seen.split(marker.as_str()).nth(1) {
-                let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-                if rest[digits.len()..].starts_with(['\r', '\n']) {
-                    return digits.parse().expect("a pid");
-                }
-            }
-            if let Some(PtyEvent::Output(bytes)) = events.recv_timeout(Duration::from_millis(50)) {
-                seen.push_str(&String::from_utf8_lossy(&bytes));
-            }
-        }
-        panic!("no {name} printed: {seen}");
-    }
 }

@@ -1,5 +1,6 @@
 import type { ArgSpec, CommandInfo, CommandResult, RawArgs } from "../commands";
 import {
+  CALLER_REFUSED,
   INTERNAL_ERROR,
   INVALID_PARAMS,
   INVALID_REQUEST,
@@ -29,31 +30,36 @@ export interface McpServerIdentity {
   version: string;
 }
 
-/** Who is asking, as the transport heard it — unresolved, both halves.
- * `client` is what the connection introduced itself as (a pane's secret);
- * `host` is the pane whose terminal the connecting process belongs to, as
- * the kernel answered when it connected. Null for what was not said or does
- * not hold. Resolving them is the caller's business, never this
- * projection's. */
+/** Who is asking: the pane the socket door admitted this very line for,
+ * judged in Rust by the caller's terminal and its pane's secret
+ * (src-tauri/src/mcp/bridge.rs). A caller that is no pane's never reaches
+ * the page. */
 export interface McpCaller {
-  client: string | null;
-  host: string | null;
+  pane: string;
 }
 
-/** A connection that said nothing and runs in no pane's terminal. */
-export const ANONYMOUS_CALLER: McpCaller = { client: null, host: null };
+/** The one refusal the page makes itself: the door admitted the caller, and
+ * its pane left the deck while the request crossed. */
+export type McpPageRefusal = "pane-gone";
+
+/** A call the port refused before running anything, with its words. */
+export interface McpRefused {
+  refused: McpPageRefusal;
+  message: string;
+}
 
 /** What the projection needs from the registry — list and execute; the
  * caller binds the external source identity. */
 export interface McpCommandPort {
   list(): CommandInfo[];
-  /** `caller` is who THIS connection is, unresolved — the port binds it to
-   * a source identity (or to none). */
+  /** `caller` is the pane THIS line was admitted for — the port binds it to
+   * the pane as the deck holds it, or refuses when the deck holds it no
+   * more. */
   execute(
     id: string,
     args: RawArgs,
     caller: McpCaller,
-  ): Promise<CommandResult>;
+  ): Promise<CommandResult | McpRefused>;
 }
 
 /** A registry id as an MCP tool name: external tool-name grammars are
@@ -113,9 +119,9 @@ export async function handleMcpLine(
   port: McpCommandPort,
   identity: () => McpServerIdentity,
   line: string,
-  /** Who is asking, as the transport heard it — passed through to `execute`
-   * verbatim, because resolving a name is not this projection's business. */
-  caller: McpCaller = ANONYMOUS_CALLER,
+  /** The pane this line was admitted for — passed through to `execute`
+   * verbatim, because resolving a pane is not this projection's business. */
+  caller: McpCaller,
 ): Promise<string | null> {
   let message: unknown;
   try {
@@ -176,7 +182,7 @@ export async function handleMcpLine(
       // Value types are the registry's own validation — it answers with the
       // exact problem list, which maps below.
       const args: RawArgs = rawArgs ?? {};
-      let outcome: CommandResult;
+      let outcome: CommandResult | McpRefused;
       try {
         outcome = await port.execute(command.id, args, caller);
       } catch (e) {
@@ -187,6 +193,10 @@ export async function handleMcpLine(
           INTERNAL_ERROR,
           errorMessage(e),
         );
+      }
+      // Refused as the socket door refuses: the same code, its own reason.
+      if ("refused" in outcome) {
+        return errorReply(line, CALLER_REFUSED, outcome.message, { reason: outcome.refused });
       }
       if (outcome.ok) {
         return resultReply(line, {

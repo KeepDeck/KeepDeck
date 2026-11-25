@@ -1,4 +1,5 @@
 export {
+  CALLER_REFUSED,
   INTERNAL_ERROR,
   INVALID_PARAMS,
   INVALID_REQUEST,
@@ -10,12 +11,13 @@ export {
   type JsonRpcId,
 } from "./jsonrpc";
 export {
-  ANONYMOUS_CALLER,
   MCP_PROTOCOL_VERSION,
   handleMcpLine,
   toolNameOf,
   type McpCaller,
   type McpCommandPort,
+  type McpPageRefusal,
+  type McpRefused,
   type McpServerIdentity,
 } from "./protocol";
 export { shellLine } from "./shellLine";

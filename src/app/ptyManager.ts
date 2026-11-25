@@ -48,6 +48,9 @@ export interface PaneSpawnSpec {
   cwd?: string | null;
   cols: number;
   rows: number;
+  /** The pane's secrets, read once at spawn like `env`: the sessions machine
+   * judges the pane's MCP callers by them. */
+  secrets?: string[];
 }
 
 /** The launch lease a spawn spends: the permit the machine granted, and the
@@ -318,6 +321,7 @@ export function createPtyManager(open: OpenSession): PtyManager {
         cwd: spec.cwd,
         cols: spec.cols,
         rows: spec.rows,
+        secrets: spec.secrets,
       },
       launch.permit,
       launch.owner,

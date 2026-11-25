@@ -41,7 +41,7 @@ import { createMailService, wakePaneForMail } from "./mail";
 import { createMcp } from "./mcp";
 import { ipcMcpStorage } from "../ipc/mcpLibraryStorage";
 import { createPaneIdentity } from "./mcp/paneIdentity";
-import { paneIdBySpawnSecret, peekPaneSpawnSpec, planReports, spawnPluginAccess } from "./spawnSpecs";
+import { peekPaneSpawnSpec, planReports, spawnPluginAccess } from "./spawnSpecs";
 import { createArtifactsPolicy } from "./artifacts/policy";
 import { registerArtifactCommands } from "./artifacts/artifactCommands";
 import { artifactChanges } from "./artifacts/changes";
@@ -233,7 +233,6 @@ export function createAppRuntime(
     deliversByCwd: (agentType) => deliversMcpByCwd(plugins.agentFeatures(agentType)),
     identify: createPaneIdentity({
       workspaces: () => deckStore.getSnapshot().workspaces,
-      paneOf: paneIdBySpawnSecret,
       agents: agentLabels,
     }),
   });

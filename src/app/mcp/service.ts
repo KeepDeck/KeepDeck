@@ -1,4 +1,5 @@
-import type { CommandRegistry, CommandSource } from "../../domain/commands";
+import type { CommandRegistry } from "../../domain/commands";
+import { mcpRefusalText } from "../../presentation/mcpWords";
 import {
   handleMcpLine,
   type McpCaller,
@@ -135,10 +136,10 @@ export interface McpServiceDeps {
   /** How a client reaches the socket — the deck's own bundled server and the
    * settings page's connect row both ask it. */
   connection?: KeepdeckServerDeps["connection"];
-  /** Resolve a connection to the pane that announced it. Injected: which
-   * pane holds which secret is the spawn layer's knowledge, and the deck's —
-   * neither belongs to the transport. See [`createPaneIdentity`]. */
-  identify?: (caller: McpCaller) => McpPaneIdentity | null;
+  /** The pane a caller was admitted for, as the deck holds it now, or null
+   * when the deck holds it no more. Injected: which panes exist is the
+   * deck's knowledge, not the transport's. See [`createPaneIdentity`]. */
+  identify: (caller: McpCaller) => McpPaneIdentity | null;
 }
 
 /**
@@ -185,21 +186,16 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     })
     .catch(() => {});
 
-  /** Who a connection is, as the journal will record it. The ONE place that
-   * turns a token into an identity: a secret that no longer resolves — a
-   * hand-wired server, or a lingering child of a pane that is gone — reads as
-   * an anonymous client, which is the behaviour that existed before panes
-   * could be named at all. */
-  function sourceFor(caller: McpCaller): CommandSource {
-    const pane = deps.identify?.(caller) ?? null;
-    return pane
-      ? { kind: "external", client: MCP_TRANSPORT, pane }
-      : { kind: "external", client: MCP_TRANSPORT };
-  }
-
+  /** A call runs as the pane it was admitted for, journaled under it. The
+   * socket door judged who the caller is; a pane that left the deck while the
+   * request crossed is refused here, and nothing runs. */
   const port: McpCommandPort = {
     list: () => registry.list(),
-    execute: (id, args, caller) => registry.execute(id, args, sourceFor(caller)),
+    execute: async (id, args, caller) => {
+      const pane = deps.identify(caller);
+      if (!pane) return { refused: "pane-gone", message: mcpRefusalText("pane-gone") };
+      return registry.execute(id, args, { kind: "external", client: MCP_TRANSPORT, pane });
+    },
   };
   // The bundled tier: the deck's own server, reading the CONFIRMED status
   // through a closure rather than a snapshot — `current` moves with every

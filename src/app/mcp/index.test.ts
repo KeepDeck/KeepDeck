@@ -35,6 +35,7 @@ function harness() {
     connection: vi.fn(() =>
       Promise.resolve({ command: "/bin/keepdeck", args: ["--mcp-shim", "/s"] }),
     ),
+    identify: ({ pane }) => ({ id: pane, workspaceId: "ws-1", label: pane }),
   };
   return {
     deps,
@@ -42,12 +43,7 @@ function harness() {
     enable,
     disable,
     respond,
-    request: (
-      id: number,
-      line: string,
-      client: string | null = null,
-      host: string | null = null,
-    ) => deliver?.({ id, line, client, host }),
+    request: (id: number, line: string, pane = "pane-1") => deliver?.({ id, line, pane }),
   };
 }
 
@@ -207,7 +203,7 @@ describe("createMcpService", () => {
     expect(service.status().error).toContain("already served");
   });
 
-  it("serves registry commands as the external mcp source, journaled", async () => {
+  it("serves registry commands as the external mcp source, journaled under its pane", async () => {
     const h = harness();
     let seen: CommandSource | null = null;
     h.registry.register({
@@ -226,12 +222,10 @@ describe("createMcpService", () => {
       '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"workspace_list"}}',
     );
     await flush();
-    expect(seen).toEqual({ kind: "external", client: "mcp" });
+    const source = { kind: "external", client: "mcp", pane: { id: "pane-1", workspaceId: "ws-1", label: "pane-1" } };
+    expect(seen).toEqual(source);
     const journal = h.registry.journal();
-    expect(journal[journal.length - 1]?.source).toEqual({
-      kind: "external",
-      client: "mcp",
-    });
+    expect(journal[journal.length - 1]?.source).toEqual(source);
   });
 
   it("serves the fetched identity once it lands", async () => {
@@ -312,16 +306,12 @@ describe("createMcpService", () => {
     expect(h.enable).not.toHaveBeenCalled();
   });
 
-  it("names the calling pane when its connection proved which one it is", async () => {
+  it("runs a call as the pane the door admitted it for, as the deck reads it now", async () => {
     const h = harness();
-    // Both halves of the caller reach the resolver as the transport heard
-    // them; what they mean is the resolver's to say.
     const heard: unknown[] = [];
     h.deps.identify = (caller) => {
       heard.push(caller);
-      return caller.client === "pane-3-secret"
-        ? { id: "pane-3", workspaceId: "ws-1", label: "Codex 3" }
-        : null;
+      return caller.pane === "pane-3" ? { id: "pane-3", workspaceId: "ws-1", label: "Codex 3" } : null;
     };
     createMcpService(h.deps);
     await flush();
@@ -336,36 +326,22 @@ describe("createMcpService", () => {
       },
     });
 
-    const call = (client: string | null) =>
-      h.request(1, JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: { name: "deck_ping", arguments: {} },
-      }), client, client ? "pane-3" : null);
-
-    call("pane-3-secret");
-    call("a-secret-nobody-holds");
-    call(null);
+    h.request(1, JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "deck_ping", arguments: {} },
+    }), "pane-3");
     await flush();
 
-    // Known secret: the journal can say WHO. Unknown or absent: anonymous,
-    // which is exactly how a server the user wired up by hand has always
-    // behaved — and how a lingering child of a dead pane must behave.
     expect(sources).toEqual([
       {
         kind: "external",
         client: "mcp",
         pane: { id: "pane-3", workspaceId: "ws-1", label: "Codex 3" },
       },
-      { kind: "external", client: "mcp" },
-      { kind: "external", client: "mcp" },
     ]);
-    expect(heard).toEqual([
-      { client: "pane-3-secret", host: "pane-3" },
-      { client: "a-secret-nobody-holds", host: "pane-3" },
-      { client: null, host: null },
-    ]);
+    expect(heard).toEqual([{ pane: "pane-3" }]);
   });
 
   it("offers a server def only once the transport is CONFIRMED up", async () => {

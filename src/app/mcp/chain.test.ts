@@ -5,7 +5,9 @@ vi.mock("../../ipc/log", () => ({
 }));
 
 import { createCommandRegistry } from "../../domain/commands";
+import { CALLER_REFUSED } from "../../domain/mcp";
 import type { McpRequest } from "../../ipc/mcpBridge";
+import { mcpRefusalText } from "../../presentation/mcpWords";
 import { createMcpService } from ".";
 
 /**
@@ -16,15 +18,20 @@ import { createMcpService } from ".";
  * the transport's id-0 sentinel without a reply.
  */
 describe("mcp webview chain", () => {
+  /** The deck holds pane-1; any other pane has left it. */
+  const identify = ({ pane }: { pane: string }) =>
+    pane === "pane-1" ? { id: pane, workspaceId: "ws-1", label: "Claude 1" } : null;
+
   function chain() {
     const registry = createCommandRegistry();
+    const run = vi.fn((args: Record<string, unknown>) => ({ switched: args.workspace }));
     registry.register({
       id: "workspace.switch",
       title: "Switch to a workspace",
       args: [
         { name: "workspace", type: "string", required: true, description: "Name" },
       ],
-      run: (args) => ({ switched: args.workspace }),
+      run,
     });
     let deliver: ((request: McpRequest) => void) | null = null;
     const respond = vi.fn((_id: number, _reply: string) => Promise.resolve());
@@ -47,12 +54,14 @@ describe("mcp webview chain", () => {
         library: { serversFor: async () => [] },
         identitySource: () =>
           Promise.resolve({ name: "KeepDeck", version: "1.0.0" }),
+        identify,
       },
     );
     return {
       registry,
+      run,
       respond,
-      request: (id: number, line: string) => deliver?.({ id, line }),
+      request: (id: number, line: string, pane = "pane-1") => deliver?.({ id, line, pane }),
     };
   }
 
@@ -86,12 +95,32 @@ describe("mcp webview chain", () => {
     expect(call?.id).toBe(3); // JSON-RPC id, not the transport's 4
     expect(JSON.parse(call?.result.content[0].text)).toEqual({ switched: "api" });
 
-    // And the registry journaled the external caller.
+    // And the registry journaled the pane the door admitted.
     const journal = c.registry.journal();
     expect(journal[journal.length - 1]?.source).toEqual({
       kind: "external",
       client: "mcp",
+      pane: { id: "pane-1", workspaceId: "ws-1", label: "Claude 1" },
     });
+  });
+
+  it("a pane that left the deck while its call crossed is refused, and nothing runs", async () => {
+    const c = chain();
+    await flush();
+    c.request(
+      5,
+      '{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"workspace_switch","arguments":{"workspace":"api"}}}',
+      "pane-gone-meanwhile",
+    );
+    await flush();
+
+    const reply = JSON.parse(c.respond.mock.calls[0]?.[1] ?? "{}");
+    expect(reply.id).toBe(9);
+    expect(reply.error.code).toBe(CALLER_REFUSED);
+    expect(reply.error.data).toEqual({ reason: "pane-gone" });
+    expect(reply.error.message).toBe(mcpRefusalText("pane-gone"));
+    expect(c.run).not.toHaveBeenCalled();
+    expect(c.registry.journal()).toEqual([]);
   });
 
   it("a validation failure crosses as invalid-params with the right ids", async () => {

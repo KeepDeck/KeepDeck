@@ -162,7 +162,7 @@ pub fn update<T: Clone>(sessions: &Sessions<T>, event: Event<T>) -> Next<Session
 }
 
 /// Why a caller does not speak for a pane.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CallerRefusal {
     /// It named no secret.
     NoSecret,

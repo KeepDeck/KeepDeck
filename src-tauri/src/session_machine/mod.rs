@@ -6,6 +6,8 @@
 
 mod boundary;
 mod table;
+#[cfg(all(test, unix))]
+mod test_support;
 #[cfg(test)]
 mod tests;
 
@@ -15,10 +17,10 @@ pub use table::Table;
 use crate::session::{deliver, resolve_command, DeliveryEnd, SessionEvent, SpawnSpec};
 use keepdeck_fsm_runtime::{supervised, Effects, Events, Runtime};
 use keepdeck_lifecycle::domain::dir::Dir;
-use keepdeck_lifecycle::domain::ids::{AttemptId, PermitId, SessionId};
+use keepdeck_lifecycle::domain::ids::{AttemptId, PaneId, PermitId, SessionId};
 use keepdeck_lifecycle::domain::machine::{Event as LifecycleEvent, LaunchOwner};
 use keepdeck_lifecycle::domain::model::{Answer, Refusal, Reply};
-use keepdeck_pty::sessions::{self, Effect, Event, Over, Sessions};
+use keepdeck_pty::sessions::{self, CallerRefusal, CallerVerdict, Effect, Event, Over, Secret, Sessions, REGISTRATION_WAIT};
 use keepdeck_pty::{Consumer, PtyEvent, PtySession, PtySpec, TermSize};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -168,6 +170,31 @@ impl SessionMachine {
         }
     }
 
+    /// The pane a caller speaks for: the one whose live terminal process
+    /// `pid` belongs to, when that terminal's session holds `secret`. Asked
+    /// per request by whoever lets a caller act for a pane.
+    ///
+    /// A terminal the table holds and the machine has not registered yet is
+    /// waited for, up to [`REGISTRATION_WAIT`]: the spawn door puts the
+    /// process in the table before the machine hears of it, and an early
+    /// caller refused for that would stay refused. What the spent wait means
+    /// is the rule's ([`sessions::after_registration_wait`]).
+    pub async fn caller(&self, pid: Option<u32>, secret: Option<&Secret>) -> Result<PaneId, CallerRefusal> {
+        let terminal = pid.and_then(|pid| self.table.terminal_of(pid));
+        let host = terminal.map(|(_, session)| session.0);
+        let mut states = self.machine.state();
+        // Each borrow ends with its statement: one held across the wait would
+        // stop the machine publishing the very row waited for.
+        let mut verdict = sessions::judge_caller(&states.borrow().value, host, secret);
+        if let (CallerVerdict::NotRegistered, Some(id)) = (verdict, host) {
+            let registered = states.wait_for(|at| at.value.rows.contains_key(&id));
+            drop(tokio::time::timeout(REGISTRATION_WAIT, registered).await);
+            verdict = sessions::judge_caller(&states.borrow().value, host, secret);
+        }
+        sessions::after_registration_wait(verdict)?;
+        terminal.map(|(pane, _)| pane).ok_or(CallerRefusal::OutsideTerminal)
+    }
+
     pub fn resize(&self, session: SessionId, cols: u16, rows: u16) -> std::io::Result<()> {
         match self.table.get(session) {
             Some(handle) => handle.resize(cols, rows),
@@ -232,15 +259,8 @@ impl SessionMachine {
             Reply::Answered { .. } | Reply::Unavailable | Reply::Unknown => return Err(OpenError::Unavailable),
         };
         let command = resolve_command(spec.command, std::env::var("SHELL").ok());
-        // The one line that settles "which build / which args did this pane
-        // get" when a session-identity repro comes in. Env values stay
-        // private — the key names are what debugging needs.
-        log::info!(
-            "spawn: cmd={command} args={:?} env={:?} cwd={:?}",
-            spec.args,
-            spec.env.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
-            spec.cwd,
-        );
+        let secrets: Vec<Secret> = spec.secrets.into_iter().filter(|secret| !secret.is_empty()).map(Secret::new).collect();
+        log::info!("{}", spawn_line(&command, &spec.args, &spec.env, spec.cwd.as_deref(), &secrets));
         let pty = PtySpec {
             command,
             args: spec.args,
@@ -282,7 +302,7 @@ impl SessionMachine {
                 return Err(OpenError::NotStarted(NotStarted::Failed("the spawn did not finish".into())));
             }
         };
-        self.machine.send(Event::Registered { id: id.0, tag: Tag { owner, dir, attempt }, secrets: Vec::new() });
+        self.machine.send(Event::Registered { id: id.0, tag: Tag { owner, dir, attempt }, secrets });
         let this = self.clone();
         std::thread::spawn(move || {
             let name = format!("session {}", id.0);
@@ -297,6 +317,18 @@ impl SessionMachine {
         });
         Ok(id)
     }
+}
+
+/// The one line that settles "which build / which args did this pane get"
+/// when a session-identity repro comes in. Env values stay private, the key
+/// names are what debugging needs. The pane's secrets are hidden by value
+/// wherever they stand: agents carry them inside arguments, as claude does in
+/// its `--mcp-config` JSON and codex in `-c mcp_servers…`.
+fn spawn_line(command: &str, args: &[String], env: &[(String, String)], cwd: Option<&str>, secrets: &[Secret]) -> String {
+    let hide = |text: &str| secrets.iter().fold(text.to_string(), |text, secret| text.replace(secret.expose(), "<secret>"));
+    let args: Vec<String> = args.iter().map(|arg| hide(arg)).collect();
+    let keys: Vec<&str> = env.iter().map(|(key, _)| key.as_str()).collect();
+    format!("spawn: cmd={command} args={args:?} env={keys:?} cwd={cwd:?}")
 }
 
 #[tauri::command]

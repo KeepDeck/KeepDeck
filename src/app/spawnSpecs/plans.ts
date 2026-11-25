@@ -132,6 +132,13 @@ export function planReports(plan: SpawnPlan | undefined): boolean {
   return plan?.env.some(([key]) => key === BRIDGE_ENV) ?? false;
 }
 
+/** The secrets a plan's process tree is given, for the sessions machine to
+ * judge its callers by: whoever names one from the pane's terminal speaks
+ * for the pane. Either answers — see [`SpawnPlan.mcpToken`]. */
+export function planSecrets(plan: SpawnPlan): string[] {
+  return [plan.mcpToken, plan.token].filter((secret): secret is string => secret !== undefined && secret !== "");
+}
+
 /** Whether a pane's RESUME died before ever becoming a session: its plan is
  * a resume, and not one accepted postback has arrived since it was built — a
  * working resume always reports first (every agent's startup hook posts

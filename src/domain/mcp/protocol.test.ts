@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CommandInfo } from "../commands";
+import codes from "./codes.json";
+import { CALLER_REFUSED } from "./jsonrpc";
 import {
-  ANONYMOUS_CALLER,
   MCP_PROTOCOL_VERSION,
   handleMcpLine,
   toolNameOf,
@@ -9,6 +10,11 @@ import {
 } from "./protocol";
 
 const IDENTITY = () => ({ name: "KeepDeck", version: "1.2.3" });
+
+/** The pane the socket door admitted every line here for. */
+const CALLER = { pane: "pane-1" };
+
+const answer = (p: McpCommandPort, line: string) => handleMcpLine(p, IDENTITY, line, CALLER);
 
 const SPAWN: CommandInfo = {
   id: "agent.spawn",
@@ -46,7 +52,7 @@ const parse = async (reply: Promise<string | null>) =>
 describe("handleMcpLine — session plumbing", () => {
   it("initialize reports identity and echoes a supported revision", async () => {
     const reply = await parse(
-      handleMcpLine(port(), IDENTITY, request(1, "initialize", {
+      answer(port(), request(1, "initialize", {
         protocolVersion: MCP_PROTOCOL_VERSION,
       })),
     );
@@ -61,42 +67,42 @@ describe("handleMcpLine — session plumbing", () => {
     // with one the server supports. 2025-03-26 requires batching this
     // projection refuses, so claiming it would be a lie.
     const requested = await parse(
-      handleMcpLine(port(), IDENTITY, request(1, "initialize", {
+      answer(port(), request(1, "initialize", {
         protocolVersion: "2025-03-26",
       })),
     );
     expect(requested.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
-    const omitted = await parse(handleMcpLine(port(), IDENTITY, request(1, "initialize")));
+    const omitted = await parse(answer(port(), request(1, "initialize")));
     expect(omitted.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
   });
 
   it("notifications are consumed silently, known or not", async () => {
     const initialized = JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" });
-    await expect(handleMcpLine(port(), IDENTITY, initialized)).resolves.toBeNull();
+    await expect(answer(port(), initialized)).resolves.toBeNull();
     const unknown = JSON.stringify({ jsonrpc: "2.0", method: "notifications/whatever" });
-    await expect(handleMcpLine(port(), IDENTITY, unknown)).resolves.toBeNull();
+    await expect(answer(port(), unknown)).resolves.toBeNull();
   });
 
   it("ping pongs", async () => {
-    const reply = await parse(handleMcpLine(port(), IDENTITY, request(2, "ping")));
+    const reply = await parse(answer(port(), request(2, "ping")));
     expect(reply.result).toEqual({});
   });
 
   it("garbage is answered as a failed request, not silence", async () => {
-    const reply = await parse(handleMcpLine(port(), IDENTITY, "not json"));
+    const reply = await parse(answer(port(),"not json"));
     expect(reply.id).toBeNull();
     expect(reply.error.code).toBe(-32700);
   });
 
   it("an unknown method with an id gets method-not-found", async () => {
-    const reply = await parse(handleMcpLine(port(), IDENTITY, request(3, "resources/list")));
+    const reply = await parse(answer(port(), request(3, "resources/list")));
     expect(reply.error.code).toBe(-32601);
   });
 });
 
 describe("handleMcpLine — tools", () => {
   it("tools/list projects dot ids to underscore names with schemas", async () => {
-    const reply = await parse(handleMcpLine(port(), IDENTITY, request(4, "tools/list")));
+    const reply = await parse(answer(port(), request(4, "tools/list")));
     const [spawn, close] = reply.result.tools;
     expect(spawn.name).toBe("agent_spawn");
     expect(spawn.description).toBe(SPAWN.title);
@@ -115,12 +121,12 @@ describe("handleMcpLine — tools", () => {
   it("tools/call executes the projected command and returns its value", async () => {
     const p = port();
     const reply = await parse(
-      handleMcpLine(p, IDENTITY, request(5, "tools/call", {
+      answer(p, request(5, "tools/call", {
         name: "agent_spawn",
         arguments: { workspace: "api" },
       })),
     );
-    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" }, ANONYMOUS_CALLER);
+    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" }, CALLER);
     expect(reply.result.isError).toBe(false);
     expect(JSON.parse(reply.result.content[0].text)).toEqual({ paneId: "p1" });
   });
@@ -132,7 +138,7 @@ describe("handleMcpLine — tools", () => {
       error: { code: "failed", message: "no active workspace" },
     });
     const reply = await parse(
-      handleMcpLine(p, IDENTITY, request(6, "tools/call", { name: "agent_spawn" })),
+      answer(p, request(6, "tools/call", { name: "agent_spawn" })),
     );
     expect(reply.error).toBeUndefined();
     expect(reply.result.isError).toBe(true);
@@ -146,7 +152,7 @@ describe("handleMcpLine — tools", () => {
       error: { code: "invalid-args", message: 'missing required argument "workspace"' },
     });
     const reply = await parse(
-      handleMcpLine(p, IDENTITY, request(7, "tools/call", { name: "agent_spawn" })),
+      answer(p, request(7, "tools/call", { name: "agent_spawn" })),
     );
     expect(reply.error.code).toBe(-32602);
     expect(reply.error.message).toContain("workspace");
@@ -155,7 +161,7 @@ describe("handleMcpLine — tools", () => {
   it("an unknown tool is refused without touching the registry", async () => {
     const p = port();
     const reply = await parse(
-      handleMcpLine(p, IDENTITY, request(8, "tools/call", { name: "no_such" })),
+      answer(p, request(8, "tools/call", { name: "no_such" })),
     );
     expect(reply.error.code).toBe(-32602);
     expect(p.execute).not.toHaveBeenCalled();
@@ -167,7 +173,7 @@ describe("handleMcpLine — tools", () => {
       throw new Error("port exploded");
     });
     const reply = await parse(
-      handleMcpLine(p, IDENTITY, request(10, "tools/call", { name: "agent_spawn" })),
+      answer(p, request(10, "tools/call", { name: "agent_spawn" })),
     );
     expect(reply.id).toBe(10);
     expect(reply.error.code).toBe(-32603);
@@ -178,18 +184,28 @@ describe("handleMcpLine — tools", () => {
     // The tool result's text is PRETTY-printed JSON (embedded newlines);
     // the envelope serialization must escape them. Guards the framing
     // against a refactor that builds the reply by concatenation.
-    const raw = await handleMcpLine(
-      port(),
-      IDENTITY,
-      request(11, "tools/call", { name: "agent_spawn" }),
-    );
+    const raw = await answer(port(), request(11, "tools/call", { name: "agent_spawn" }));
     expect(raw).not.toContain("\n");
+  });
+
+  it("a call the port refused answers as the socket door refuses, with its own reason", async () => {
+    const p = port();
+    p.execute.mockResolvedValueOnce({ refused: "pane-gone", message: "the pane has closed" });
+    const reply = await parse(answer(p, request(12, "tools/call", { name: "agent_spawn" })));
+    expect(reply.id).toBe(12);
+    expect(reply.error).toEqual({ code: CALLER_REFUSED, message: "the pane has closed", data: { reason: "pane-gone" } });
+    expect(reply.result).toBeUndefined();
+  });
+
+  it("refuses with the code the socket door uses — the file Rust mirrors against too", () => {
+    // src-tauri/src/mcp/bridge.rs asserts its constant against the same file.
+    expect(CALLER_REFUSED).toBe(codes.CALLER_REFUSED);
   });
 
   it("non-object arguments are refused before execution", async () => {
     const p = port();
     const reply = await parse(
-      handleMcpLine(p, IDENTITY, request(9, "tools/call", {
+      answer(p, request(9, "tools/call", {
         name: "agent_spawn",
         arguments: [1, 2],
       })),

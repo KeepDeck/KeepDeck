@@ -1,25 +1,13 @@
 /**
- * Turning a connection's secret into the pane the journal will name.
+ * The pane an admitted MCP caller speaks for, as the journal will name it.
  *
- * Three steps, and each belongs to a different owner: which pane minted this
- * secret is the spawn cache's, which workspace holds that pane is the deck's,
- * and how the pane reads to a person is the catalog's. Assembled here rather
- * than in the composition root, where it was sixty untested lines of exactly
- * this — a root should wire owners together, not BE one.
- *
- * A secret that no longer resolves reads as an anonymous client: a hand-wired
- * server, or a lingering child of a pane that is gone. That is the behaviour
- * that existed before panes could be named at all, and it is the right floor —
- * naming the wrong pane is worse than naming none.
- *
- * So does a secret presented from outside its pane's terminal. Everything a
- * pane starts inherits its secret, and keeps it after leaving: claude
- * 2.1.303 hands a conversation sent to the background to a daemon worker
- * that carries the pane's MCP config, and that worker would otherwise read
- * the pane's mail and act in its role from the background (task-424,
- * verified live). The transport says which pane's terminal the connecting
- * process belongs to (`host`, the same answer the bridge asks of a
- * reporter); a secret counts only from there.
+ * Who the caller is was decided in Rust, on every line: the socket door asks
+ * the sessions machine whether the process runs in a live pane's terminal
+ * and that terminal's session holds the secret it named
+ * (src-tauri/src/mcp/bridge.rs, keepdeck-pty's `judge_caller`). A caller that
+ * is no pane's never reaches the page. What is left here is the deck's half:
+ * the pane as it reads now. A pane the deck no longer holds, because it left
+ * while the request crossed, answers null, and the call is refused.
  */
 import type { McpCaller } from "../../domain/mcp";
 import { findWorkspaceOfPane, paneDisplayTitle, type Workspace } from "../../domain/deck";
@@ -32,12 +20,9 @@ export interface McpPaneIdentity {
 }
 
 export interface PaneIdentityDeps {
-  /** The deck as it is NOW: the label is snapshot at CALL time, because
-   * `pane-N` is a slot a later pane can inherit and a journal entry has to
-   * stay readable. */
+  /** The deck as it is NOW: the label is a snapshot taken at CALL time, so
+   * a journal entry stays readable after the pane is renamed or closed. */
   workspaces(): Workspace[];
-  /** Which pane's CURRENT plan carries this secret, or null. */
-  paneOf(client: string): string | null;
   /** The agent catalog's pretty labels, read per call — a plugin can be
    * installed or removed while the deck is up. */
   agents(): readonly { id: string; label: string }[];
@@ -46,9 +31,7 @@ export interface PaneIdentityDeps {
 export function createPaneIdentity(
   deps: PaneIdentityDeps,
 ): (caller: McpCaller) => McpPaneIdentity | null {
-  return ({ client, host }) => {
-    const paneId = client === null ? null : deps.paneOf(client);
-    if (!paneId || paneId !== host) return null;
+  return ({ pane: paneId }) => {
     const workspaces = deps.workspaces();
     const workspace = findWorkspaceOfPane(workspaces, paneId);
     const index = workspace?.panes.findIndex((pane) => pane.id === paneId) ?? -1;

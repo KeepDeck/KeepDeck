@@ -6,7 +6,7 @@ import type {
   SpawnSkillsInput,
   WorkspaceRef,
 } from "@keepdeck/plugin-api";
-import { EMPTY_SPAWN_CONTEXT } from "./plans";
+import { EMPTY_SPAWN_CONTEXT, planSecrets } from "./plans";
 import type { Workspace } from "../../domain/deck";
 import { createWorkspaceInstance } from "../../domain/workspaceInstance";
 import { createSpawnPluginsFake } from "./planTestSupport";
@@ -19,7 +19,6 @@ import {
   peekPanePlanError,
   peekPaneSpawnSpec,
   buildLivePaneSpec,
-  paneIdBySpawnSecret,
   subscribeSpawnSpecs,
 } from ".";
 // Straight from the module: the barrel deliberately does not carry it.
@@ -223,34 +222,18 @@ describe("subscribeSpawnSpecs — the cache tells its readers", () => {
     again();
   });
 
-  it("resolves an MCP secret to its pane, and forgets it with the plan", async () => {
-    // The plan cache IS the registry of live secrets: a pane that retires
-    // drops its spec, so a lingering MCP child resolves to nobody instead of
-    // to whoever inherited its reusable `pane-N` slot.
+  it("hands the process both of its pane's secrets, two distinct ones", async () => {
+    // Either one names the pane to the socket door: the MCP one is what an
+    // injected `--client` carries, the bridge one is all a client can name
+    // when nothing was injected (kimi's servers come from a per-install
+    // manifest). They authorize different things, so they differ.
     await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
-    const secret = peekPaneSpawnSpec("pane-1")?.mcpToken;
+    const spec = present(peekPaneSpawnSpec("pane-1"), "the plan");
 
-    expect(secret).toBeDefined();
-    expect(paneIdBySpawnSecret(present(secret, "the MCP secret"))).toBe("pane-1");
-    expect(paneIdBySpawnSecret("a-secret-nobody-holds")).toBeNull();
-
-    dropPaneSpawnSpec("pane-1");
-    expect(paneIdBySpawnSecret(present(secret, "the MCP secret"))).toBeNull();
-  });
-
-  it("resolves the BRIDGE secret to the same pane", async () => {
-    // The only identity some clients can produce. kimi's MCP servers come
-    // from a plugin manifest that is per INSTALL, so nothing per-pane can be
-    // written into the invocation — but every process under the pane
-    // inherits KEEPDECK_BRIDGE, and the secret in it names this pane just as
-    // exactly as the MCP one does.
-    await buildResumeSpec(plugins, "claude", facts, ctx, "s-1", "manual");
-    const spec = peekPaneSpawnSpec("pane-1");
-    expect(spec?.token).toBeDefined();
-    expect(spec?.token).not.toBe(spec?.mcpToken);
-    expect(paneIdBySpawnSecret(present(spec?.token, "the bridge secret"))).toBe("pane-1");
-
-    dropPaneSpawnSpec("pane-1");
-    expect(paneIdBySpawnSecret(present(spec?.token, "the bridge secret"))).toBeNull();
+    expect(spec.token).toBeDefined();
+    expect(spec.mcpToken).toBeDefined();
+    expect(spec.token).not.toBe(spec.mcpToken);
+    expect(planSecrets(spec)).toEqual([spec.mcpToken, spec.token]);
+    expect(planSecrets({ args: [], env: [] })).toEqual([]);
   });
 });
