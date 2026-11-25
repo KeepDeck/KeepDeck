@@ -118,10 +118,13 @@ pub enum Effect {
     Kill { id: Id },
 }
 
+/// The row moved on to `phase` — never back to live, so its secrets, which
+/// count only while it is live, are let go.
 fn with<T: Clone>(sessions: &Sessions<T>, id: Id, phase: Phase) -> Next<Sessions<T>, Effect> {
     let mut next = sessions.clone();
     if let Some(row) = next.rows.get_mut(&id) {
         row.phase = phase;
+        row.secrets.clear();
     }
     to(next)
 }
@@ -432,6 +435,16 @@ mod tests {
         for refusal in [CallerRefusal::NoSecret, CallerRefusal::OutsideTerminal, CallerRefusal::WrongSecret] {
             assert_eq!(after_caller_wait::<Id>(CallerVerdict::Refuse(refusal)), Err(refusal));
         }
+    }
+
+    #[test]
+    fn a_session_holds_its_secrets_only_while_it_is_live() {
+        let live = registered();
+        assert_eq!(live.rows[&1].secrets, [secret("p-mcp"), secret("p-bridge")]);
+        let (stopping, _) = step(&live, Event::Stop { id: 1 });
+        assert!(stopping.rows[&1].secrets.is_empty(), "stopping");
+        let over = step(&live, Event::Exited { id: 1 }).0;
+        assert!(over.rows[&1].secrets.is_empty(), "over");
     }
 
     #[test]
