@@ -720,6 +720,21 @@ describe("createMailManager", () => {
     expect(h.woken).toEqual([B.paneId, B.paneId]);
   });
 
+  it("nudges an idle pane at once for mail arriving after the turn a nudge bought took what it was nudged for", () => {
+    // Measured live: a nudge bought the lead a turn that took one answer, the
+    // lead went idle, and the next answer sat 32 seconds before its nudge —
+    // the cadence is for a nudge that produced no turn, and this one had.
+    const h = harness({ asksAtTurnEnd: true });
+    h.reports(B.paneId, done);
+    h.manager.send({ from: A, toPaneId: B.paneId, kind: "answer", body: "first" });
+    expect(h.woken).toEqual([B.paneId]);
+    h.reports(B.paneId, { state: "working", since: 2 });
+    expect(h.manager.takeAtTurnEnd(B.paneId).map((mail) => mail.body)).toEqual(["first"]);
+    h.reports(B.paneId, done);
+    h.manager.send({ from: C, toPaneId: B.paneId, kind: "answer", body: "second" });
+    expect(h.woken).toEqual([B.paneId, B.paneId]);
+  });
+
   it("nudges again at once, the other way, when the pane's side says the last nudge started no turn", () => {
     // claude after an Esc: its Mod took the ring and claude refused the turn.
     // The cadence is for a nudge that MAY have gone missing; this one did,
