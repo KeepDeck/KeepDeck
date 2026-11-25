@@ -184,17 +184,23 @@ impl SessionMachine {
         let deadline = tokio::time::Instant::now() + CALLER_WAIT;
         let locate = || pid.map_or(CallerPlace::Outside, |pid| self.table.locate(pid));
         let mut states = self.machine.state();
-        // Each borrow ends with its statement: one held across the wait would
-        // stop the machine publishing the very row waited for.
-        let mut verdict = sessions::judge_caller(&states.borrow().value, &locate(), secret);
+        // A borrow of the state is a read lock the machine publishes under. So
+        // the process is located first, the table's lock and the kernel asked
+        // with no borrow held, and each borrow ends with its statement: one
+        // held across the wait would stop the machine publishing the very row
+        // waited for.
+        let place = locate();
+        let mut verdict = sessions::judge_caller(&states.borrow().value, &place, secret);
         if verdict == CallerVerdict::NotPlaced {
             drop(tokio::time::timeout_at(deadline, self.table.opened()).await);
-            verdict = sessions::judge_caller(&states.borrow().value, &locate(), secret);
+            let place = locate();
+            verdict = sessions::judge_caller(&states.borrow().value, &place, secret);
         }
         if let CallerVerdict::NotRegistered(id) = verdict {
             let registered = states.wait_for(|at| at.value.rows.contains_key(&id));
             drop(tokio::time::timeout_at(deadline, registered).await);
-            verdict = sessions::judge_caller(&states.borrow().value, &locate(), secret);
+            let place = locate();
+            verdict = sessions::judge_caller(&states.borrow().value, &place, secret);
         }
         sessions::after_caller_wait(verdict)
     }
