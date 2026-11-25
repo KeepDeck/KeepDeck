@@ -15,10 +15,10 @@ import { sameMcpScope, type McpScope, type McpServerVerdict } from "../../domain
  * `WriteScope`, which is the domain's [`McpScope`] alone. */
 export type McpEditorScope = McpScope | { kind: "bundled" };
 
-/** What a listed row holds: a stored file's verdict, or — for a bundled
- * server whose gate is closed — nothing yet. `pending` is the tier's own
- * state, never a file's. */
-export type McpRowVerdict = McpServerVerdict | { kind: "pending" };
+/** What a listed row holds: a stored file's verdict, or a bundled server's
+ * state — not up yet (`pending`), or handed to each pane with its own secret
+ * (`perPane`). Both are the tier's own, never a file's. */
+export type McpRowVerdict = McpServerVerdict | { kind: "pending" } | { kind: "perPane" };
 
 /** One row as the dialog lists it. */
 export interface McpRow {

@@ -8,12 +8,7 @@ import {
 } from "../../domain/mcp";
 import { readAppInfo } from "../appInfo";
 
-import {
-  mcpConnectionCommand,
-  mcpDisable,
-  mcpEnable,
-  type McpConnection,
-} from "../../ipc/mcp";
+import { mcpConnectionCommand, mcpDisable, mcpEnable } from "../../ipc/mcp";
 import { commands } from "../commandRegistry";
 import type { McpPaneIdentity } from "./paneIdentity";
 import {
@@ -36,7 +31,6 @@ import {
   type McpTransition,
   type McpTransportPort,
 } from "./policy";
-import { errorMessage } from "@keepdeck/plugin-api";
 
 /** The transport every external call is journaled under. */
 const MCP_TRANSPORT = "mcp";
@@ -49,19 +43,6 @@ const MCP_TRANSPORT = "mcp";
 export interface McpStatus {
   socket: string | null;
   error: string | null;
-  /** How a client KeepDeck does NOT start reaches the socket — a desktop app,
-   * an editor, an agent run outside the deck. Fetched from the backend, never
-   * computed: only it knows where this install's binary lives, and a second
-   * derivation would drift the day the shim's flags change. Null while the
-   * transport is down and until the lookup lands.
-   *
-   * Kept here rather than in whatever settings surface happens to show it: it
-   * is a fact about the running transport, true whether or not that surface is
-   * open, and a component holding it re-fetches on every mount. */
-  connect: McpConnection | null;
-  /** Why that lookup failed, when it did — the server IS serving, so this is
-   * a message and never a silently missing row. */
-  connectError: string | null;
 }
 
 /** A failure's detail, guaranteed to READ as a problem: an Error carrying
@@ -73,21 +54,14 @@ function problem(detail: string | null): string {
 
 /** The status after one settled enable. */
 function statusAfter(previous: McpStatus, transition: McpTransition): McpStatus {
-  // Every settled enable invalidates the line naming the socket — the lookup
-  // that follows is what fills it back in, against what is actually claimed.
-  const blank = { connect: null, connectError: null };
   if (!transition.ok) {
-    return { ...previous, error: problem(transition.detail), ...blank };
+    return { ...previous, error: problem(transition.detail) };
   }
   return transition.detail !== null
-    ? { socket: transition.detail, error: null, ...blank }
+    ? { socket: transition.detail, error: null }
     : // Defensive: mcp_enable's contract is a path string; a confirmation
       // without one must degrade LOUDLY, not into a blank served-less On.
-      {
-        socket: null,
-        error: "the backend confirmed On without a socket path",
-        ...blank,
-      };
+      { socket: null, error: "the backend confirmed On without a socket path" };
 }
 
 export interface McpService {
@@ -103,15 +77,13 @@ export interface McpService {
   /**
    * Bring the status up to date with what a user is about to look at.
    *
-   * Two things go stale on their own and nothing else notices: a refused
+   * One thing goes stale on its own and nothing else notices: a refused
    * enable (another instance held the socket — a retry is due, and there is
-   * no setting event to carry it), and a connect lookup that never landed
-   * (it fires once per settled enable, so a request that got lost stayed
-   * lost).
+   * no setting event to carry it).
    *
    * Idempotent and cheap. A settings surface calls it when it mounts — which
-   * is the moment both become visible — WITHOUT reaching for IPC
-   * itself; that is the whole point of it living here.
+   * is the moment it becomes visible — WITHOUT reaching for IPC itself; that
+   * is the whole point of it living here.
    */
   refresh(): void;
   dispose(): void;
@@ -133,8 +105,8 @@ export interface McpServiceDeps {
   transport?: McpTransportPort;
   pumpPorts?: McpPumpPorts;
   identitySource?: () => Promise<{ name: string; version: string }>;
-  /** How a client reaches the socket — the deck's own bundled server and the
-   * settings page's connect row both ask it. */
+  /** How a pane's client reaches the socket — the deck's own bundled server
+   * asks it for every pane it is handed to. */
   connection?: KeepdeckServerDeps["connection"];
   /** The pane a caller was admitted for, as the deck holds it now, or null
    * when the deck holds it no more. Injected: which panes exist is the
@@ -164,12 +136,7 @@ export function createMcpService(deps: McpServiceDeps): McpService {
   const transport = deps.transport ?? { enable: mcpEnable, disable: mcpDisable };
   const connection = deps.connection ?? mcpConnectionCommand;
 
-  let current: McpStatus = {
-    socket: null,
-    error: null,
-    connect: null,
-    connectError: null,
-  };
+  let current: McpStatus = { socket: null, error: null };
   const listeners = new Set<() => void>();
   const publish = (next: McpStatus) => {
     current = next;
@@ -203,7 +170,6 @@ export function createMcpService(deps: McpServiceDeps): McpService {
   const contributors: BundledMcpContributor[] = [
     keepdeckServer({
       socket: () => current.socket,
-      connect: () => current.connect,
       connection,
     }),
   ];
@@ -220,30 +186,6 @@ export function createMcpService(deps: McpServiceDeps): McpService {
   let policy: McpServerPolicy | null = null;
   let disposed = false;
 
-  /** Look up the hand-wiring invocation for the socket that is up NOW.
-   *
-   * Anonymous, unlike a pane's: there is no pane behind a client the user
-   * wires by hand. Re-run on every settled transition rather than cached for
-   * the session — the served path is part of the answer. The sequence guard
-   * drops a late reply whose socket has since been replaced or torn down; a
-   * failure is a message, never a missing row, because the server IS serving.
-   */
-  let connectSeq = 0;
-  function refreshConnect(): void {
-    const seq = ++connectSeq;
-    if (current.socket === null) return;
-    const settled = () => !disposed && seq === connectSeq && current.socket !== null;
-    void connection()
-      .then((invocation) => {
-        if (settled()) publish({ ...current, connect: invocation, connectError: null });
-      })
-      .catch((e: unknown) => {
-        if (settled()) {
-          publish({ ...current, connect: null, connectError: errorMessage(e) });
-        }
-      });
-  }
-
   void pump.ready.then((registered) => {
     if (disposed) return;
     if (!registered) {
@@ -254,19 +196,15 @@ export function createMcpService(deps: McpServiceDeps): McpService {
       publish({
         socket: null,
         error: "the deck cannot receive MCP requests — the event channel failed",
-        connect: null,
-        connectError: null,
       });
       return;
     }
     policy = createMcpServerPolicy(transport, (transition) => {
       // An enable already in flight when the page went away still settles,
       // and this callback rides the policy's own chain — so without this it
-      // publishes to listeners a disposed page never dropped and issues a
-      // fresh lookup during teardown.
+      // publishes to listeners a disposed page never dropped.
       if (disposed) return;
       publish(statusAfter(current, transition));
-      refreshConnect();
     });
   });
 
@@ -276,7 +214,7 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     bundled: () =>
       contributors.map((contributor) => ({
         name: contributor.name,
-        body: contributor.describe(),
+        state: contributor.describe(),
       })),
     refresh() {
       if (disposed) return;
@@ -285,12 +223,6 @@ export function createMcpService(deps: McpServiceDeps): McpService {
       // another instance legitimately holds. Someone opening a settings
       // surface bounds it instead.
       policy?.ensure();
-      // Re-asked whenever the transport is up and we still have no line: the
-      // first attempt errored, or never landed at all. A lookup genuinely in
-      // flight is simply superseded — the sequence guard drops its reply — and
-      // this runs on a user opening a settings surface, so it is bounded by
-      // that rather than by a timer.
-      if (current.socket !== null && current.connect === null) refreshConnect();
     },
     subscribe(listener) {
       listeners.add(listener);

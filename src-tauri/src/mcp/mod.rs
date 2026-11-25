@@ -87,8 +87,10 @@ pub fn mcp_connection_command<R: tauri::Runtime>(
     let binary = tauri::process::current_binary(&app.env()).map_err(|e| e.to_string())?;
     let mut args = vec![SHIM_FLAG.to_string(), socket_path()?.display().to_string()];
     // The pane secret rides the invocation, so every shim argument keeps ONE
-    // home: an injected command carries it, the copy-pasteable one the
-    // settings page hands out does not, and neither side spells the flags.
+    // home and the page never spells the flags. It stays optional: a pane in
+    // a directory it shares gets its servers from a file every pane there
+    // reads, which can name no one pane, and its shim names the pane by the
+    // bridge secret it inherited instead.
     if let Some(client) = client {
         args.push(shim::CLIENT_FLAG.to_string());
         args.push(client);

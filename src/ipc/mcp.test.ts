@@ -28,8 +28,8 @@ describe("mcp ipc", () => {
       command: "/bin/keepdeck",
       args: ["--mcp-shim"],
     });
-    // No secret: the copy-pasteable command the settings page shows must
-    // stay anonymous, so a hand-wired server is not attributed to a pane.
+    // No secret: a pane whose servers come from a file its directory shares,
+    // whose shim names the pane by the bridge secret instead.
     expect(invoke).toHaveBeenCalledWith("mcp_connection_command", {
       client: undefined,
     });

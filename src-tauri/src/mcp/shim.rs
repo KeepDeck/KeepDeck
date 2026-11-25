@@ -16,8 +16,8 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
 /// The argv flag that turns the app binary into the shim. One home for the
-/// string: the connect command the settings page hands out is built from
-/// this same constant, so the producer and the parser cannot drift.
+/// string: the connect invocation each pane is handed is built from this
+/// same constant, so the producer and the parser cannot drift.
 pub(crate) const SHIM_FLAG: &str = "--mcp-shim";
 
 /// Names WHICH pane this shim was spawned for. One home for the string: the

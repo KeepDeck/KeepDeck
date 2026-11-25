@@ -20,7 +20,6 @@
  * others.
  */
 import { errorMessage, type McpServerSpec } from "@keepdeck/plugin-api";
-import type { McpServerBody } from "../../domain/mcp";
 import { log } from "../../ipc/log";
 import { mcpConnectionCommand, type McpConnection } from "../../ipc/mcp";
 
@@ -43,19 +42,23 @@ export interface BundledMcpContributor {
   name: string;
   contribute(target: McpContributionTarget): Promise<McpServerSpec | null>;
   /**
-   * How the server reads on a surface right now: the body it would hand a
-   * pane today, or null while it has nothing (its gate is closed). The
-   * SAME fact `contribute` acts on, so a panel and a pane never disagree —
-   * without this, the panel rebuilt the body from the transport's status on
-   * its own and was the second place to know what the deck's server runs.
+   * How the server reads on a surface right now. The SAME fact `contribute`
+   * acts on, so a panel and a pane never disagree — without this, the panel
+   * rebuilt what the server runs from the transport's status on its own.
    */
-  describe(): McpServerBody | null;
+  describe(): BundledMcpState;
 }
+
+/** A shipped server's state on a surface: not up yet (its gate is closed),
+ * or handed to each pane at spawn with a secret of that pane's own. There is
+ * no one command to show then: every pane's names its own pane, and one
+ * that names none is refused. */
+export type BundledMcpState = "pending" | "perPane";
 
 /** One bundled server as a surface lists it. */
 export interface BundledMcpDescription {
   name: string;
-  body: McpServerBody | null;
+  state: BundledMcpState;
 }
 
 /** The name KeepDeck's own server is filed under — and therefore the prefix
@@ -69,10 +72,6 @@ export interface KeepdeckServerDeps {
    * claimed for the page's life, so a plan minted against it never outlives
    * its socket. */
   socket: () => string | null;
-  /** The anonymous invocation the transport looked up for the socket that
-   * is up now, or null until it landed. What `describe` shows: a panel names
-   * no pane, so the anonymous form is the honest one. */
-  connect: () => McpConnection | null;
   connection?: (client?: string) => Promise<McpConnection>;
 }
 
@@ -89,15 +88,11 @@ export interface KeepdeckServerDeps {
  */
 export function keepdeckServer({
   socket,
-  connect,
   connection = mcpConnectionCommand,
 }: KeepdeckServerDeps): BundledMcpContributor {
   return {
     name: KEEPDECK_MCP_SERVER,
-    describe() {
-      const invoked = socket() === null ? null : connect();
-      return invoked && { transport: "stdio", command: invoked.command, args: invoked.args, env: {} };
-    },
+    describe: () => (socket() === null ? "pending" : "perPane"),
     async contribute(target) {
       const path = socket();
       if (path === null) return null;

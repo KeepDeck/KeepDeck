@@ -20,13 +20,26 @@ export const BUNDLED_NOTICE =
 export const BUNDLED_PENDING =
   "The deck's socket is not up yet — the invocation fills in once it is.";
 
-/** The tier as rows: each shipped server with the body it would hand a pane
- * today, or pending while it has none. Always present: the tier ships with
- * the app. */
+/** A bundled server handed to each pane at spawn: there is no one command to
+ * show, and one run by hand would be refused. Said under the row and in its
+ * panel alike. */
+export const BUNDLED_PER_PANE =
+  "Given to each agent pane when it starts, with a secret of its own. Programs outside KeepDeck panes are refused.";
+
+/** The tier as rows: each shipped server in the state it is in today.
+ * Always present: the tier ships with the app. */
 export function bundledMcpRows(tier: readonly BundledMcpDescription[]): McpRow[] {
-  return tier.map(({ name, body }) => ({
+  return tier.map(({ name, state }) => ({
     scope: { kind: "bundled" },
     name,
-    verdict: body ? { kind: "ok", body } : { kind: "pending" },
+    verdict: { kind: state },
   }));
+}
+
+/** The panel's hint for a bundled row: what its state means. None for a
+ * library row, whose panel shows the file itself. */
+export function bundledHint(row: McpRow | null | undefined): string | undefined {
+  if (row?.verdict.kind === "pending") return BUNDLED_PENDING;
+  if (row?.verdict.kind === "perPane") return BUNDLED_PER_PANE;
+  return undefined;
 }

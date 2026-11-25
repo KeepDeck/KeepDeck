@@ -17,7 +17,7 @@ function shipped(name = "keepdeck"): BundledMcpContributor & {
   return {
     name,
     asked,
-    describe: () => null,
+    describe: () => "pending",
     contribute: async (target) => {
       asked.push(target);
       return {
@@ -36,7 +36,7 @@ function shipped(name = "keepdeck"): BundledMcpContributor & {
 /** A shipped server with nothing for anyone today. */
 const silent: BundledMcpContributor = {
   name: "mnemo",
-  describe: () => null,
+  describe: () => "pending",
   contribute: async () => null,
 };
 
@@ -225,7 +225,7 @@ describe("the MCP injection", () => {
   it("a contributor that throws costs the pane that server, not the others", async () => {
     const broken: BundledMcpContributor = {
       name: "broken",
-      describe: () => null,
+      describe: () => "pending",
       contribute: async () => Promise.reject(new Error("boom")),
     };
     const injection = createMcpInjection({

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BundledMcpDescription } from "../../app/mcp";
 import type { McpLibraryRow } from "../../app/mcpLibrary";
-import { BUNDLED_PENDING, bundledMcpRows } from "./bundledTier";
+import { BUNDLED_PENDING, BUNDLED_PER_PANE, bundledHint, bundledMcpRows } from "./bundledTier";
 import {
   MCP_NAV_COPY,
   buildMcpGroups,
@@ -11,12 +11,7 @@ import {
 import { present } from "@keepdeck/plugin-api/testing";
 
 /** The tier as the service describes it: up, or not yet. */
-const tier = (up: boolean): BundledMcpDescription[] => [
-  {
-    name: "keepdeck",
-    body: up ? { transport: "stdio", command: "/bin/keepdeck", args: ["--mcp-shim", "/s"], env: {} } : null,
-  },
-];
+const tier = (up: boolean): BundledMcpDescription[] => [{ name: "keepdeck", state: up ? "perPane" : "pending" }];
 
 const row = (name: string, scope: McpLibraryRow["scope"] = { kind: "global" }): McpLibraryRow => ({
   scope,
@@ -44,14 +39,20 @@ describe("the server nav's groups", () => {
     expect(present(groups[0], "entry groups[0]").items).toEqual([]);
   });
 
-  it("presents the deck's server with the invocation the backend hands out", () => {
+  it("presents the deck's server as handed to each pane, in the words its panel uses", () => {
+    // Every pane's invocation names its own pane, and one run by hand is
+    // refused: there is no one command to show.
     const [keepdeck] = bundledMcpRows(tier(true));
-    expect(describeMcpRow(present(keepdeck, "keepdeck"))).toBe("/bin/keepdeck --mcp-shim /s");
-    // Until the socket is confirmed there is no invocation to show — and the
-    // row says so in the same words the panel does.
+    expect(present(keepdeck, "keepdeck").verdict).toEqual({ kind: "perPane" });
+    expect(describeMcpRow(present(keepdeck, "keepdeck"))).toBe(BUNDLED_PER_PANE);
+    expect(bundledHint(keepdeck)).toBe(BUNDLED_PER_PANE);
+    // Until the socket is confirmed it is not up at all.
     const [pending] = bundledMcpRows(tier(false));
     expect(present(pending, "pending").verdict).toEqual({ kind: "pending" });
     expect(describeMcpRow(present(pending, "pending"))).toBe(BUNDLED_PENDING);
+    expect(bundledHint(pending)).toBe(BUNDLED_PENDING);
+    // A library row's panel shows the file itself.
+    expect(bundledHint(row("github"))).toBeUndefined();
   });
 
   it("describes a row by what it runs or reaches, or why it cannot be read", () => {

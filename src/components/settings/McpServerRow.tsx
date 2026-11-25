@@ -1,89 +1,28 @@
-import { useEffect, useState } from "react";
-import type { McpStatus } from "../../app/mcp";
 import { useMcpStatus } from "../../app/mcp/useMcpStatus";
-import { shellLine } from "../../domain/mcp";
-import { useRuntimePart } from "../../app/runtimeContext";
+import { mcpTransportLine } from "../../presentation/mcpWords";
 
 /**
- * The MCP server's row in General ([F6]): the copy-pasteable connect command,
- * or the reason there is none to show.
+ * The MCP server's row in General ([F6]): what the transport is doing, and
+ * whom it serves.
  *
  * There is no switch. The socket comes up with the page and stays up, so the
- * row states a FACT about the running transport, never a wish: it keys on
- * the CONFIRMED status, and a refused enable (another instance already holds
- * the socket, no home directory) renders its error where the command would
- * be. The command arrives WITH that status — the MCP owner looks it up once
- * per settled enable instead of this row re-fetching on every mount — and
- * rendering it as a shell line is the only part that is this component's.
+ * row states a FACT about the running transport, never a wish: it keys on the
+ * CONFIRMED status, and a refused enable (another instance already holds the
+ * socket, no home directory) is said as such. There is no command to copy:
+ * the server is handed to each agent pane with a secret of its own, and a
+ * program wired up by hand would be refused.
  */
 export function McpServerRow() {
-  const { writeText } = useRuntimePart("clipboard");
   const status = useMcpStatus();
-  // Keyed on the confirmed socket as well as the line: a line can only ever
-  // be minted for a confirmed socket, and the row must not outlive that.
-  const connect =
-    status.socket !== null && status.connect ? shellLine(status.connect) : null;
-  // Reset whenever the command changes, so the confirmation can never stand
-  // over a line the user has not actually copied.
-  const [copied, setCopied] = useState(false);
-  useEffect(() => setCopied(false), [connect]);
-  const line = transportLine(status, connect);
-
   return (
     <>
       <span className="form__label">MCP server</span>
-      {connect !== null && (
-        <>
-          {/* Read-only by nature, so it must not look like a field — and
-              the copy sits in an ordinary control row underneath, where
-              every other button in settings lives. */}
-          <div className="settings__command kd-selectable">{connect}</div>
-          <div className="form__types">
-            <button
-              type="button"
-              className="form__type"
-              onClick={() => {
-                void writeText(connect)
-                  .then(() => setCopied(true))
-                  .catch(() => setCopied(false));
-              }}
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
-        </>
-      )}
-      {line !== null && (
-        <span className="settings__hint kd-selectable">{line}</span>
-      )}
+      <span className="settings__hint kd-selectable">{mcpTransportLine(status.socket, status.error)}</span>
       <span className="settings__hint">
         Exposes the deck’s commands (list workspaces, spawn agents, send
-        text…) to MCP clients over a local socket, so agents can drive
-        KeepDeck. Agent panes started here are given it at spawn; the command
-        is for a client KeepDeck does not start itself — a desktop app, an
-        editor, an agent you run outside the deck.
+        text…) to the agents in KeepDeck panes over a local socket, so they
+        can drive KeepDeck.
       </span>
     </>
   );
-}
-
-/**
- * What to say about the transport beside — or instead of — the command.
- *
- * A problem is said whatever else is on screen: it is the one line that
- * explains why the command is missing, or why the one shown may not work.
- * Without one, the row is never silent while there is no command — the
- * transient states (the enable not yet settled, the lookup still out) each
- * get a sentence, because "no row" would read as "no server".
- */
-function transportLine(status: McpStatus, connect: string | null): string | null {
-  if (status.error !== null) {
-    return `The MCP transport reported a problem: ${status.error}`;
-  }
-  if (connect !== null) return null;
-  if (status.socket === null) return "The server is coming up.";
-  if (status.connectError !== null) {
-    return `The server is up, but the connect command could not be determined: ${status.connectError}`;
-  }
-  return "The server is up — looking up its connect command.";
 }
