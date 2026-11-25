@@ -58,8 +58,9 @@ Shared cores in `packages/plugin-api` so far:
   servers opencode 2.x's `serve` starts are nobody's: on 2.x KeepDeck's
   tools are the plugin's own (`deck-tools.js`), which calls the socket from
   `serve` itself, and opencode is handed no KeepDeck server. A refused
-  sender gets 403 at the bridge, an anonymous connection at the MCP socket;
-  the page checks no secret, and takes a report only while the pane holds
+  sender gets 403 at the bridge, and its call refused at the MCP socket
+  (`CALLER_REFUSED`) before it reaches the page; the page checks no
+  secret, and takes a report only while the pane holds
   a plan that reports. This keeps a daemon an agent started from one pane
   from acting as a pane forever (claude's background workers did, task-422
   and task-424).
