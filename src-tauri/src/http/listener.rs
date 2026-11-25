@@ -201,17 +201,21 @@ where
         let handler = Arc::clone(&handler);
         let spawned = std::thread::Builder::new()
             .name(format!("keepdeck {label} conn"))
-            .spawn(move || {
-                let mut stream = stream;
-                match bound(&stream).and_then(|()| read_request(&mut stream, limits)) {
-                    Ok(request) => handler(stream, request),
-                    Err(status) => {
-                        let _ = respond_empty(&mut stream, status);
-                    }
-                }
-            });
+            .spawn(move || serve_connection(stream, limits, handler.as_ref()));
         if let Err(e) = spawned {
             log::warn!("{label}: dropping connection, no thread: {e}");
+        }
+    }
+}
+
+/// One accepted connection: bounded before a byte of it is read — the parser
+/// reads any stream and can set nothing on one — its head read once, and
+/// handed to `handler`, or answered with the status its head earned.
+fn serve_connection(mut stream: TcpStream, limits: Limits, handler: &dyn Fn(TcpStream, Request)) {
+    match bound(&stream).and_then(|()| read_request(&mut stream, limits)) {
+        Ok(request) => handler(stream, request),
+        Err(status) => {
+            let _ = respond_empty(&mut stream, status);
         }
     }
 }
@@ -242,5 +246,26 @@ mod tests {
         let bounds = heard.recv_timeout(Duration::from_secs(5)).expect("handled");
         assert_eq!(bounds, (Some(HEAD_TIMEOUT), Some(WRITE_TIMEOUT)));
         listener.stop();
+    }
+
+    #[test]
+    fn a_connection_is_bounded_while_its_head_is_still_being_read() {
+        // The bound has to be on the socket BEFORE the read it bounds: set
+        // once the head is parsed, a peer that stalls mid-head holds the
+        // thread for good, and the handler still sees a bounded stream.
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind");
+        let mut peer = TcpStream::connect(listener.local_addr().expect("addr")).expect("connect");
+        let (accepted, _) = listener.accept().expect("accept");
+        let probe = accepted.try_clone().expect("clone");
+        peer.write_all(b"GET / HTTP/1.1\r\n").expect("write");
+        let serving = std::thread::spawn(move || serve_connection(accepted, Limits::NO_BODY, &|_, _| {}));
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while probe.read_timeout().expect("read bound") != Some(HEAD_TIMEOUT) {
+            assert!(std::time::Instant::now() < deadline, "the head is being read with no bound on it");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(probe.write_timeout().expect("write bound"), Some(WRITE_TIMEOUT));
+        peer.write_all(b"Host: x\r\n\r\n").expect("write");
+        serving.join().unwrap();
     }
 }

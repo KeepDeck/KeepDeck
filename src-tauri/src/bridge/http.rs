@@ -146,6 +146,16 @@ fn handle(stream: &mut impl Write, request: Request, waiters: &Waiters, arrived:
                     let _ = respond_empty(stream, Status::NoContent);
                 }
                 Some((pane, correlation)) => {
+                    // An ask whose patience was spent reaching here — read
+                    // slowly, judged after a wait for its terminal — is
+                    // answered as one nobody answered in time, before anyone
+                    // sees it: told to the deck, it could still be handed the
+                    // pane's mail, and its sender has given up on hearing it.
+                    if arrived.elapsed() >= HOOK_WAIT {
+                        log::warn!("bridge: {} arrived too late to be asked", printable(&correlation));
+                        let _ = respond_empty(stream, Status::GatewayTimeout);
+                        return;
+                    }
                     // The slot is taken BEFORE the deck is told, so an ask
                     // reusing a correlation that is still in flight is
                     // refused without the deck ever answering it — its
@@ -283,7 +293,12 @@ mod tests {
             "payload": { "agent": "claude", "reporter": "4021", "reply": "corr-1" }
         })
         .to_string();
-        let outside = |_: &Inbound| Err(Refusal::Caller(CallerRefusal::OutsideTerminal));
+        // Judged before the slot is taken, not taken and handed back: while
+        // held, an answer for the pane could already be on its way to it.
+        let outside = |_: &Inbound| {
+            assert!(waiters.park("pane-5", "corr-1").is_some(), "the ask was parked before it was judged");
+            Err(Refusal::Caller(CallerRefusal::OutsideTerminal))
+        };
         let (status, emitted) = post_judged("POST", ENVELOPE_PATH, body.as_bytes(), &waiters, &outside);
         assert!(status.starts_with("HTTP/1.1 403"), "{status}");
         assert_eq!(emitted, 0);
@@ -524,18 +539,6 @@ mod tests {
     }
 
     #[test]
-    fn a_connection_at_the_door_is_bounded_before_its_head_is_read() {
-        // A unix stream carries no bound of its own and the parser can set
-        // none: the door sets them, or a peer that connects and stalls holds
-        // a thread for good.
-        let (mut client, mut served) = UnixStream::pair().expect("socketpair");
-        client.write_all(b"GET /nope HTTP/1.1\r\nHost: x\r\n\r\n").expect("write");
-        serve_connection(&mut served, &Waiters::default(), &|_| Ok(()), &|_| {});
-        assert_eq!(served.read_timeout().expect("read bound"), Some(HEAD_TIMEOUT));
-        assert_eq!(served.write_timeout().expect("write bound"), Some(WRITE_TIMEOUT));
-    }
-
-    #[test]
     fn an_asks_patience_counts_from_its_arrival() {
         // Judging a sender may wait for a terminal still being registered.
         // That wait is spent from the ask's patience, not added to it, or
@@ -548,10 +551,60 @@ mod tests {
             query: None,
             body: asking_envelope("pane-1", "corr-late").into_bytes(),
         };
+        let waiters = Waiters::default();
+        let emitted = Mutex::new(0usize);
         let mut answer = Vec::new();
         let started = Instant::now();
-        handle(&mut answer, request, &Waiters::default(), arrived, &|_| Ok(()), &|_| {});
+        handle(&mut answer, request, &waiters, arrived, &|_| Ok(()), &|_| *emitted.lock().unwrap() += 1);
         assert!(String::from_utf8_lossy(&answer).starts_with("HTTP/1.1 504"));
         assert!(started.elapsed() < Duration::from_millis(500), "waited {:?} past a spent patience", started.elapsed());
+        // Its sender has given up: the deck is never told, so nothing of the
+        // pane's mail can be handed to an ask nobody will read.
+        assert_eq!(*emitted.lock().unwrap(), 0, "a spent ask reached the deck");
+        assert!(waiters.park("pane-1", "corr-late").is_some(), "a spent ask held its slot");
+    }
+
+    #[test]
+    fn an_ask_read_too_slowly_to_be_answered_is_never_told_to_the_deck() {
+        // Its patience counts from the connection, not from a parsed request:
+        // a body that takes the whole of it to arrive leaves nothing to wait
+        // with, and the deck is never asked.
+        let (mut client, mut served) = UnixStream::pair().expect("socketpair");
+        let envelope = asking_envelope("pane-1", "corr-slow");
+        write!(client, "POST {ENVELOPE_PATH} HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n", envelope.len()).unwrap();
+        let mut late = client.try_clone().expect("clone");
+        let sender = std::thread::spawn(move || {
+            std::thread::sleep(HOOK_WAIT);
+            late.write_all(envelope.as_bytes()).unwrap();
+        });
+        let waiters = Waiters::default();
+        let emitted = Mutex::new(0usize);
+        serve_connection(&mut served, &waiters, &|_| Ok(()), &|_| *emitted.lock().unwrap() += 1);
+        sender.join().unwrap();
+        drop(served);
+        let mut answer = String::new();
+        let _ = client.read_to_string(&mut answer);
+        assert!(answer.starts_with("HTTP/1.1 504"), "{answer}");
+        assert_eq!(*emitted.lock().unwrap(), 0, "the deck was told of an ask past its patience");
+        assert!(waiters.park("pane-1", "corr-slow").is_some(), "a spent ask held its slot");
+    }
+
+    #[test]
+    fn a_connection_at_the_door_is_bounded_while_its_head_is_still_being_read() {
+        // The bound has to be on the socket BEFORE the read it bounds: set
+        // after the head is parsed, a peer that stalls mid-head holds the
+        // thread for good, and the bound reads correctly afterwards anyway.
+        let (mut client, mut served) = UnixStream::pair().expect("socketpair");
+        let probe = served.try_clone().expect("clone");
+        client.write_all(b"GET /nope HTTP/1.1\r\n").expect("write");
+        let serving = std::thread::spawn(move || serve_connection(&mut served, &Waiters::default(), &|_| Ok(()), &|_| {}));
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while probe.read_timeout().expect("read bound") != Some(HEAD_TIMEOUT) {
+            assert!(Instant::now() < deadline, "the head is being read with no bound on it");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(probe.write_timeout().expect("write bound"), Some(WRITE_TIMEOUT));
+        client.write_all(b"Host: x\r\n\r\n").expect("write");
+        serving.join().unwrap();
     }
 }
