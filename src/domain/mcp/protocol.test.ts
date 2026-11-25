@@ -6,6 +6,7 @@ import {
   MCP_PROTOCOL_VERSION,
   handleMcpLine,
   toolNameOf,
+  type McpBound,
   type McpCommandPort,
 } from "./protocol";
 
@@ -30,17 +31,17 @@ const CLOSE: CommandInfo = {
   args: [],
 };
 
-function port(
-  overrides: Partial<Omit<McpCommandPort, "execute">> = {},
-): McpCommandPort & { execute: ReturnType<typeof vi.fn<McpCommandPort["execute"]>> } {
-  const execute = vi.fn<McpCommandPort["execute"]>(
+/** A port over SPAWN and CLOSE whose every caller is bound, its commands
+ * answering with a pane id — the two spies say what was asked of it. */
+function port(): McpCommandPort & {
+  bind: ReturnType<typeof vi.fn<McpCommandPort["bind"]>>;
+  execute: ReturnType<typeof vi.fn<McpBound["execute"]>>;
+} {
+  const execute = vi.fn<McpBound["execute"]>(
     () => Promise.resolve({ ok: true, value: { paneId: "p1" } }),
   );
-  return {
-    list: () => [SPAWN, CLOSE],
-    execute,
-    ...overrides,
-  } satisfies McpCommandPort & { execute: ReturnType<typeof vi.fn> };
+  const bind = vi.fn<McpCommandPort["bind"]>(() => ({ execute }));
+  return { list: () => [SPAWN, CLOSE], bind, execute };
 }
 
 const request = (id: number, method: string, params?: unknown) =>
@@ -126,7 +127,8 @@ describe("handleMcpLine — tools", () => {
         arguments: { workspace: "api" },
       })),
     );
-    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" }, CALLER);
+    expect(p.bind).toHaveBeenCalledWith(CALLER);
+    expect(p.execute).toHaveBeenCalledWith("agent.spawn", { workspace: "api" });
     expect(reply.result.isError).toBe(false);
     expect(JSON.parse(reply.result.content[0].text)).toEqual({ paneId: "p1" });
   });
@@ -188,13 +190,26 @@ describe("handleMcpLine — tools", () => {
     expect(raw).not.toContain("\n");
   });
 
-  it("a call the port refused answers as the socket door refuses, with its own reason", async () => {
+  it("a caller the port refuses is refused every request, as the socket door refuses, with its own reason", async () => {
+    // Not tool calls alone: a pane that left the deck has no session to
+    // initialize, ping or list tools for either.
     const p = port();
-    p.execute.mockResolvedValueOnce({ refused: "pane-gone", message: "the pane has closed" });
-    const reply = await parse(answer(p, request(12, "tools/call", { name: "agent_spawn" })));
-    expect(reply.id).toBe(12);
-    expect(reply.error).toEqual({ code: CALLER_REFUSED, message: "the pane has closed", data: { reason: "pane-gone" } });
-    expect(reply.result).toBeUndefined();
+    p.bind.mockReturnValue({ refused: "pane-gone", message: "the pane has closed" });
+    const asks = [
+      request(12, "initialize", {}),
+      request(13, "ping"),
+      request(14, "tools/list"),
+      request(15, "tools/call", { name: "agent_spawn" }),
+    ];
+    for (const [at, ask] of asks.entries()) {
+      const reply = await parse(answer(p, ask));
+      expect(reply.id).toBe(12 + at);
+      expect(reply.error).toEqual({ code: CALLER_REFUSED, message: "the pane has closed", data: { reason: "pane-gone" } });
+      expect(reply.result).toBeUndefined();
+    }
+    expect(p.execute).not.toHaveBeenCalled();
+    // A notification is still answered by nothing at all.
+    expect(await answer(p, JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }))).toBeNull();
   });
 
   it("refuses with the code the socket door uses — the file Rust mirrors against too", () => {

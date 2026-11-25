@@ -43,7 +43,7 @@ async function projectMcpTools(registry: CommandRegistry): Promise<Map<string, u
   const reply = await handleMcpLine(
     {
       list: () => registry.list(),
-      execute: (id, args) => registry.execute(id, args, HOST),
+      bind: () => ({ execute: (id, args) => registry.execute(id, args, HOST) }),
     },
     () => ({ name: "KeepDeck", version: "test" }),
     JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),

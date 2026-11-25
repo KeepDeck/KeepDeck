@@ -121,6 +121,14 @@ describe("mcp webview chain", () => {
     expect(reply.error.message).toBe(mcpRefusalText("pane-gone"));
     expect(c.run).not.toHaveBeenCalled();
     expect(c.registry.journal()).toEqual([]);
+
+    // Its session is gone with it: an initialize is refused the same way.
+    c.request(6, '{"jsonrpc":"2.0","id":10,"method":"initialize","params":{}}', "pane-gone-meanwhile");
+    await flush();
+    const opened = JSON.parse(c.respond.mock.calls[1]?.[1] ?? "{}");
+    expect(opened.id).toBe(10);
+    expect(opened.error.data).toEqual({ reason: "pane-gone" });
+    expect(opened.result).toBeUndefined();
   });
 
   it("a validation failure crosses as invalid-params with the right ids", async () => {

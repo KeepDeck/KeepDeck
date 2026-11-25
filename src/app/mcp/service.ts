@@ -153,15 +153,15 @@ export function createMcpService(deps: McpServiceDeps): McpService {
     })
     .catch(() => {});
 
-  /** A call runs as the pane it was admitted for, journaled under it. The
-   * socket door judged who the caller is; a pane that left the deck while the
-   * request crossed is refused here, and nothing runs. */
+  /** A request runs as the pane it was admitted for, journaled under it.
+   * The socket door judged who the caller is; a pane that left the deck while
+   * the request crossed is refused here, and nothing is answered. */
   const port: McpCommandPort = {
     list: () => registry.list(),
-    execute: async (id, args, caller) => {
+    bind: (caller) => {
       const pane = deps.identify(caller);
       if (!pane) return { refused: "pane-gone", message: mcpRefusalText("pane-gone") };
-      return registry.execute(id, args, { kind: "external", client: MCP_TRANSPORT, pane });
+      return { execute: (id, args) => registry.execute(id, args, { kind: "external", client: MCP_TRANSPORT, pane }) };
     },
   };
   // The bundled tier: the deck's own server, reading the CONFIRMED status

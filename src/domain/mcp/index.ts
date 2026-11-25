@@ -14,6 +14,7 @@ export {
   MCP_PROTOCOL_VERSION,
   handleMcpLine,
   toolNameOf,
+  type McpBound,
   type McpCaller,
   type McpCommandPort,
   type McpPageRefusal,

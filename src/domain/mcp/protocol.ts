@@ -42,24 +42,25 @@ export interface McpCaller {
  * its pane left the deck while the request crossed. */
 export type McpPageRefusal = "pane-gone";
 
-/** A call the port refused before running anything, with its words. */
+/** A caller the port refused before anything was answered, with its words. */
 export interface McpRefused {
   refused: McpPageRefusal;
   message: string;
 }
 
-/** What the projection needs from the registry — list and execute; the
- * caller binds the external source identity. */
+/** The registry's commands, run as one caller's pane. */
+export interface McpBound {
+  execute(id: string, args: RawArgs): Promise<CommandResult>;
+}
+
+/** What the projection needs from the registry: the list, and the commands
+ * as one caller runs them. */
 export interface McpCommandPort {
   list(): CommandInfo[];
-  /** `caller` is the pane THIS line was admitted for — the port binds it to
-   * the pane as the deck holds it, or refuses when the deck holds it no
-   * more. */
-  execute(
-    id: string,
-    args: RawArgs,
-    caller: McpCaller,
-  ): Promise<CommandResult | McpRefused>;
+  /** The pane THIS line was admitted for, as the deck holds it now — or why
+   * the deck holds it no more. Asked once per request, before anything is
+   * answered. */
+  bind(caller: McpCaller): McpBound | McpRefused;
 }
 
 /** A registry id as an MCP tool name: external tool-name grammars are
@@ -119,8 +120,8 @@ export async function handleMcpLine(
   port: McpCommandPort,
   identity: () => McpServerIdentity,
   line: string,
-  /** The pane this line was admitted for — passed through to `execute`
-   * verbatim, because resolving a pane is not this projection's business. */
+  /** The pane this line was admitted for — handed to the port's `bind`,
+   * because resolving a pane is not this projection's business. */
   caller: McpCaller,
 ): Promise<string | null> {
   let message: unknown;
@@ -144,6 +145,14 @@ export async function handleMcpLine(
   // Notifications (no id) are consumed, never answered — replying would
   // violate JSON-RPC and confuse the client's framing.
   if (!hasId) return null;
+
+  // Who asks is settled before anything is answered: a pane that left the
+  // deck while the request crossed is refused as the socket door refuses,
+  // with the same code and its own reason.
+  const bound = port.bind(caller);
+  if ("refused" in bound) {
+    return errorReply(line, CALLER_REFUSED, bound.message, { reason: bound.refused });
+  }
 
   switch (method) {
     case "initialize": {
@@ -182,9 +191,9 @@ export async function handleMcpLine(
       // Value types are the registry's own validation — it answers with the
       // exact problem list, which maps below.
       const args: RawArgs = rawArgs ?? {};
-      let outcome: CommandResult | McpRefused;
+      let outcome: CommandResult;
       try {
-        outcome = await port.execute(command.id, args, caller);
+        outcome = await bound.execute(command.id, args);
       } catch (e) {
         // The registry contract never throws; a port that does anyway is an
         // internal fault, not a tool failure.
@@ -193,10 +202,6 @@ export async function handleMcpLine(
           INTERNAL_ERROR,
           errorMessage(e),
         );
-      }
-      // Refused as the socket door refuses: the same code, its own reason.
-      if ("refused" in outcome) {
-        return errorReply(line, CALLER_REFUSED, outcome.message, { reason: outcome.refused });
       }
       if (outcome.ok) {
         return resultReply(line, {
