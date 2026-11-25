@@ -282,7 +282,7 @@ impl SessionMachine {
                 return Err(OpenError::NotStarted(NotStarted::Failed("the spawn did not finish".into())));
             }
         };
-        self.machine.send(Event::Registered { id: id.0, tag: Tag { owner, dir, attempt } });
+        self.machine.send(Event::Registered { id: id.0, tag: Tag { owner, dir, attempt }, secrets: Vec::new() });
         let this = self.clone();
         std::thread::spawn(move || {
             let name = format!("session {}", id.0);
