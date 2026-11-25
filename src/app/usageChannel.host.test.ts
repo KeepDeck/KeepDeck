@@ -95,8 +95,6 @@ describe("the usage channel, on the host", () => {
       // No secret: the tail is the deck's own reader of the file, and what it
       // reads crosses no door.
       expect(tailsOf(paneId)).toContainEqual({
-        // The arming's own name, which its let-go names it by.
-        arm: expect.any(String),
         path: join(d.stub.storeDir, `${session}.jsonl`),
         agent: "stub",
         session,
@@ -147,21 +145,19 @@ describe("the usage channel, on the host", () => {
       await until("its file is let go", () => unwatches(paneId, mark) > 0);
     });
 
-    it("lets go of a file whose follow lands after its pane left, by the name it went out under", async () => {
+    it("lets go of a file whose follow lands after its pane left — once the follow was answered", async () => {
       const d = await open();
       const landing = host().hold({ reply: "usage_watch_session_file" });
       const { paneId } = await d.agentUp();
       await landing.caught;
-      const followedAs = field(tailsOf(paneId)[0], "arm");
       const mark = host().tape.length;
       await d.closeAgent(paneId);
+      // Its let-go waits its turn behind the follow, so the core never hears
+      // the two the wrong way round.
+      await aWhile();
+      expect(unwatches(paneId, mark)).toBe(0);
       landing.release();
       await until("the follow is let go of", () => unwatches(paneId, mark) > 0);
-      // Once, and by name: in whichever order the two reach the core, a tail
-      // that is there goes, and one still on its way is refused as it lands.
-      await aWhile();
-      const letGo = callsOf(host(), "usage_unwatch_session_file", mark).filter((args) => field(args, "paneId") === paneId);
-      expect(letGo.map((args) => field(args, "arm"))).toEqual([followedAs]);
     });
   });
 

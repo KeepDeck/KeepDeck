@@ -24,10 +24,6 @@ export function onUsageReport(
 /** Everything the core is told about one tail as it arms it — every field
  * an answer only this side has. */
 export interface TailArming {
-  /** This arming's own name, which its let-go names it by: the two can reach
-   * the core out of the order they were sent in, and a let-go must take only
-   * its own arm, or refuse it if it has not arrived yet. No secret. */
-  arm: string;
   /** The session's store. */
   path: string;
   /** The agent whose pane this is. Reports ride under it, and it is passed
@@ -55,7 +51,8 @@ export interface TailArming {
 }
 
 /** Follow a pane's session file; its records arrive as reports for the
- * pane. Idempotent per pane — a rebind replaces the old tail. */
+ * pane. Idempotent per pane — a rebind replaces the old tail. Answers once
+ * the tail is the pane's; its catch-up reads on after. */
 export function watchSessionFile(paneId: string, tail: TailArming): Promise<void> {
   return invoke("usage_watch_session_file", { paneId, tail });
 }
@@ -78,11 +75,10 @@ export function retargetSessionFile(
   return invoke<boolean>("usage_retarget_session_file", { paneId, watches });
 }
 
-/** Stop following a pane's session file under the arm `arm` — at once, or
- * as its arming arrives if it is still on its way. Another arm's tail is left
- * alone. */
-export function unwatchSessionFile(paneId: string, arm: string): Promise<void> {
-  return invoke("usage_unwatch_session_file", { paneId, arm });
+/** Stop following a pane's session file (pane closed / workspace gone): once
+ * this answers, nothing more of it reaches the page. */
+export function unwatchSessionFile(paneId: string): Promise<void> {
+  return invoke("usage_unwatch_session_file", { paneId });
 }
 
 // Resolving a codex session's rollout used to live here, as a host command

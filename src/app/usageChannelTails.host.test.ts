@@ -119,10 +119,9 @@ describe("following a pane's file, on the host", () => {
   });
 
   describe("letting an arming go", () => {
-    it("sends no watch for an arming let go of while the ledger answered, and lets each go by its name", async () => {
+    it("sends no watch for an arming let go of while the ledger answered, and lets it go after it in its turn", async () => {
       const d = await open();
       const { paneId } = await followedUp(d);
-      const first = field(tailsOf(host(), paneId)[0], "arm");
       const asking = host().hold({ reply: "usage_since" });
       const moved = mark();
       // The person cleared the conversation: its file is armed afresh, and
@@ -130,17 +129,13 @@ describe("following a pane's file, on the host", () => {
       const file = storeFile(d, "s-next.jsonl", { type: "usage" });
       expect(await d.report(paneId, { type: "session.bound", payload: { sessionId: "s-next", source: "clear", transcriptPath: file } })).toBe(204);
       await asking.caught;
-      // The pane goes before the ledger answers.
+      // The pane goes before the ledger answers. The first arming was let go
+      // of as the second armed; the second's let-go waits behind it.
       await d.closeAgent(paneId);
-      asking.release();
       await aWhile();
-      const letGo = callsOf(host(), "usage_unwatch_session_file", moved)
-        .filter((args) => field(args, "paneId") === paneId)
-        .map((args) => field(args, "arm"));
-      // The first as the second armed, then the second as the pane went —
-      // named, so a let-go that overtakes its arming refuses it in the core.
-      expect(letGo).toEqual([first, expect.any(String)]);
-      expect(letGo[1]).not.toBe(first);
+      expect(unwatches(host(), paneId, moved)).toBe(1);
+      asking.release();
+      await until("the second is let go of", () => unwatches(host(), paneId, moved) === 2);
       expect(tailsOf(host(), paneId, moved)).toEqual([]);
     });
   });
