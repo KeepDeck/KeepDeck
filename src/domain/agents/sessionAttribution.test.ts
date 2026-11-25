@@ -8,8 +8,7 @@ import {
 /** The pane's own claude reporting its own boot — the shape every case below
  * varies one field of. */
 const own: BindingClaim = {
-  paneSecret: "tok",
-  reportedSecret: "tok",
+  paneReports: true,
   paneAgent: "claude",
   reportedAgent: "claude",
   origin: "startup",
@@ -129,20 +128,15 @@ describe("bindingVerdict", () => {
     });
   });
 
-  it("refuses a secret that is not this pane's", () => {
-    expect(
-      bindingVerdict({ ...own, reportedSecret: "someone-elses" }),
-    ).toEqual({ accepted: false, refusal: "wrong-token" });
-  });
-
-  it("accepts nothing for a pane that armed no reporter", () => {
-    // No secret means no way to tell a report of ours from a file someone
-    // dropped in the inbox, so an empty pane secret must never match.
-    expect(
-      bindingVerdict({ ...own, paneSecret: undefined }),
-    ).toEqual({ accepted: false, refusal: "wrong-token" });
-    expect(
-      bindingVerdict({ ...own, paneSecret: "", reportedSecret: "" }),
-    ).toEqual({ accepted: false, refusal: "wrong-token" });
+  it("accepts nothing for a pane that holds no plan that reports", () => {
+    // It armed none, or a teardown retired the plan before stopping the
+    // process: the door still takes what that process says, and a binding
+    // taken here would pin a retired generation to it. Before every other
+    // rule — even the pane's own agent, fresh, from its own process.
+    expect(bindingVerdict({ ...own, paneReports: false })).toEqual({ accepted: false, refusal: "no-plan" });
+    expect(bindingVerdict({ ...bound, paneReports: false, origin: "swap" })).toEqual({
+      accepted: false,
+      refusal: "no-plan",
+    });
   });
 });

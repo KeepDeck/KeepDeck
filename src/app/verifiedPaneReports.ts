@@ -45,19 +45,20 @@ const isUp = (kind: PaneSessionState["kind"]) => kind === "live" || kind === "st
 
 /**
  * The one home of "who may report for a pane" — the session-binding rule
- * applied to a report lane: the envelope must echo the pane's bridge secret
- * AND come from the agent the pane runs (a pane the deck no longer holds
+ * applied to a report lane: the pane must hold a plan that reports AND the
+ * report come from the agent the pane runs (a pane the deck no longer holds
  * runs none), and (per lane) the process must be alive. Every bridge lane
  * verifies HERE; a guard growing a condition in one lane but not another is
  * exactly how a retired generation would keep reporting through the weaker
  * one.
  *
- * The agent half matters as much as the secret: the secret is inherited by
- * every descendant of the pane's process, so a nested CLI's statusline
- * reports with a valid one — and, dispatched by the agent it names, would
- * rewrite the pane's usage and activity with a foreign session's numbers.
- * That is a second, independent route to the wrong reading the binding rule
- * exists to prevent, and it needs no rebinding at all.
+ * Where a report comes from the bridge's door has already judged — the
+ * pane's terminal and its bridge secret. The agent half is left to here: a
+ * nested CLI's statusline runs in that same terminal — and, dispatched by
+ * the agent it names, would rewrite the pane's usage and activity with a
+ * foreign session's numbers. That is a second, independent route to the
+ * wrong reading the binding rule exists to prevent, and it needs no
+ * rebinding at all.
  */
 export function createVerifiedPaneReports(
   attribution: PaneAttribution,
@@ -67,7 +68,7 @@ export function createVerifiedPaneReports(
   let disposed = false;
   let unlisten: (() => void) | null = null;
   void options
-    .subscribe(({ paneId, token, reporter, payload }) => {
+    .subscribe(({ paneId, reporter, payload }) => {
       if (disposed) return;
       // `agent` is part of the opaque envelope's correlation contract — the
       // bridge refuses a report without one — so reading it here is not this
@@ -76,10 +77,10 @@ export function createVerifiedPaneReports(
         isJsonRecord(payload) && typeof payload.agent === "string"
           ? payload.agent
           : undefined;
-      // The process comes as the bridge read it for its own origin check: a
-      // reporter that named none is unnamed here too, and the pane's pin
-      // then decides nothing rather than refusing everything.
-      if (!attribution.admitsReport(paneId, token, reportedAgent, reporter)) {
+      // The process comes as the bridge's door checked it: a reporter that
+      // named none is unnamed here too, and the pane's pin then decides
+      // nothing rather than refusing everything.
+      if (!attribution.admitsReport(paneId, reportedAgent, reporter)) {
         log.warn(
           "web:bridge",
           `${label} for ${paneId} from ${reportedAgent ?? "an unnamed agent"} — ignored`,

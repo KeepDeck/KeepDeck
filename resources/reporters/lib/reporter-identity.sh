@@ -1,9 +1,11 @@
 # shellcheck shell=sh
 # WHICH process is reporting — the process GROUP of the hook's parent.
 #
-# The bridge secret proves only "something under this pane", so the deck needs
-# a value a nested CLI cannot forge by inheriting the environment. This is it,
-# and it is measured rather than assumed: across one agent process every hook
+# The bridge secret proves only "something under this pane", and the deck's
+# door checks that the process named here belongs to the pane's terminal —
+# within it, this is the sender's word, which tells the agent from a nested
+# CLI that inherited the environment and names its own group. It is measured
+# rather than assumed: across one agent process every hook
 # invocation reports the same group (the agent leads it), while a CLI started
 # from a tool call lands in the group that call created and reports another.
 # The hook's OWN group is useless here — agents spawn hooks detached, so it is

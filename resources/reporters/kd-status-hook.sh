@@ -6,7 +6,7 @@
 # $1 because the payload does not name its CLI and the webview dispatches
 # normalizers by agent.
 #
-# Speaks bridge protocol v2: the whole hook payload (JSON on stdin) rides
+# The whole hook payload (JSON on stdin) rides
 # VERBATIM under payload.event — no field extraction, so this script never
 # chases a CLI's schema. Posted to the deck, which answers on the same
 # connection when this hook asked a question.
@@ -67,9 +67,9 @@ reduced=""
 # lost one.
 
 # @include lib/reporter-bridge.sh
-# `url` rather than `dir`: this reporter has not written a file since the
-# cutoff, and a pane whose deck published no address has nowhere to report.
-[ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
+# `socket` rather than `dir`: this reporter has not written a file since the
+# cutoff, and a pane whose deck published no door has nowhere to report.
+[ -n "$socket" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
 # @include lib/reporter-identity.sh
 
@@ -153,7 +153,7 @@ extra=""
 [ -n "$reduced" ] && extra="$extra\"reduced\":true,"
 [ -n "$reporter" ] && extra="$extra\"reporter\":\"$reporter\","
 [ -n "$correlation" ] && extra="$extra\"reply\":\"$correlation\","
-envelope=$(printf '{"v":2,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s",%s"event":%s}}' \
+envelope=$(printf '{"v":3,"type":"agent.status","paneId":"%s","token":"%s","payload":{"agent":"%s",%s"event":%s}}' \
   "$pane" "$token" "$agent" "$extra" "$payload")
 
 # Sent, and ANSWERED on the same connection when an answer was asked for:

@@ -64,7 +64,7 @@ beforeEach(async () => {
 afterEach(() => deck.close());
 
 /** The bridge env a KeepDeck-spawned pane carries, pointed at this deck. */
-const armed = () => ({ v: 2, dir: tmp(), pane: "p", token: "t", url: deck.url });
+const armed = () => ({ v: 3, dir: tmp(), pane: "p", token: "t", socket: deck.socket });
 
 /** Write a `.claude/settings.json` under `root` — the layout claude reads
  * both a user home and a project root as. */
@@ -122,8 +122,10 @@ describe("kd-usage-statusline.sh", () => {
     });
 
     expect(deck.envelopes).toHaveLength(1);
+    // Over the deck's socket, to the bridge's one route.
+    expect(deck.paths).toEqual(["/envelope"]);
     const envelope = posted();
-    expect(envelope.v).toBe(2);
+    expect(envelope.v).toBe(3);
     expect(envelope.type).toBe("usage.report");
     expect(envelope.paneId).toBe("pane-7");
     expect(envelope.token).toBe("tok-1");

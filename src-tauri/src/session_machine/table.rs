@@ -5,13 +5,13 @@
 //! there or not. Every process the spawn door starts has an owner until it
 //! exits.
 //!
-//! It also answers whose a process is. Whoever speaks for a pane — a reporter
-//! over the bridge, an MCP client over the socket — is checked against the
-//! terminal that is that pane's now ([`Table::pane_of`]); a terminal that is
-//! no pane's speaks for nobody.
+//! It also answers where a process stands. Whoever speaks for a pane — a
+//! reporter over the bridge, an MCP client over the socket — is placed by
+//! the terminal that is that pane's now ([`Table::locate`]); a terminal that
+//! is no pane's places nobody.
 
 use keepdeck_lifecycle::domain::ids::{PaneId, SessionId};
-use keepdeck_pty::sessions::CallerPlace;
+use keepdeck_pty::sessions::{CallerPlace, Standing};
 use keepdeck_pty::PtySession;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -95,20 +95,12 @@ impl Table {
         inner.panes.retain(|_, session| *session != id);
     }
 
-    /// The pane whose terminal process `pid` belongs to
-    /// ([`PtySession::hosts`]), or None when it belongs to none — a process
-    /// of no pane, a daemon some pane's agent started and left behind, or one
-    /// asking after its pane's terminal is gone. At most one can answer: a
-    /// process sits in one session, and so does the parent of one that
-    /// detached.
-    pub fn pane_of(&self, pid: u32) -> Option<PaneId> {
-        self.terminal_of(pid).map(|(pane, _)| pane)
-    }
-
     /// Where process `pid` runs, as a caller is judged by it: in the terminal
-    /// of a pane, with the session that is that terminal; in none; or in none
-    /// while a spawn is under way, whose process can run before its terminal
-    /// is held here.
+    /// of a pane, with the session that is that terminal and how it stands
+    /// there; in none — a process of no pane, a daemon's worker some pane's
+    /// agent left behind, one asking after its pane's terminal is gone; or
+    /// in none while a spawn is under way, whose process can run before its
+    /// terminal is held here.
     ///
     /// The spawns are read before the terminals. A spawn hands its handle over
     /// before it is over, so one read as over has its terminal found here,
@@ -117,15 +109,17 @@ impl Table {
     pub fn locate(&self, pid: u32) -> CallerPlace<PaneId> {
         let spawning = *self.opening.borrow() > 0;
         match self.terminal_of(pid) {
-            Some((pane, session)) => CallerPlace::Terminal { id: session.0, pane },
+            Some((pane, session, standing)) => CallerPlace::Terminal { id: session.0, pane, standing },
             None if spawning => CallerPlace::OutsideWhileSpawning,
             None => CallerPlace::Outside,
         }
     }
 
-    /// The pane whose terminal process `pid` belongs to, and the session
-    /// that is that terminal. None as for [`Table::pane_of`].
-    fn terminal_of(&self, pid: u32) -> Option<(PaneId, SessionId)> {
+    /// The pane whose terminal process `pid` stands to, the session that is
+    /// that terminal, and how it stands ([`PtySession::standing`]). At most
+    /// one terminal can answer: a process sits in one session, its parent in
+    /// one, and so does its session's leader.
+    fn terminal_of(&self, pid: u32) -> Option<(PaneId, SessionId, Standing)> {
         let panes: Vec<(PaneId, SessionId, Arc<PtySession>)> = {
             let inner = self.inner.lock().expect("session table");
             inner
@@ -136,7 +130,7 @@ impl Table {
         };
         // Outside the lock: the kernel is asked per terminal, and the table's
         // lock is never held across a syscall.
-        panes.into_iter().find_map(|(pane, id, session)| session.hosts(pid).then_some((pane, id)))
+        panes.into_iter().find_map(|(pane, id, session)| Some((pane, id, session.standing(pid)?)))
     }
 
     /// The app is going: stop everyone — one TERM each, one shared wait, a
@@ -254,9 +248,10 @@ mod tests {
         assert_eq!(table.locate(pid), CallerPlace::OutsideWhileSpawning);
         // Once handed over it is found, the spawn not over yet or over.
         let id = table.insert(terminal, Some(PaneId(1))).ok().unwrap();
-        assert_eq!(table.locate(pid), CallerPlace::Terminal { id: id.0, pane: PaneId(1) });
+        let held = CallerPlace::Terminal { id: id.0, pane: PaneId(1), standing: Standing::InTerminal };
+        assert_eq!(table.locate(pid), held);
         drop(opening);
-        assert_eq!(table.locate(pid), CallerPlace::Terminal { id: id.0, pane: PaneId(1) });
+        assert_eq!(table.locate(pid), held);
         assert_eq!(table.locate(std::process::id()), CallerPlace::Outside, "this test runs in no pane");
         table.shutdown(Duration::from_millis(200));
     }
@@ -267,25 +262,24 @@ mod tests {
         let pane = PaneId(1);
         let (old, old_events) = sleeper("echo PID=$$; sleep 30");
         let old_pid = first_pid(&old_events);
+        let in_terminal = |id: SessionId| CallerPlace::Terminal { id: id.0, pane, standing: Standing::InTerminal };
         let old_id = table.insert(old, Some(pane)).ok().unwrap();
-        assert_eq!(table.pane_of(old_pid), Some(pane));
-        // This test process runs in no pane's terminal.
-        assert_eq!(table.pane_of(std::process::id()), None);
+        assert_eq!(table.locate(old_pid), in_terminal(old_id));
 
         // A restart re-points the pane before the old terminal is reaped; the
         // old one's late removal must not take the new one's entry with it.
         let (new, new_events) = sleeper("echo PID=$$; sleep 30");
         let new_pid = first_pid(&new_events);
-        table.insert(new, Some(pane)).ok().unwrap();
+        let new_id = table.insert(new, Some(pane)).ok().unwrap();
         table.remove(old_id);
-        assert_eq!(table.pane_of(new_pid), Some(pane));
-        assert_eq!(table.pane_of(old_pid), None, "the retired terminal is no pane's");
+        assert_eq!(table.locate(new_pid), in_terminal(new_id));
+        assert_eq!(table.locate(old_pid), CallerPlace::Outside, "the retired terminal is no pane's");
 
         // A terminal that is no pane's makes its processes nobody's.
         let (plain, plain_events) = sleeper("echo PID=$$; sleep 30");
         let plain_pid = first_pid(&plain_events);
         table.insert(plain, None).ok().unwrap();
-        assert_eq!(table.pane_of(plain_pid), None);
+        assert_eq!(table.locate(plain_pid), CallerPlace::Outside);
         table.shutdown(Duration::from_millis(200));
     }
 
@@ -294,7 +288,8 @@ mod tests {
         // opencode 2.x: the agent (`serve`) leaves the terminal's session, its
         // parent still in it, and it starts its MCP servers as its own
         // children. The agent is the pane's from its first word, so its plugin
-        // calls the deck itself; a server it starts is nobody's.
+        // calls the deck itself; a server it starts stands one session out —
+        // where a hook stands, and no named process may.
         let table = Table::default();
         let pane = PaneId(1);
         let (terminal, events) = sleeper(
@@ -304,10 +299,10 @@ mod tests {
         let mut seen = String::new();
         let agent = named_pid(&events, &mut seen, "AGENT");
         let server = named_pid(&events, &mut seen, "PID");
-        table.insert(terminal, Some(pane)).ok().unwrap();
+        let id = table.insert(terminal, Some(pane)).ok().unwrap();
 
-        assert_eq!(table.pane_of(agent), Some(pane));
-        assert_eq!(table.pane_of(server), None);
+        assert_eq!(table.locate(agent), CallerPlace::Terminal { id: id.0, pane, standing: Standing::ChildOfTerminal });
+        assert_eq!(table.locate(server), CallerPlace::Terminal { id: id.0, pane, standing: Standing::SessionFromTerminal });
 
         for pid in [server, agent] {
             // SAFETY: processes this test started; they left the terminal's

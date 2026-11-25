@@ -6,7 +6,7 @@ import { createVerifiedPaneReports } from "./verifiedPaneReports";
 /** Where a verified report's calls and named stores go. */
 export interface UsageReportRoutes {
   book(paneId: string, calls: readonly UsageCall[], sessionId?: string): void;
-  link(paneId: string, ids: readonly string[]): void;
+  link(paneId: string, ids: readonly string[], sessionId?: string): void;
 }
 
 /** Bridge and tail reports into the usage store through the shared
@@ -24,7 +24,7 @@ export function createUsageReportsLane(
     apply: (paneId, payload) => {
       const carried = usage.report(paneId, payload);
       if (carried?.calls?.length) routes.book(paneId, carried.calls, carried.sessionId);
-      if (carried?.links?.length) routes.link(paneId, carried.links);
+      if (carried?.links?.length) routes.link(paneId, carried.links, carried.sessionId);
     },
   });
 }

@@ -298,17 +298,37 @@ describe("reporter shell scripts", () => {
     const read = (bridge) =>
       execFileSync(
         "/bin/sh",
-        ["-c", `. "${join(CANONICAL_DIR, "lib/reporter-bridge.sh")}"; printf '%s|%s|%s' "$pane" "$token" "$url"`],
+        ["-c", `. "${join(CANONICAL_DIR, "lib/reporter-bridge.sh")}"; printf '%s|%s|%s' "$pane" "$token" "$socket"`],
         { env: { PATH: process.env.PATH, ...(bridge === null ? {} : { KEEPDECK_BRIDGE: bridge }) } },
       ).toString();
-    const minted = JSON.stringify({ v: 2, dir: "/run/d", pane: "pane-3", token: "f00d", url: "http://127.0.0.1:4/r" });
-    expect(read(minted)).toBe("pane-3|f00d|http://127.0.0.1:4/r");
+    const minted = JSON.stringify({ v: 3, dir: "/run/d", pane: "pane-3", token: "f00d", socket: "/home/bridge/a1b2c" });
+    expect(read(minted)).toBe("pane-3|f00d|/home/bridge/a1b2c");
     expect(read('{"pane" : "pane-3",\t"token":\t"f00d"}')).toBe("pane-3|f00d|");
-    expect(read('{"pane":5,"token":"f00d","url":null}'), "not a string").toBe("|f00d|");
+    expect(read('{"pane":5,"token":"f00d","socket":null}'), "not a string").toBe("|f00d|");
+    expect(read('{"pane":"pane-3","token":"f00d","url":"http://127.0.0.1:4/r"}'), "an address no longer handed out")
+      .toBe("pane-3|f00d|");
     expect(read('{"pane":"old","pane":"pane-3"}'), "the last one").toBe("pane-3||");
     expect(read('{"pane"}')).toBe("||");
     expect(read(""), "a deck that published nothing").toBe("||");
     expect(read(null), "a pane the deck did not spawn").toBe("||");
+  });
+
+  it("posts every envelope to the bridge's one route, over its socket, in every language", () => {
+    // On a unix socket a reporter names the route itself — there is no
+    // address handed out whole any more — so the deck's path and every
+    // sender's are one fact with three homes.
+    const http = readFileSync("src-tauri/src/bridge/http.rs", "utf8");
+    const route = http.match(/const ENVELOPE_PATH: &str = "([^"]+)"/)?.[1];
+    expect(route, "no ENVELOPE_PATH in the bridge").toBeTruthy();
+
+    const wire = readFileSync(join(CANONICAL_DIR, "keepdeck-wire.js"), "utf8");
+    const pluginUrl = wire.match(/ENVELOPE_URL = "([^"]+)"/)?.[1];
+    expect(pluginUrl, "no ENVELOPE_URL in the wire").toBeTruthy();
+    expect(new URL(pluginUrl ?? "").pathname).toBe(route);
+
+    const shell = readFileSync(join(CANONICAL_DIR, "lib/reporter-send.sh"), "utf8");
+    expect(shell, "the shell sender goes over the socket").toMatch(/--unix-socket "\$socket"/);
+    expect(shell.match(/(http:\/\/\S+)/)?.[1], "the shell sender posts where the plugin does").toBe(pluginUrl);
   });
 
   it("leaves no reporter writing into the run directory", () => {

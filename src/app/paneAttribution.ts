@@ -1,7 +1,6 @@
 import {
   bindingVerdict,
   sameProcess,
-  secretMatches,
   speaksForPane,
   type BindingOrigin,
   type BindingVerdict,
@@ -18,9 +17,10 @@ import type { SessionBound } from "../ipc/sessions";
  * The one owner of "may this report speak for that pane?".
  *
  * Every lane the bridge carries — identity, usage, status — is correlated by
- * pane and authenticated by a secret the pane's whole process tree inherits,
- * so every lane has the same question to answer and it must be answered the
- * same way. Asking it in three handlers is how the answers drift; the rule
+ * pane, and the bridge's door has placed every report in the pane's
+ * terminal, which the pane's whole process tree shares — so every lane has
+ * the same question left to answer and it must be answered the same way.
+ * Asking it in three handlers is how the answers drift; the rule
  * itself lives in the domain ([`bindingVerdict`]) and this holds the only
  * state that rule needs but cannot see: whether the pane's CURRENT process
  * generation has already bound a session.
@@ -32,13 +32,12 @@ import type { SessionBound } from "../ipc/sessions";
 export interface PaneAttribution {
   /** Judge one session binding — the full rule, with a reason when refused. */
   judge(bound: SessionBound): BindingVerdict;
-  /** Whether a pane-correlated report may be applied to `paneId`: the secret
-   * is the pane's and the reporter is the agent the pane runs. For the lanes
-   * that carry no session identity of their own, where there is no fresh-vs-
-   * continuing distinction to make. */
+  /** Whether a pane-correlated report may be applied to `paneId`: the pane
+   * holds a plan that reports and the reporter is the agent the pane runs. For
+   * the lanes that carry no session identity of their own, where there is no
+   * fresh-vs-continuing distinction to make. */
   admitsReport(
     paneId: string,
-    reportedSecret: string,
     reportedAgent: string | undefined,
     reportedReporter: string | undefined,
   ): boolean;
@@ -92,9 +91,10 @@ export interface PaneAttributionDeps {
   /** The deck as it is NOW: a pane's agent is read per call, because the
    * pane may have been closed or replaced since the report was written. */
   workspaces(): Workspace[];
-  /** The bridge secret this pane's own spawn plan carries, or undefined when
-   * the pane armed no reporter. */
-  secretOf(paneId: string): string | undefined;
+  /** Whether the pane holds a plan that reports (`planReports`): none when
+   * it armed no reporter, or once a teardown has retired its plan — before it
+   * stops the process, which can still speak in between. */
+  reports(paneId: string): boolean;
   /** The agent's own word on a fresh session from the pane's bound process
    * (`AgentContribution.binding`): its user's new conversation, or not.
    * Absent, or an agent with nothing to say, means not — the strict side. */
@@ -146,8 +146,7 @@ export function createPaneAttribution(
     judge(report) {
       const paneAgent = agentOf(report.paneId);
       return bindingVerdict({
-        paneSecret: deps.secretOf(report.paneId),
-        reportedSecret: report.token,
+        paneReports: deps.reports(report.paneId),
         paneAgent,
         reportedAgent: report.agent,
         origin: bindingOrigin(report.source, paneAgent ? deps.swapSources(paneAgent) : []),
@@ -157,12 +156,12 @@ export function createPaneAttribution(
         restartsConversation: restarts(paneAgent, report),
       });
     },
-    admitsReport(paneId, reportedSecret, reportedAgent, reportedReporter) {
+    admitsReport(paneId, reportedAgent, reportedReporter) {
       return (
-        secretMatches(deps.secretOf(paneId), reportedSecret) &&
+        deps.reports(paneId) &&
         speaksForPane(agentOf(paneId), reportedAgent) &&
         // The same pin the binding uses: a nested run refused an identity is
-        // still holding a valid secret, and its statusline would otherwise
+        // still in the pane's terminal, and its statusline would otherwise
         // write this pane's usage and context with another session's numbers.
         //
         // And the one place the two lanes are deliberately NOT symmetrical: a
@@ -184,8 +183,9 @@ export function createPaneAttribution(
       // After that the pin MOVES only between two named processes. An accepted
       // binding has passed the whole rule, so the only one that can come from
       // another process is a continuation — the pane's own agent carrying its
-      // conversation on in another process of the same terminal (the bridge
-      // refuses anything from outside it, a daemon included). Following it is
+      // conversation on in another process of the same terminal (the bridge's
+      // door refuses a process a binding names outside that terminal, a
+      // daemon's worker included). Following it is
       // the point: every later report comes from there, and both lanes read
       // this pin.
       //

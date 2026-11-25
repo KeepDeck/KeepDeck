@@ -6,11 +6,9 @@
  */
 export interface BridgeReport {
   paneId: string;
-  /** The per-spawn bridge secret, verified against the pane's plan. */
-  token: string;
-  /** The process that sent it, as the bridge read it for its own origin
-   * check — the one reading of the payload's `reporter`. Absent when it
-   * named none. */
+  /** The process that sent it, as its envelope names it — the one reading
+   * of the payload's `reporter`, the one the bridge's door checked belongs
+   * to the sender's own terminal. Absent when it named none. */
   reporter?: string;
   /** The reporter's own words, opaque here: the agent's normalizers own
    * them. */

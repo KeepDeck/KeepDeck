@@ -122,8 +122,9 @@ export interface PanePlansPort {
 }
 
 /**
- * Announce a pane whose agent was launched without KeepDeck's setup
- * (task-572) — once per launch: the plan is the launch, so one plan is one
+ * Announce a pane whose agent the deck cannot hear — launched without
+ * KeepDeck's setup (task-572), or given no bridge to report through — once
+ * per launch: the plan is the launch, so one plan is one
  * entry, and a restart that fails the same way replaces it (one tag per
  * pane) rather than stacking a second. The pane's own dot carries the state
  * for as long as it lasts; this is the moment it began.

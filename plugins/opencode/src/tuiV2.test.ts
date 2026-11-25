@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 const inPane = () =>
-  vi.stubEnv("KEEPDECK_BRIDGE", JSON.stringify({ v: 2, dir, pane: "pane-1", token: "t", url: "http://127.0.0.1:9/envelope" }));
+  vi.stubEnv("KEEPDECK_BRIDGE", JSON.stringify({ v: 3, dir, pane: "pane-1", token: "t", socket: "/nonexistent/s" }));
 
 /** A 2.x TUI router: `current()` and `navigate()`, as the plugin context
  * hands them over (packages/plugin/src/tui/context.ts). */

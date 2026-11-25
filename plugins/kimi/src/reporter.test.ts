@@ -55,11 +55,11 @@ function runHook(payload: unknown, env: Record<string, string>) {
 /** The bridge env a KeepDeck-spawned kimi carries, pointed at this deck. */
 const bridge = () =>
   JSON.stringify({
-    v: 2,
+    v: 3,
     dir: scratch(),
     pane: "pane-kimi",
     token: "token-kimi",
-    url: deck.url,
+    socket: deck.socket,
   });
 
 /** The posted payload minus the reporting process, whose value is a live
@@ -80,7 +80,7 @@ describe("Kimi SessionStart reporter", () => {
     expect(deck.envelopes).toEqual([]);
   });
 
-  it("reports one bridge-v2 session binding", async () => {
+  it("reports one session binding", async () => {
     await runHook(
       {
         hook_event_name: "SessionStart",
@@ -97,7 +97,7 @@ describe("Kimi SessionStart reporter", () => {
     expect(deck.envelopes).toHaveLength(1);
     const parsed = recordOf(deck.envelopes[0], "the posted envelope");
     expect({ ...parsed, payload: publishedPayload() }).toEqual({
-      v: 2,
+      v: 3,
       type: "session.bound",
       paneId: "pane-kimi",
       token: "token-kimi",

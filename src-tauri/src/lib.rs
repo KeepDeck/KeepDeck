@@ -45,6 +45,7 @@ mod rpc_child;
 mod run_bounded;
 mod skills;
 mod tasks;
+mod unix_door;
 mod voice;
 mod history;
 mod recent_projects;
@@ -254,11 +255,6 @@ fn compose<R: tauri::Runtime>(
         .manage(mcp::library::McpLibraryLock::default())
         .setup(move |app| {
             shell(app)?;
-            // The CLI bridge: agents report their session ids through this
-            // run's inbox; the lock and watcher live as managed state for
-            // the app's lifetime.
-            let bridge = bridge::start(app.handle())?;
-            app.manage(bridge);
             let gate_app = app.handle().clone();
             app.manage(skills::GateRegistry::new(move || {
                 gate_app
@@ -284,6 +280,12 @@ fn compose<R: tauri::Runtime>(
             app.manage(lifecycle);
             app.manage(forgotten::Gate::new(forgetting));
             app.manage(sessions);
+            // The CLI bridge: agents report their session ids through this
+            // run's door, which asks the sessions machine of every sender —
+            // so it opens only now. The lock and the door live as managed
+            // state for the app's lifetime.
+            let bridge = bridge::start(app.handle())?;
+            app.manage(bridge);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -33,7 +33,7 @@ beforeEach(async () => {
 afterEach(() => deck.close());
 
 const run = (stdin: string, args: string[] = ["claude"]) =>
-  runReporter(SCRIPT, { url: deck.url, stdin, args });
+  runReporter(SCRIPT, { socket: deck.socket, stdin, args });
 
 /**
  * The one envelope posted, with the reporting process split off: its value is
@@ -61,7 +61,7 @@ describe("kd-session-hook.sh", () => {
     );
     const published = envelope();
     expect(published.envelope).toEqual({
-      v: 2,
+      v: 3,
       type: "session.bound",
       paneId: "pane-3",
       token: "tok",
@@ -151,7 +151,7 @@ describe("kd-session-hook.sh", () => {
   it("binds with neither a transcript path nor a source", async () => {
     await run(JSON.stringify({ session_id: "sid-1" }));
     expect(envelope().envelope).toEqual({
-      v: 2,
+      v: 3,
       type: "session.bound",
       paneId: "pane-3",
       token: "tok",

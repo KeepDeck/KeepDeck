@@ -21,7 +21,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::mcp::server::LineHandler;
 use crate::session_machine::SessionMachine;
-use keepdeck_pty::sessions::{CallerRefusal, Secret};
+use keepdeck_pty::sessions::{CallerRefusal, Door, Named, Secret};
 
 /// Mirrored by `MCP_REQUEST_EVENT` in src/ipc/mcpBridge.ts.
 pub const MCP_REQUEST_EVENT: &str = "deck://mcp/request";
@@ -63,7 +63,12 @@ fn wire_reason(refusal: CallerRefusal) -> (&'static str, &'static str) {
             "no-secret",
             "this connection did not name a KeepDeck pane; only agents started in KeepDeck panes can use this server",
         ),
-        CallerRefusal::OutsideTerminal | CallerRefusal::NeverRegistered => (
+        // A caller of this server names no process besides itself, so the
+        // two refusals of a named one read as what they are, outside.
+        CallerRefusal::OutsideTerminal
+        | CallerRefusal::NeverRegistered
+        | CallerRefusal::NamedNotAProcess
+        | CallerRefusal::NamedOutside => (
             "outside-terminal",
             "this process does not run in a live KeepDeck pane's terminal, so it cannot use this server",
         ),
@@ -252,7 +257,7 @@ pub(crate) fn webview_handler<R: Runtime>(app: AppHandle<R>) -> LineHandler {
             return None;
         }
         let sessions = app.state::<SessionMachine>().inner().clone();
-        let pane = match tauri::async_runtime::block_on(sessions.caller(peer, client.as_ref())) {
+        let pane = match tauri::async_runtime::block_on(sessions.caller(peer, client.as_ref(), Named::None, Door::Mcp)) {
             Ok(pane) => pane.to_string(),
             Err(refusal) => {
                 if refused.insert(refusal) {

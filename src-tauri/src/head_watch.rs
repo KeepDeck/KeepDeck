@@ -249,11 +249,17 @@ mod tests {
         })
         .expect("watched");
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)).unwrap().branch.as_deref(), Some("main"), "its state at once");
-        assert!(watchers.0.with(&path, |_| ()).is_some());
 
         fs::remove_dir_all(&repo).unwrap();
         watch(&watchers, path.clone(), |_| panic!("nothing to say of a folder that is gone")).expect("no error");
-        assert!(watchers.0.with(&path, |_| ()).is_none(), "the old watcher stopped");
+        // The old watcher stopped: the one it told is told by nobody now.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            match rx.recv_timeout(Duration::from_millis(100)) {
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                _ => assert!(std::time::Instant::now() < deadline, "the old watcher still runs"),
+            }
+        }
         assert!(watch(&watchers, unique_dir("plain").to_string_lossy().into_owned(), |_| {}).is_err(), "a folder that is there and no repo still says so");
     }
 }

@@ -9,8 +9,9 @@ import { teamBadgeTitle } from "@keepdeck/ui-kit/teamWords";
  * nothing. */
 export interface PaneHeaderView {
   /** The status dot, or null while nothing is known about the agent. A pane
-   * whose agent runs without KeepDeck's setup wears `unconnected` — it can
-   * report nothing, so the dot says why instead. */
+   * whose agent the deck cannot hear — run without KeepDeck's setup, or
+   * given no bridge — wears `unconnected`: it can report nothing, so the dot
+   * says why instead. */
   status: { tone: ActivityTone | "unconnected"; label: string; tooltip: string } | null;
   /** The state in words, beside the controls — only while the agent needs
    * a person (waiting) or has stopped short (failed). Working and done are
@@ -25,8 +26,8 @@ export interface PaneHeaderView {
 
 export interface PaneHeaderInput {
   activity: ActivityBadge | null;
-  /** Why the pane's agent runs without KeepDeck's setup, when it does;
-   * absent for a connected one. */
+  /** Why the deck cannot hear the pane's agent, when it cannot; absent for
+   * a connected one. */
   unconnected?: UnconnectedLaunch;
   /** The minute clock the tooltip ages against. */
   now: number;

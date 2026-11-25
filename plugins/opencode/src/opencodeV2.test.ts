@@ -176,7 +176,7 @@ describe("KeepDeck's plugin on opencode 2.x", () => {
     pending = [];
     asked = [];
     deck = await startDeck(answerAsk);
-    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir, pane: "pane-3", token: "tok", url: deck.url });
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 3, dir, pane: "pane-3", token: "tok", socket: deck.socket });
     ambientSkipsApprovals = process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS;
     delete process.env.KEEPDECK_OPENCODE_SKIPS_APPROVALS;
   });

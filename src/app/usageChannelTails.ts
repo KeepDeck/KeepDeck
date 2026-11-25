@@ -19,17 +19,28 @@ export const TAIL_RETRY_MS = 20_000;
 
 export interface UsageTailsLane extends UsageLane {
   /** Follow, in `paneId`'s tail, the stores its records named by these ids
-   * (codex's subagent threads), as its agent locates them. */
-  link(paneId: string, ids: readonly string[]): void;
+   * (codex's subagent threads), as its agent locates them — named by records
+   * of the session `sessionId`, so only into a tail armed for that session:
+   * a late report of the session the pane just left names its own stores. */
+  link(paneId: string, ids: readonly string[], sessionId?: string): void;
 }
 
-/** What a pane was armed with. */
+/** What a pane was armed with. `token` is the pane's plan's secret at the
+ * arm, kept here alone: a tail stands while it is still the plan's — a plan
+ * retired, or another minted, ends it — and the reports it carries name no
+ * secret, being the deck's own reading of the pane's store. */
 interface Armed {
   path: string;
   token: string;
   agentId: string;
   sessionId: string;
 }
+
+/** One arming of a pane's tail, as this lane holds it: what it was armed
+ * with, whether its store's status records are its companion's now, and
+ * when it ended — let go of before its watch went, it gives up its place in
+ * the pane's turn at once. */
+type Arming = Armed & { covered: boolean; ended: Promise<void>; end(): void };
 
 /** Session-file watcher lane, including Codex's resume-without-binding fallback. */
 export function createUsageTailsLane({
@@ -76,14 +87,33 @@ export function createUsageTailsLane({
 
   /** What each armed pane was armed WITH — so a companion arriving after the
    * arm can re-arm it without the status records, and only when that changes
-   * what is read. */
-  const armedWith = new Map<string, Armed & { covered: boolean }>();
+   * what is read. The entry itself is the arming: a command meant for one
+   * checks, in its turn, that it is still the pane's. */
+  const armedWith = new Map<string, Arming>();
 
-  /** Each pane's arm still on its way. The core registers a tail only once
-   * its catch-up has drained the store, so a narrowing — or a link — that
-   * lands in the meantime finds nothing to change: it waits for this instead
-   * of arming, and draining the store, a second time. */
-  const arming = new Map<string, Promise<void>>();
+  /** Each pane's tail commands, one at a time: the next goes once the core
+   * answered the one before it. So the core carries them out in the order
+   * this lane decided them — a let-go never overtakes the arming it lets go
+   * of, an older arming never lands over a newer one, a narrowing or a link
+   * reaches the tail it was meant for — which nothing on the core's side
+   * could put right afterwards. */
+  const turns = new Map<string, Promise<void>>();
+
+  /** Run `step` in the pane's turn: once every command before it for the pane
+   * was answered. Its outcome is its caller's; the next turn waits only for
+   * it to end. */
+  const inTurn = <T>(paneId: string, step: () => Promise<T>): Promise<T> => {
+    const ran = (turns.get(paneId) ?? Promise.resolve()).then(step);
+    const over = ran.then(
+      () => undefined,
+      () => undefined,
+    );
+    turns.set(paneId, over);
+    void over.then(() => {
+      if (turns.get(paneId) === over) turns.delete(paneId);
+    });
+    return ran;
+  };
 
   /** Per armed pane, the ids of the other stores its records named that are
    * linked or being linked. A new arm starts it empty: the fresh tail reads
@@ -104,35 +134,42 @@ export function createUsageTailsLane({
       },
     );
 
-  /** Arm one pane's follower. */
-  const arm = (paneId: string, { path, token, agentId, sessionId }: Armed) => {
+  /** Arm one pane's follower, letting go of the arming before it. A failure
+   * is this arming's own: it ends it, and leaves alone any arming of the
+   * pane since — which also puts the pane back for the next attempt. */
+  const arm = (paneId: string, { path, token, agentId, sessionId }: Armed): Promise<void> => {
     const watches = watchesFor(paneId, agentId);
     const siblings = declarations.current().get(agentId)?.tail?.siblings?.(path) ?? null;
-    armedWith.set(paneId, {
-      path,
-      token,
-      agentId,
-      sessionId,
-      covered: statusCovered(paneId, agentId),
-    });
+    letGo(paneId);
+    let end = () => {};
+    const ended = new Promise<void>((resolve) => (end = resolve));
+    const armed: Arming = { path, token, agentId, sessionId, covered: statusCovered(paneId, agentId), ended, end };
+    armedWith.set(paneId, armed);
     links.set(paneId, new Set());
-    const pending = sinceFor(paneId, agentId, sessionId).then((since) =>
-      watchSessionFile(paneId, {
+    // Asked at once, outside the pane's turn: it changes nothing in the core,
+    // and an arming let go of while it is out must not hold up what is sent
+    // after it.
+    const since = sinceFor(paneId, agentId, sessionId).then((value) => ({ value }));
+    return inTurn(paneId, async () => {
+      const answered = await Promise.race([since, ended.then(() => null)]);
+      // Let go of before the ledger answered — retired, or armed afresh:
+      // nothing is left for it to follow.
+      if (!answered || armedWith.get(paneId) !== armed) return;
+      await watchSessionFile(paneId, {
         path,
-        token,
         agent: agentId,
         session: sessionId,
         watches,
         siblings,
-        since,
-      }),
-    );
-    arming.set(paneId, pending);
-    const settled = () => {
-      if (arming.get(paneId) === pending) arming.delete(paneId);
-    };
-    pending.then(settled, settled);
-    return pending;
+        since: answered.value,
+      });
+    }).catch((error: unknown) => {
+      if (armedWith.get(paneId) === armed) {
+        tailed.delete(paneId);
+        letGo(paneId);
+      }
+      throw error;
+    });
   };
 
   /** Follow one store a pane's records named, in the pane's tail. The agent
@@ -142,17 +179,21 @@ export function createUsageTailsLane({
     const agentId = armedWith.get(paneId)?.agentId;
     const locate = agentId ? declarations.current().get(agentId)?.tail?.locate : undefined;
     const path = locate ? await locate(id) : null;
-    // The tail exists only once its arm drained the store — which is where
-    // the naming records come from.
-    await arming.get(paneId)?.catch(() => {});
-    // Re-armed meanwhile: the fresh tail names it again.
-    if (disposed || links.get(paneId) !== known) return;
-    if (!path || !(await linkSessionFile(paneId, path))) known.delete(id);
+    const linked = await inTurn(paneId, async () => {
+      // Re-armed meanwhile: the fresh tail names it again, and the core's
+      // tail is not the one this store was named in.
+      if (disposed || links.get(paneId) !== known) return true;
+      return path ? linkSessionFile(paneId, path) : false;
+    });
+    if (!linked) known.delete(id);
   };
 
-  const link = (paneId: string, ids: readonly string[]) => {
+  const link = (paneId: string, ids: readonly string[], sessionId?: string) => {
     const known = links.get(paneId);
-    if (disposed || !known) return;
+    // Named by another session's records — a report of the tail the pane
+    // just left, still on its way — the stores are that session's, not the
+    // one this pane's tail now follows.
+    if (disposed || !known || sessionId === undefined || armedWith.get(paneId)?.sessionId !== sessionId) return;
     for (const id of ids) {
       if (known.has(id)) continue;
       known.add(id);
@@ -163,18 +204,18 @@ export function createUsageTailsLane({
     }
   };
 
-  /** Stop following a pane's file. Nothing waits on it, so a failure is
-   * said rather than left unhandled. */
-  const unwatch = (paneId: string) => {
-    void unwatchSessionFile(paneId).catch((error: unknown) => {
+  /** Stop following a pane's file — the one place an arming ends, in the
+   * pane's turn behind whatever was sent for it before. Nothing waits on it,
+   * so a failure is said rather than left unhandled. */
+  const letGo = (paneId: string) => {
+    const armed = armedWith.get(paneId);
+    if (!armed) return;
+    armedWith.delete(paneId);
+    armed.end();
+    links.delete(paneId);
+    void inTurn(paneId, () => unwatchSessionFile(paneId)).catch((error: unknown) => {
       log.warn("web:usage", `${paneId}: session file not let go: ${errorMessage(error)}`);
     });
-  };
-
-  const settleArm = (paneId: string) => {
-    if (disposed || !tailed.has(paneId)) {
-      unwatch(paneId);
-    }
   };
 
   const desiredPanes = () => {
@@ -254,9 +295,11 @@ export function createUsageTailsLane({
             const secret = peekPaneSpawnSpec(paneId)?.token;
             if (!secret) return;
             tailed.add(paneId);
-            return arm(paneId, { path, token: secret, agentId, sessionId }).then(() =>
-              settleArm(paneId),
-            );
+            // Its failure is the arming's, not the search's: the arming
+            // ended itself, and the pane is armed again on the next round.
+            void arm(paneId, { path, token: secret, agentId, sessionId }).catch((error: unknown) => {
+              log.warn("web:usage", `session-file tail for ${paneId} failed: ${errorMessage(error)}`);
+            });
           })
           .catch((error) => {
             // Only the search is abandoned. A tail armed from a binding
@@ -277,15 +320,12 @@ export function createUsageTailsLane({
     const desired = desiredPanes();
     for (const paneId of [...tailed]) {
       // A tail stands while the secret it was armed with is still the
-      // pane's. A plan retired, or another minted since, leaves it reading
-      // for reports that are refused — the next arm follows under the
-      // secret that stands then.
+      // pane's. A plan retired, or another minted since, is another
+      // generation's — the next arm follows under the plan that stands then.
       const armed = armedWith.get(paneId);
       if (desired.has(paneId) && armed !== undefined && armed.token === peekPaneSpawnSpec(paneId)?.token) continue;
       tailed.delete(paneId);
-      armedWith.delete(paneId);
-      links.delete(paneId);
-      unwatch(paneId);
+      letGo(paneId);
     }
     // A pane that left the deck while its store was being looked for: the
     // answer, when it comes, has nowhere to go.
@@ -301,7 +341,7 @@ export function createUsageTailsLane({
   // report would come back "already bound" and the tail would never arm.
   const unsubscribeBindings = bindings.subscribe((bound) => {
     if (disposed) return;
-    const { paneId, sessionId, transcriptPath, token } = bound;
+    const { paneId, sessionId, transcriptPath } = bound;
     if (!transcriptPath) {
       log.debug(
         "web:usage",
@@ -325,6 +365,10 @@ export function createUsageTailsLane({
       return;
     }
 
+    // Accepted only while the pane holds a plan that reports, so its secret
+    // stands: the tail is armed under it.
+    const token = peekPaneSpawnSpec(paneId)?.token;
+    if (!token) return;
     // The agent's own declaration of which records to carry, handed through
     // verbatim: the backend applies it without reading it.
     log.debug(
@@ -332,37 +376,28 @@ export function createUsageTailsLane({
       `${paneId}: arming ${agentId} tail from binding${statusCovered(paneId, agentId) ? " — status stated by its companion, usage records only" : ""}`,
     );
     tailed.add(paneId);
-    void arm(paneId, { path: transcriptPath, token, agentId, sessionId })
-      .then(() => settleArm(paneId))
-      .catch((error) => {
-        tailed.delete(paneId);
-        log.warn(
-          "web:usage",
-          `session-file tail for ${paneId} failed: ${error}`,
-        );
-      });
+    void arm(paneId, { path: transcriptPath, token, agentId, sessionId }).catch((error: unknown) => {
+      log.warn("web:usage", `session-file tail for ${paneId} failed: ${errorMessage(error)}`);
+    });
   });
-
-  /** Arm a pane afresh with what it is read for now: the follower re-reads
-   * the store from its start. */
-  const rearm = (paneId: string, armed: Armed) =>
-    unwatchSessionFile(paneId)
-      .then(() => arm(paneId, armed))
-      .then(() => settleArm(paneId));
 
   /** A companion now states the pane's status facts: the tail stops carrying
    * the store's status records from where it stands. Nothing it already read
    * is owed again, so the store — a resumed session's can run to hundreds of
-   * megabytes — is not re-read. A tail that is not there yet, or refuses,
-   * is armed afresh. */
-  const narrow = async (paneId: string, armed: Armed) => {
-    armedWith.set(paneId, { ...armed, covered: true });
-    // Its outcome is the arm's own path's to handle; here it only has to end.
-    await arming.get(paneId)?.catch(() => {});
-    if (await retargetSessionFile(paneId, watchesFor(paneId, armed.agentId))) return;
-    if (disposed || !tailed.has(paneId)) return;
-    await rearm(paneId, armed);
-  };
+   * megabytes — is not re-read. A tail that refuses is armed afresh: the
+   * store re-read from its start, the arming before it let go of. Only while
+   * `armed` is still the pane's arming — asked in the pane's turn, and again
+   * once the core answered — so a narrowing never reaches a later arming's
+   * tail. */
+  const narrow = (paneId: string, armed: Arming): Promise<void> =>
+    inTurn(paneId, async () => {
+      if (armedWith.get(paneId) !== armed) return true;
+      armed.covered = true;
+      return retargetSessionFile(paneId, watchesFor(paneId, armed.agentId));
+    }).then((narrowed) => {
+      if (narrowed || disposed || armedWith.get(paneId) !== armed) return;
+      return arm(paneId, armed);
+    });
 
   // A companion that says hello after the pane armed changes what the store
   // is read for; nothing else does. A companion leaves only with its process,
@@ -373,10 +408,14 @@ export function createUsageTailsLane({
     const armed = armedWith.get(paneId);
     if (!armed || armed.covered || !statusCovered(paneId, armed.agentId)) return;
     log.debug("web:usage", `${paneId}: its companion states its turns — narrowing its tail`);
-    void narrow(paneId, armed).catch((error) => {
-      tailed.delete(paneId);
-      armedWith.delete(paneId);
-      log.warn("web:usage", `session-file re-arm for ${paneId} failed: ${error}`);
+    void narrow(paneId, armed).catch((error: unknown) => {
+      // Its own arming's failure, ended by that arming alone: a later one
+      // the pane holds meanwhile is not this narrowing's to end.
+      if (armedWith.get(paneId) === armed) {
+        tailed.delete(paneId);
+        letGo(paneId);
+      }
+      log.warn("web:usage", `session-file re-arm for ${paneId} failed: ${errorMessage(error)}`);
     });
   });
   const unsubscribeDeck = deck.subscribe(reconcile);
@@ -400,7 +439,7 @@ export function createUsageTailsLane({
       unsubscribePlans();
       globalThis.clearInterval(retryTimer);
       unsubscribeBindings();
-      for (const paneId of tailed) unwatch(paneId);
+      for (const paneId of [...armedWith.keys()]) letGo(paneId);
       tailed.clear();
       searching.clear();
       links.clear();

@@ -11,7 +11,6 @@
  * one of them to answer differently from the deck.
  */
 import { spawn } from "node:child_process";
-import type { AddressInfo } from "node:net";
 import { createServer } from "node:http";
 import {
   closeSync,
@@ -37,6 +36,9 @@ const realNow = Date.now.bind(Date);
  * The server runs in the TEST's process, so a reporter must be run with the
  * async `execFile`: a synchronous spawn blocks this event loop, and the
  * request would never be served by the process waiting for it.
+ *
+ * It answers on a unix socket of its own, as the deck's door does: what a
+ * reporter is handed is a socket, and posting there is what it must do.
  */
 /** What the stand-in deck answers one envelope with. */
 export interface DeckAnswer {
@@ -59,6 +61,7 @@ export async function startDeck(
    * reporter emitting malformed JSON is a failure worth SEEING rather than
    * one that disappears into a catch. */
   const envelopes: any[] = [];
+  const paths: string[] = [];
   /** The most posts this deck ever had open at once.
    *
    * A reporter that fires without waiting can have two in flight, and then
@@ -71,6 +74,7 @@ export async function startDeck(
   const server = createServer((request, response) => {
     inFlight += 1;
     maxInFlight = Math.max(maxInFlight, inFlight);
+    paths.push(request.url ?? "");
     let body = "";
     request.setEncoding("utf8");
     request.on("data", (chunk) => (body += chunk));
@@ -95,12 +99,17 @@ export async function startDeck(
       }, reply.holdMs ?? holdMs);
     });
   });
+  // A directory of its own, short: a unix socket's path is at most 104 bytes
+  // on macOS, and a test's temp dir is already deep.
+  const home = mkdtempSync(join(tmpdir(), "kd-deck-"));
+  const socket = join(home, "s");
   await new Promise<void>((resolve) => {
-    server.listen(0, "127.0.0.1", () => resolve());
+    server.listen(socket, () => resolve());
   });
-  const { port } = server.address() as AddressInfo;
   return {
-    url: `http://127.0.0.1:${port}/envelope`,
+    socket,
+    /** The paths posted to, in order — the route a reporter names itself. */
+    paths,
     envelopes,
     /**
      * Wait until nothing more is arriving — for asserting what WAS reported,
@@ -130,7 +139,13 @@ export async function startDeck(
     /** The most posts open at once over this deck's life. One means the
      * sender waited for each before starting the next. */
     peakInFlight: () => maxInFlight,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    close: () =>
+      new Promise((resolve) =>
+        server.close((error) => {
+          rmSync(home, { recursive: true, force: true });
+          resolve(error);
+        }),
+      ),
   };
 }
 
@@ -147,7 +162,8 @@ export async function startDeck(
  * which is what `leaves nothing behind in the run directory` checks.
  */
 export interface RunOptions {
-  url?: string;
+  /** The deck's socket, as KEEPDECK_BRIDGE names it. */
+  socket?: string;
   stdin?: string | Buffer;
   args?: string[];
   dir?: string;
@@ -158,7 +174,7 @@ export interface RunOptions {
 
 export function runReporter(
   script: string,
-  { url, stdin = "", args = [], dir, env = {}, armed = true, baseEnv }: RunOptions,
+  { socket, stdin = "", args = [], dir, env = {}, armed = true, baseEnv }: RunOptions,
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const scratch = mkdtempSync(join(tmpdir(), "kd-reporter-run-"));
   const payload = join(scratch, "stdin");
@@ -181,11 +197,11 @@ export function runReporter(
         ...(armed
           ? {
               KEEPDECK_BRIDGE: JSON.stringify({
-                v: 2,
+                v: 3,
                 dir: dir ?? scratch,
                 pane: "pane-3",
                 token: "tok",
-                url,
+                socket,
               }),
             }
           : {}),

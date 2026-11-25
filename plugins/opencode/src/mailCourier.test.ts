@@ -198,11 +198,11 @@ describe("opencode mail courier", () => {
     dir = mkdtempSync(join(tmpdir(), "kd-courier-"));
     deck = await startDeck(answerAsk);
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
-      v: 2,
+      v: 3,
       dir,
       pane: "pane-3",
       token: "tok",
-      url: deck.url,
+      socket: deck.socket,
     });
     prompts = [];
     submitted = [];

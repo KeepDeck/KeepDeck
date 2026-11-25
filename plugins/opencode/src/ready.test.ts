@@ -17,7 +17,7 @@ describe("the plugin saying its agent is at its prompt", () => {
     resource = await import("../resources/keepdeck-plugin/ready.js");
     ({ drained } = await import("../resources/keepdeck-plugin/keepdeck-bridge.js"));
     deck = await startDeck();
-    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir: "/unused", pane: "pane-3", token: "tok", url: deck.url });
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 3, dir: "/unused", pane: "pane-3", token: "tok", socket: deck.socket });
   });
 
   afterEach(async () => {

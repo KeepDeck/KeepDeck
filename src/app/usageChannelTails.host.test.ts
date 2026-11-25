@@ -60,15 +60,13 @@ describe("following a pane's file, on the host", () => {
   const bind = (d: Deck, paneId: string, sessionId: string, path: string) => d.report(paneId, { type: "session.bound", payload: { sessionId, transcriptPath: path } });
 
   describe("across a suspend", () => {
-    it("lets go of a suspended pane's file, and follows it again on resume under its new process's secret", async () => {
+    it("lets go of a suspended pane's file, and follows it again on resume", async () => {
       const d = await open();
       const { ws, paneId } = await followedUp(d);
-      const before = field(tailsOf(host(), paneId)[0], "token");
       await suspended(d, ws, paneId);
       const resumed = mark();
       await d.runtime.orchestrator.resume(ws.id, paneId);
       await until("its file is followed again", () => tailsOf(host(), paneId, resumed).length > 0);
-      expect(field(tailsOf(host(), paneId, resumed)[0], "token")).not.toBe(before);
     });
 
     it("says a file it could not let go of, rather than leave the failure unhandled", async () => {
@@ -80,35 +78,28 @@ describe("following a pane's file, on the host", () => {
         host().tape.some(({ way, line }) => way === "page log" && line.includes(`${paneId}: session file not let go`)));
     });
 
-    it("follows a rising pane's file already, under the secret its new process reports with", async () => {
+    it("follows a rising pane's file already, and believes what it reads once its process is up", async () => {
       const d = await open();
       const { ws, paneId } = await followedUp(d);
-      const before = field(tailsOf(host(), paneId)[0], "token");
       await suspended(d, ws, paneId);
-      // The resume's plan, and its secret, stand before its process opens.
+      // The resume's plan stands before its process opens.
       const rising = host().hold({ request: "pty_open" });
       const resumed = mark();
       const resuming = d.runtime.orchestrator.resume(ws.id, paneId);
       await rising.caught;
       await until("followed while it rises", () => tailsOf(host(), paneId, resumed).length > 0);
-      const risingToken = field(tailsOf(host(), paneId, resumed)[0], "token");
-      expect(risingToken).not.toBe(before);
       rising.release();
       await resuming;
       await d.upAndBound(paneId);
-      // Its process, up and bound, reports under that same secret: what the
-      // tail read while it rose is believed.
       d.type(paneId, 'record {"type":"usage","usedPct":55}');
       await until("its record is read", () => d.runtime.usageManager.getSnapshot().panes.get(paneId)?.context?.usedPct === 55);
-      expect(new Set(tailsOf(host(), paneId, resumed).map((tail) => field(tail, "token")))).toEqual(new Set([risingToken]));
     });
   });
 
   describe("across a restart", () => {
-    it("follows the file under the new process's secret after a restart, and believes it though the process names no file", async () => {
+    it("follows the file again for the new launch after a restart, and believes it though the process names no file", async () => {
       const d = await open();
       const { ws, paneId } = await followedUp(d);
-      const before = field(tailsOf(host(), paneId)[0], "token");
       // The new process says nothing at start: no binding names its file —
       // as a CLI whose start hook was missed. It writes the same file.
       d.stub.unbound = true;
@@ -116,14 +107,36 @@ describe("following a pane's file, on the host", () => {
       const restarted = mark();
       expect((await d.runtime.orchestrator.restart(ws.id, paneId, "resume")).kind).toBe("accepted");
       await opening.caught;
-      // Its new plan stands: the file is followed under that plan's secret,
-      // before the process even opens.
-      await until("followed under the new secret", () => tailsOf(host(), paneId, restarted).some((tail) => field(tail, "token") !== before));
+      // Its new plan stands: the old launch's tail is let go of and the file
+      // followed for this one, before the process even opens.
+      await until("followed for the new launch", () => tailsOf(host(), paneId, restarted).length > 0);
       expect(unwatches(host(), paneId, restarted)).toBeGreaterThan(0);
       opening.release();
       await until("its new process runs", () => d.launches(paneId).length === 2 && d.slot(paneId) === "live");
       d.type(paneId, 'record {"type":"usage","usedPct":66}');
       await until("its record is believed", () => d.runtime.usageManager.getSnapshot().panes.get(paneId)?.context?.usedPct === 66);
+    });
+  });
+
+  describe("letting an arming go", () => {
+    it("sends no watch for an arming let go of while the ledger answered, and does not wait for the answer to let it go", async () => {
+      const d = await open();
+      const { paneId } = await followedUp(d);
+      const asking = host().hold({ reply: "usage_since" });
+      const moved = mark();
+      // The person cleared the conversation: its file is armed afresh, and
+      // the ledger is asked from when its calls are not booked yet.
+      const file = storeFile(d, "s-next.jsonl", { type: "usage" });
+      expect(await d.report(paneId, { type: "session.bound", payload: { sessionId: "s-next", source: "clear", transcriptPath: file } })).toBe(204);
+      await asking.caught;
+      // The pane goes before the ledger answers. The first arming was let go
+      // of as the second armed, and the second as the pane went — at once:
+      // an arming that never sent its watch holds the pane's turn no longer.
+      await d.closeAgent(paneId);
+      await until("the second is let go of", () => unwatches(host(), paneId, moved) === 2);
+      asking.release();
+      await aWhile();
+      expect(tailsOf(host(), paneId, moved)).toEqual([]);
     });
   });
 
@@ -253,10 +266,9 @@ describe("following a pane's file, on the host", () => {
       expect(lanesOf(tailsOf(host(), paneId)[0])).toEqual(["usage", "status"]);
     });
 
-    it("reads the file for its turns again after a restart, under the new process's secret, its new process having said no hello", async () => {
+    it("reads the file for its turns again after a restart, its new process having said no hello", async () => {
       const d = await open();
       const { ws, paneId } = await followedUp(d);
-      const before = field(tailsOf(host(), paneId)[0], "token");
       expect(await d.report(paneId, hello)).toBe(204);
       await until("it is narrowed", () => narrowings(host(), paneId).length > 0);
       // The companion left with its process; the new one has said nothing.
@@ -267,7 +279,6 @@ describe("following a pane's file, on the host", () => {
       await until("the file is followed again", () => tailsOf(host(), paneId, restarted).length > 0);
       const again = tailsOf(host(), paneId, restarted)[0];
       expect(lanesOf(again)).toEqual(["usage", "status"]);
-      expect(field(again, "token")).not.toBe(before);
       rising.release();
     });
   });

@@ -7,14 +7,16 @@
 # the only lane a deck too old to publish an address had. It is gone, and with
 # it the reason a reporter had to know how to write an inbox at all.
 #
-# Needs `url` in scope, read from KEEPDECK_BRIDGE by the caller. Empty means
-# the deck published no address, which after the cutoff means there is nowhere
-# to report: silent, because a hook that printed a complaint would print it
-# into the agent's own transcript on every turn.
+# Needs `socket` in scope, read from KEEPDECK_BRIDGE by the caller. Empty
+# means the deck published no door, which means there is nowhere to report:
+# silent, because a hook that printed a complaint would print it into the
+# agent's own transcript on every turn.
 #
 # `curl` is the one client that can be relied on here. `nc` on macOS races its
 # own stdin EOF and leaves without waiting for a reply, and there is no flag
-# that stops it doing so.
+# that stops it doing so. It speaks HTTP over the deck's unix socket, where
+# the kernel tells the deck which process is on this end — curl itself, in
+# the session its agent started this hook in.
 
 # How long to give the whole round trip.
 #
@@ -42,11 +44,14 @@ SEND_MAX=3
 # difference, and a reader who does has one place to look.
 send_envelope() {
   send_body=$1
-  [ -n "$url" ] || return 0
+  [ -n "$socket" ] || return 0
   command -v curl >/dev/null 2>&1 || return 0
+  # On a unix socket nothing resolves the host; it is one that cannot leave
+  # the machine all the same. The path is the bridge's one route.
   send_answer=$(printf '%s' "$send_body" \
     | curl -s --max-time "$SEND_MAX" -w '\n%{http_code}' \
-        -X POST --data-binary @- "$url" 2>/dev/null)
+        --unix-socket "$socket" -X POST --data-binary @- \
+        http://localhost/envelope 2>/dev/null)
   # The status is the last line curl wrote and the body everything before
   # it — cut apart in place, the body printed as `sed '$d'` printed it.
   case ${send_answer##*"

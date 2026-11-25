@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { makeEnvelope, sendEnvelope } from "./keepdeck-bridge.js";
 
-/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ dir: string, pane: string, token: string, socket: string }} Bridge */
 /** @typedef {{ v: number, context?: string, prompt?: string }} MailAnswer */
 
 /** The answer shape the courier understands. The deck stamps it; a shape

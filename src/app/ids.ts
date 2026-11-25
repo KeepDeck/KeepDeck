@@ -36,8 +36,9 @@ export function mintMcpToken(): string {
   return crypto.randomUUID();
 }
 
-/** Mint a per-spawn bridge token (`buildSpawnPlan`'s `mintToken`) — the
- * secret a reporter must echo for its postback to be believed. */
+/** Mint a per-pane bridge token — the secret a pane's reporters name in
+ * their envelopes, which the bridge's door counts only from that pane's live
+ * terminal (see `SpawnPlan.token`). */
 export function mintBridgeToken(): string {
   return crypto.randomUUID();
 }

@@ -7,7 +7,7 @@
 //! in-process mutex does not cross processes, and two processes on one
 //! root are a real state — a build started beside another, or the copy a
 //! restart spawns before the old one is gone. Hence this flock, mirroring
-//! [`crate::mcp::server::claim`]'s shape and constants: same 5ms retry and,
+//! the unix door's claim (`crate::unix_door::claim`) — its shape and constants: same 5ms retry and,
 //! for the stores, the same 250ms wait (fork-inheritance patience — every
 //! PTY agent and git child inherits descriptors across fork and keeps a
 //! just-released lock alive until it execs), same contention≠fault

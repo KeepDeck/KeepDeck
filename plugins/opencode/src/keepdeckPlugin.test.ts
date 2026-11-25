@@ -140,7 +140,7 @@ describe("what opencode 2.x finds in the directory", () => {
   it("stays inert, and never throws, outside a pane or on a context it cannot read", () => {
     vi.stubEnv("KEEPDECK_BRIDGE", "");
     expect(tuiPlugin.setup({ ui: { router: { current: () => ({ type: "home" }) } } })).toBeUndefined();
-    vi.stubEnv("KEEPDECK_BRIDGE", JSON.stringify({ v: 2, dir: "/nonexistent", pane: "p", token: "t", url: "http://127.0.0.1:9/envelope" }));
+    vi.stubEnv("KEEPDECK_BRIDGE", JSON.stringify({ v: 3, dir: "/nonexistent", pane: "p", token: "t", socket: "/nonexistent/s" }));
     expect(() => tuiPlugin.setup({})).not.toThrow();
     expect(tuiPlugin.setup({})).toBeUndefined();
     expect(tuiPlugin.setup(undefined)).toBeUndefined();

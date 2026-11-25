@@ -18,6 +18,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Reading where tauri.conf.json sends the bundle's resources (build.rs).
+serde_json = "1"
+# Walking those resources as tauri-build does — the copy tauri-build itself
+# depends on, so nothing new enters the build (build.rs).
+tauri-utils = { version = "2.9.3", features = ["resources"] }
 
 [dependencies]
 # Reading a session store an agent compressed (codex's `.jsonl.zst`,

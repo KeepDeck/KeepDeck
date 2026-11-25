@@ -34,9 +34,9 @@ export interface CompanionScript {
 }
 
 const REPORTER_SCRIPTS: readonly CompanionScript[] = [
-  { file: "kd-session-hook.sh", sha256: "9416c79cfd107de25a99048f84266c2645b6d9e494b9d5258147d7024ee1a4a5" },
-  { file: "kd-status-hook.sh", sha256: "cba2e2cabcd9042278887f17b8a69675e3bec1e74b23b8898e5cee9e86188b3b" },
-  { file: "kimi.plugin.json", sha256: "4236f704dae2cb5e1490d8546a0db5e7c838ee5992fe7068048c9c23fdff0f08" },
+  { file: "kd-session-hook.sh", sha256: "a582929f3eaf56510bbffeae4723f8c9607d4f5832676f71b2ae9e3fb26d6a42" },
+  { file: "kd-status-hook.sh", sha256: "ab720eb796977bdd59a55f68ce3bfe82834cce567bea6312e6f8ed2511f955da" },
+  { file: "kimi.plugin.json", sha256: "0d906c9bc0a3f6e203f11fdeeac2e860c22e9a4ea81850f22ba41d72d6288c24" },
 ];
 
 export const COMPANION_ID = reporterManifest.name;

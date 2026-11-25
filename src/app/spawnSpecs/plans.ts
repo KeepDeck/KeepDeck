@@ -17,6 +17,7 @@
  * UI with a CLI.
  */
 import type { ResumeOrigin, UnconnectedLaunch } from "../../domain/agents";
+import type { SpawnSecrets } from "../../ipc/session";
 
 /** Bridge protocol version this app speaks — a plain change counter over the
  * env schema AND the envelope schema.
@@ -27,19 +28,22 @@ import type { ResumeOrigin, UnconnectedLaunch } from "../../domain/agents";
  * version but 2, this armed panes with 1, and it went unnoticed because
  * nothing reads the field — reporters carry the version in the envelope
  * themselves. A var that lies about its own protocol is a var the first
- * reporter to check it would refuse. */
-export const BRIDGE_PROTOCOL_VERSION = 2;
+ * reporter to check it would refuse.
+ *
+ * 3: the bridge answers on a unix socket, named by `socket` where `url`
+ * stood. */
+export const BRIDGE_PROTOCOL_VERSION = 3;
 
 /** Per-install constants, resolved once at boot (`session_spawn_context`). */
 export interface SpawnPlanContext {
   /** This run's bridge directory — the root the panes' own live under;
    * "" = bridge unavailable, identity mechanisms off. */
   bridgeDir: string;
-  /** Where this run's bridge surface answers, and the only lane a reporter
-   * has. "" = unavailable, and a pane is then armed with nothing at all: a
-   * reporter with no address has nowhere to report, and arming one anyway
-   * would leave it looking alive for its whole life. */
-  bridgeUrl: string;
+  /** Where this run's bridge door answers — its unix socket — and the only
+   * lane a reporter has. "" = unavailable, and a pane is then armed with
+   * nothing at all: a reporter with no address has nowhere to report, and
+   * arming one anyway would leave it looking alive for its whole life. */
+  bridgeSocket: string;
   /** Create (or reuse) the directory belonging to ONE pane and answer its
    * path. It carries the deck's doorbell — the one thing still travelling as
    * a file, because it runs deck-to-pane and the surface cannot push. Asked
@@ -50,7 +54,7 @@ export interface SpawnPlanContext {
 /** A context with the bridge off — safe boot fallback. */
 export const EMPTY_SPAWN_CONTEXT: SpawnPlanContext = {
   bridgeDir: "",
-  bridgeUrl: "",
+  bridgeSocket: "",
   paneBridgeDir: () => Promise.reject(new Error("the bridge is unavailable")),
 };
 
@@ -68,15 +72,16 @@ export interface SpawnPlan {
    * (`SpawnPlanOutput.yolo`) — what the pane runs in until the agent reports
    * its own mode. Absent = not in YOLO. */
   yolo?: boolean;
-  /** The PER-PANE bridge secret — NOT per build. A reporter must echo it in
-   * its postback; the binding hook refuses postbacks whose token doesn't
-   * match — reaching the surface is not enough to bind a pane.
+  /** The PER-PANE bridge secret — NOT per build. A reporter must name it in
+   * its envelope, and the bridge's door counts it only from the pane's own
+   * terminal, while its session is live: reaching the door is not enough to
+   * speak for a pane.
    *
    * INVARIANT: rebuilding a plan for a pane whose process is still alive
    * must REUSE the cached token (`buildPlan` does; any new plan-building
-   * path must too) — a fresh mint would orphan the token the live process's
-   * reporters echo, and every postback would fail verification forever.
-   * Only an explicit restart, which drops the spec first, mints fresh. */
+   * path must too) — the session was registered with the secret its process
+   * was spawned with, and the tail lane keeps following under it. Only an
+   * explicit restart, which drops the spec first, mints fresh. */
   token?: string;
   /** The PER-PANE MCP secret, minted and retired exactly like `token`: the
    * one an injected MCP server greets the deck's socket with. Both secrets
@@ -115,9 +120,10 @@ export interface SpawnPlan {
    * was built. An exit with the count still here means the resume never
    * became a session (see [`resumeDiedSilently`]). */
   postbackMark?: number;
-  /** Why this plan runs its agent without KeepDeck's setup — set only on a
-   * launch that fell back to the bare floor (the plugin's plan threw, or an
-   * external plan named a program it may not run). Absent = connected. */
+  /** Why the deck cannot hear this plan's agent — set on a launch that fell
+   * back to the bare floor (the plugin's plan threw, or an external plan
+   * named a program it may not run), and on one given no bridge to report
+   * through, whose setup it otherwise has. Absent = connected. */
   unconnected?: UnconnectedLaunch;
 }
 
@@ -133,11 +139,14 @@ export function planReports(plan: SpawnPlan | undefined): boolean {
   return plan?.env.some(([key]) => key === BRIDGE_ENV) ?? false;
 }
 
-/** The secrets a plan's process tree is given, for the sessions machine to
- * judge its callers by: whoever names one from the pane's terminal speaks
- * for the pane. Either answers — see [`SpawnPlan.mcpToken`]. */
-export function planSecrets(plan: SpawnPlan): string[] {
-  return [plan.mcpToken, plan.token].filter((secret): secret is string => secret !== undefined && secret !== "");
+/** The secrets a plan's process tree is given, one per door, for the
+ * sessions machine to judge its callers by: whoever names one a door counts,
+ * from the pane's terminal, speaks for the pane. The MCP door counts either
+ * — see [`SpawnPlan.mcpToken`] — the bridge only its own. Handed over as the
+ * plan holds them: what counts as a secret at all — an empty one does not —
+ * is the sessions machine's to say. */
+export function planSecrets(plan: SpawnPlan): SpawnSecrets {
+  return { mcp: plan.mcpToken, bridge: plan.token };
 }
 
 /** Whether a pane's RESUME died before ever becoming a session: its plan is

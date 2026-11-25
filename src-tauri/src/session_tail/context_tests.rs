@@ -6,7 +6,7 @@ use super::reader::{drain_file, TailCursor};
 use super::route::{route, wrap, Origin, Routed};
 use super::test_support::temp_dir;
 
-const ORIGIN: Origin<'static> = Origin { pane_id: "pane", token: "token", agent: "agent", session: "ses" };
+const ORIGIN: Origin<'static> = Origin { pane_id: "pane", agent: "agent", session: "ses" };
 
 fn watches() -> Vec<TailWatch> {
     serde_json::from_value(json!([

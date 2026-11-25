@@ -1,4 +1,4 @@
-import { openSession, type Session } from "../ipc/session";
+import { openSession, type Session, type SpawnSecrets } from "../ipc/session";
 import type { LaunchOwner } from "../ipc/generated/lifecycle/LaunchOwner";
 import type { PermitId } from "../ipc/generated/lifecycle/PermitId";
 import { log } from "../ipc/log";
@@ -49,8 +49,8 @@ export interface PaneSpawnSpec {
   cols: number;
   rows: number;
   /** The pane's secrets, read once at spawn like `env`: the sessions machine
-   * judges the pane's MCP callers by them. */
-  secrets?: string[];
+   * judges the pane's callers by them. */
+  secrets?: SpawnSecrets;
 }
 
 /** The launch lease a spawn spends: the permit the machine granted, and the

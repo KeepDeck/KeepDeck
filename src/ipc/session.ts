@@ -38,9 +38,18 @@ export interface SpawnOptions {
   cwd?: string | null;
   cols: number;
   rows: number;
-  /** The pane's secrets: whoever names one from this terminal speaks for the
-   * pane (mirrors SpawnSpec.secrets). None for a session that is no pane's. */
-  secrets?: string[];
+  /** The pane's secrets: whoever names one a door counts, from this
+   * terminal, speaks for the pane (mirrors SpawnSpec.secrets). None for a
+   * session that is no pane's. */
+  secrets?: SpawnSecrets;
+}
+
+/** A pane's two secrets, one per door (mirrors the Rust `SpawnSecrets`): the
+ * MCP server's, which it counts with the bridge's, and the bridge's, the
+ * only one the bridge counts. Absent = none. */
+export interface SpawnSecrets {
+  mcp?: string;
+  bridge?: string;
 }
 
 /** How an exact-session stop ended (mirrors the Rust `Stopped`): it exited,
@@ -82,7 +91,7 @@ export async function openSession(
       cwd: opts.cwd ?? null,
       cols: opts.cols,
       rows: opts.rows,
-      secrets: opts.secrets ?? [],
+      secrets: opts.secrets ?? {},
     },
     permit,
     owner,

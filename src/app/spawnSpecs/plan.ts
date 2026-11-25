@@ -431,11 +431,14 @@ export async function buildPlan(
   //
   // The token is PER PANE, not per build: a rebuild while the pane's
   // process is alive (observed: a double-revive rebuilding the resume
-  // plan) must not orphan the token that process's reporters echo — every
-  // postback would fail verification forever. Every path that RETIRES a
-  // process drops the spec first (`dropPaneSpawnSpec` — restart, suspend,
-  // close), so a genuinely new process still gets a fresh token and the
-  // dead one's credential stops being accepted.
+  // plan) must keep the one that process was given. The door counts the
+  // secret its session was registered with whatever the plan says, but the
+  // plan would then name a secret no process holds, and the tail lane —
+  // which follows a pane while its plan's token stands — would re-arm for
+  // nothing. Every path that RETIRES a process drops the spec first
+  // (`dropPaneSpawnSpec` — restart, suspend, close), so a genuinely new
+  // process still gets a fresh token, and the dead one's dies with its
+  // session.
   const token = ctx.bridgeDir
     ? (peekPaneSpawnSpec(paneId)?.token ?? mintBridgeToken())
     : null;
@@ -444,30 +447,44 @@ export async function buildPlan(
   // A failure here disarms the bridge for this spawn rather than arming it
   // with a path that does not exist — an agent that cannot be reached is
   // recoverable, one looking reachable and not being is not.
-  const paneDir = token ? await ctx.paneBridgeDir(paneId).catch(() => null) : null;
+  const paneDir: { dir: string } | { error: string } | null = token
+    ? await ctx.paneBridgeDir(paneId).then(
+        (dir) => ({ dir }),
+        (e: unknown) => ({ error: errorMessage(e) }),
+      )
+    : null;
   // The address is REQUIRED, not additive. It was additive at protocol 1,
   // when a reporter that had never heard of `url` fell back to writing a file
   // — that lane is gone, so a pane armed without an address would run its
   // whole life reporting into nowhere and looking alive doing it. Arming
   // nothing says so instead.
   //
-  // Whole, not a port: assembling an address means knowing the route, and a
-  // reporter that knew it would have to be told when the route moves.
+  // The door's socket, whole: the deck's own path for it, which a reporter
+  // carries byte for byte rather than assembles.
   const bridge: [string, string][] =
-    token && paneDir && ctx.bridgeUrl
+    token && paneDir && "dir" in paneDir && ctx.bridgeSocket
       ? [
           [
             BRIDGE_ENV,
             JSON.stringify({
               v: BRIDGE_PROTOCOL_VERSION,
-              dir: paneDir,
+              dir: paneDir.dir,
               pane: paneId,
               token,
-              url: ctx.bridgeUrl,
+              socket: ctx.bridgeSocket,
             }),
           ],
         ]
       : [];
+  // A launch given no bridge runs with its setup and is heard by nobody:
+  // said on the plan, which the pane's dot and the bell read — the same way
+  // a launch without its setup is.
+  if (!unconnected && bridge.length === 0) {
+    unconnected =
+      paneDir && "error" in paneDir && ctx.bridgeSocket
+        ? { cause: "pane-dir-failed", error: paneDir.error }
+        : { cause: "bridge-down" };
+  }
   const env = paneEnv(entry.id, mcpEnv, output.env, bridge);
   // Only a fork's surgery leaves scaffolding: a spawn or resume that declared
   // some is ignored. The removal is the lifecycle's, made as the plugin, held

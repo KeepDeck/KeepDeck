@@ -5,11 +5,11 @@ import { MOD_INTERRUPT_EVENT, MOD_PROMPT_ACCEPTED_EVENT } from "./status";
 import { present, recordOf, stringOf } from "@keepdeck/plugin-api/testing";
 
 const BRIDGE = JSON.stringify({
-  v: 2,
+  v: 3,
   dir: "/run/p-1",
   pane: "p-1",
   token: "secret",
-  url: "http://127.0.0.1:9/envelope",
+  socket: "/home/bridge/a1b2c",
 });
 
 type Handler = Parameters<Parameters<typeof register>[0]>[1];
@@ -23,7 +23,7 @@ function loaded({
 } = {}) {
   const handlers = new Map<string, Handler>();
   register((name: string, handler: Handler) => handlers.set(name, handler));
-  const posted: { url: string; envelope: { type: string; payload: Record<string, unknown> } }[] = [];
+  const posted: { url: string; socketPath: string; envelope: { type: string; payload: Record<string, unknown> } }[] = [];
   /** The doorbell as a file the test raises; the timer the Mod set. */
   const doorbell = { up: false, removed: 0 };
   const timers: { ms: number; tick: () => Promise<void> }[] = [];
@@ -69,8 +69,8 @@ function loaded({
       },
     },
     http: {
-      fetch: async (url: string, init: { body: string }) => {
-        posted.push({ url, envelope: JSON.parse(init.body) });
+      fetch: async (url: string, init: { body: string; socketPath: string }) => {
+        posted.push({ url, socketPath: init.socketPath, envelope: JSON.parse(init.body) });
         return { status, ok: status < 300, headers: {}, text: "" };
       },
     },
@@ -140,11 +140,14 @@ describe("KeepDeck's claude Mod", () => {
   it("says hello once, naming this claude's process group, then states the main agent's facts", async () => {
     const mod = loaded();
     await mod.fire("session.start", { cwd: "/repo" });
+    // Over the deck's socket, from claude itself: the process the kernel
+    // names to the deck's door.
     expect(mod.posted).toEqual([
       {
-        url: "http://127.0.0.1:9/envelope",
+        url: "http://localhost/envelope",
+        socketPath: "/home/bridge/a1b2c",
         envelope: {
-          v: 2,
+          v: 3,
           type: "companion.hello",
           paneId: "p-1",
           token: "secret",

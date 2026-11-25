@@ -43,7 +43,7 @@ describe("the pty_open wire contract", () => {
         cwd: "/repo",
         cols: 80,
         rows: 24,
-        secrets: ["s-mcp", "s-bridge"],
+        secrets: { mcp: "s-mcp", bridge: "s-bridge" },
       },
       41,
       PANE,
@@ -58,7 +58,7 @@ describe("the pty_open wire contract", () => {
         cwd: "/repo",
         cols: 80,
         rows: 24,
-        secrets: ["s-mcp", "s-bridge"],
+        secrets: { mcp: "s-mcp", bridge: "s-bridge" },
       },
       permit: 41,
       owner: PANE,
@@ -76,7 +76,7 @@ describe("the pty_open wire contract", () => {
       cwd: null,
       cols: 1,
       rows: 1,
-      secrets: [],
+      secrets: {},
     });
   });
 

@@ -342,13 +342,18 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
   /** Delivered mail per receiver, for catch-up reads and for working out who
    * owes whom an answer. */
   const inboxes = new Map<string, InboxEntry[]>();
-  /** When each pane was last nudged into a turn.
+  /** When each pane was last nudged into a turn, while that nudge is
+   * unanswered.
    *
    * A wake hands nothing over, so nothing about the queue changes to stop
    * the next pass doing it again. This is what stops it: one nudge per pane
    * per wait window, which is also the interval after which a nudge that
    * produced no turn is worth repeating. Without it a pane whose hook never
-   * answers would be prodded on every drain until its mail expired. */
+   * answers would be prodded on every drain until its mail expired.
+   *
+   * Forgotten once the pane comes for its mail ([`drainQueue`]): that nudge
+   * was answered, and mail arriving after is owed a nudge of its own at once.
+   * Kept, it held the next answer to an idle lead for most of the window. */
   const lastWakeAt = new Map<string, number>();
   /** Panes whose last nudge is known to have started no turn, for the one
    * pass [`MailManager.wakeLost`] runs — never across passes. */
@@ -876,6 +881,8 @@ export function createMailManager(deps: MailManagerDeps): MailManager {
       log.info("web:mail", `handed to ${doorName(door)}: ${trace(head)}`);
       collected.push(head);
       carried += head.body.length;
+      // The pane came for its mail: whatever nudge was out has been answered.
+      lastWakeAt.delete(paneId);
     }
     if (queue.length === 0) queues.delete(paneId);
   }

@@ -49,7 +49,7 @@ if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
 # @include lib/reporter-identity.sh
 
 # @include lib/reporter-send.sh
-  if [ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ]; then
+  if [ -n "$socket" ] && [ -n "$pane" ] && [ -n "$token" ]; then
     # No capture time is stamped here. The transcript's mtime looked like one,
     # but claude's own housekeeping touches the file hourly with no API call
     # behind it, so an idle session's frozen limits arrived dated as new — the
@@ -63,7 +63,7 @@ if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
     # nested run's statusline holds a valid secret and would otherwise
     # overwrite this pane's numbers with another session's.
     [ -n "$reporter" ] && extra="$extra,\"reporter\":\"$reporter\""
-    send_envelope "$(printf '{"v":2,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":%s%s}}' \
+    send_envelope "$(printf '{"v":3,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":%s%s}}' \
       "$pane" "$token" "$payload" "$extra")"
   fi
 fi

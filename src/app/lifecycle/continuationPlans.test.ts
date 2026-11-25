@@ -14,7 +14,7 @@ vi.mock("../spawnSpecs", () => ({ buildForkSpec: builders.fork, buildResumeSpec:
 const W = { id: "ws-a", instance: createWorkspaceInstance() };
 const SOURCE = { agent: "cli-a", session: "s-1" };
 const DISCARD = { plugin: "cli-a", onceStarted: [], ifNeverStarted: [] };
-const ctx: SpawnPlanContext = { bridgeDir: "/b", bridgeUrl: "http://b", paneBridgeDir: async (pane) => `/b/${pane}` };
+const ctx: SpawnPlanContext = { bridgeDir: "/b", bridgeSocket: "/b/s", paneBridgeDir: async (pane) => `/b/${pane}` };
 const asked = (role: string, yolo?: boolean) => ({ agentType: "cli-a", role, ...(yolo !== undefined && { yolo }) });
 
 function plans(context: SpawnPlanContext | null = ctx) {

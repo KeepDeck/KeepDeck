@@ -30,8 +30,6 @@ import type { DeckStore } from "./deckStore";
 export interface AcceptedBinding {
   readonly paneId: string;
   readonly sessionId: string;
-  /** The pane's bridge secret, echoed for lanes that authenticate a watch. */
-  readonly token: string;
   readonly transcriptPath?: string;
 }
 
@@ -109,7 +107,6 @@ export function createSessionBinding(
       const accepted: AcceptedBinding = {
         paneId,
         sessionId,
-        token: report.token,
         ...(transcriptPath ? { transcriptPath } : {}),
       };
       for (const listener of [...listeners]) {

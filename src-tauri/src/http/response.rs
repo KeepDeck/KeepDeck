@@ -10,7 +10,6 @@
 //! is the contract the accept loop is written against.
 
 use std::io::Write;
-use std::net::TcpStream;
 
 /// Every status this HTTP can answer with, as a closed set.
 ///
@@ -76,7 +75,7 @@ impl Status {
 
 /// A status and nothing else. No `Content-Type`: there is no content, and
 /// naming a type for an empty body invites a consumer to sniff one.
-pub(crate) fn respond_empty(stream: &mut TcpStream, status: Status) -> std::io::Result<()> {
+pub(crate) fn respond_empty(stream: &mut impl Write, status: Status) -> std::io::Result<()> {
     stream.write_all(
         format!(
             "HTTP/1.1 {} {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -93,7 +92,7 @@ pub(crate) fn respond_empty(stream: &mut TcpStream, status: Status) -> std::io::
 /// invents either, because a MIME chosen here would be a MIME chosen for
 /// every consumer at once.
 pub(crate) fn respond_with_body(
-    stream: &mut TcpStream,
+    stream: &mut impl Write,
     status: Status,
     mime: &str,
     body: &[u8],

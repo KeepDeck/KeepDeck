@@ -20,7 +20,12 @@ use serde::{Deserialize, Serialize};
 /// version had to move now: nothing watches for that file any more, so a
 /// reporter left behind by an older install would report into nowhere and
 /// look alive doing it. Refusing its envelopes is how it says so out loud.
-pub const BRIDGE_PROTOCOL_VERSION: u64 = 2;
+///
+/// 3 moved the bridge onto a unix socket, where the kernel names the sender:
+/// the variable carries `socket` instead of `url`. A reporter of 2 knows only
+/// the address that is no longer handed out, so it cannot reach this door,
+/// and its envelopes are refused wherever they land.
+pub const BRIDGE_PROTOCOL_VERSION: u64 = 3;
 
 /// Event delivering one session binding to the webview (`src/ipc/sessions.ts`).
 pub const SESSION_BOUND_EVENT: &str = "deck://session/bound";
@@ -69,9 +74,10 @@ struct Envelope {
     payload: serde_json::Value,
 }
 
-/// The `session.bound` wire event (see `src/ipc/sessions.ts`). The webview
-/// verifies `token` against the pane's spawn plan before binding — and, with
-/// the fields below, whether the binding is the pane's own session at all.
+/// The `session.bound` wire event (see `src/ipc/sessions.ts`). The door has
+/// judged where it comes from — the pane's terminal, its bridge secret —
+/// before it is emitted, so it carries no secret; with the fields below the
+/// webview judges whether the binding is the pane's own session at all.
 /// Judging that is the webview's job in the same way the payload's MEANING
 /// always was: this side carries and correlates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -79,7 +85,6 @@ struct Envelope {
 pub struct SessionBound {
     pub pane_id: String,
     pub session_id: String,
-    pub token: String,
     /// The session's transcript/rollout file, when the reporter knows it —
     /// what the codex usage tailer follows. Optional: older reporters and
     /// hook payloads without one still bind.
@@ -97,9 +102,11 @@ pub struct SessionBound {
     pub source: Option<String>,
     /// Which PROCESS reported it — opaque here, and only ever compared for
     /// equality with the one that bound the pane's current generation. The
-    /// bridge secret is inherited by a pane's whole process tree; this is
-    /// what a nested run of the same agent cannot forge. Optional: a reporter
-    /// that cannot name its own process says nothing.
+    /// bridge secret is inherited by a pane's whole process tree; the door
+    /// has checked that this process belongs to the sender's own terminal,
+    /// and within it this is what tells the pane's agent from a nested run of
+    /// it naming itself. Optional: a reporter that cannot name its own
+    /// process says nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reporter: Option<String>,
     /// What the reporter added about the session — string values only, as
@@ -115,15 +122,16 @@ pub struct SessionBound {
 /// `agent.status` → `src/ipc/status.ts`). The webview's per-agent
 /// normalizers own the payload schema (same division as deck.json: TS owns
 /// meaning, Rust owns transport); the bridge guarantees only correlation
-/// (pane, token) and the dispatch key (`payload.agent`).
+/// (the pane, judged at its door) and the dispatch key (`payload.agent`).
+/// The session tailer emits the same shape for what it reads of a pane's
+/// store.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     pub pane_id: String,
-    pub token: String,
-    /// The process the reporter named, as the origin judge read it — the
-    /// one reading of `payload.reporter`, so the webview's pin compares the
-    /// value the judge let through, never a second reading of its own. Left
+    /// The process the reporter named, as the door judged it — the one
+    /// reading of `payload.reporter`, so the webview's pin compares the
+    /// value the door let through, never a second reading of its own. Left
     /// out when it named none, exactly as on [`SessionBound`]: the webview
     /// reads only an absent field as unnamed.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -157,13 +165,18 @@ const OPAQUE_CHANNELS: &[(&str, &str)] = &[
     ("session.unbound", SESSION_UNBOUND_EVENT),
 ];
 
-/// One interpreted envelope — the dispatch result `deliver` emits from.
+/// One interpreted envelope — the dispatch result `deliver` emits from — and
+/// the secret it names, which the door judges and nothing emits.
 #[derive(Debug, PartialEq)]
 pub(super) enum Inbound {
-    SessionBound(SessionBound),
+    SessionBound {
+        bound: SessionBound,
+        token: String,
+    },
     Opaque {
         event: &'static str,
         report: Report,
+        token: String,
     },
 }
 
@@ -171,7 +184,7 @@ impl Inbound {
     /// The pane this envelope speaks for.
     pub(super) fn pane(&self) -> &str {
         match self {
-            Self::SessionBound(bound) => &bound.pane_id,
+            Self::SessionBound { bound, .. } => &bound.pane_id,
             Self::Opaque { report, .. } => &report.pane_id,
         }
     }
@@ -181,8 +194,16 @@ impl Inbound {
     /// before anything is emitted ([`super::origin`]).
     pub(super) fn reporter(&self) -> Option<String> {
         match self {
-            Self::SessionBound(bound) => bound.reporter.clone(),
+            Self::SessionBound { bound, .. } => bound.reporter.clone(),
             Self::Opaque { report, .. } => report.reporter.clone(),
+        }
+    }
+
+    /// The secret it names: the one its pane's process tree was given for
+    /// the bridge.
+    pub(super) fn token(&self) -> &str {
+        match self {
+            Self::SessionBound { token, .. } | Self::Opaque { token, .. } => token,
         }
     }
 }
@@ -190,13 +211,27 @@ impl Inbound {
 /// One optional string a reporter MAY have included. Absent, null, the wrong
 /// type and empty all collapse to `None` — every consumer of these fields
 /// already treats "not reported" as one case, and a shell reporter that omits
-/// a field and one that emits `""` mean the same thing.
+/// a field and one that emits `""` mean the same thing. Not for the reporter,
+/// whose wrong type is not the same as its absence ([`reporter`]).
 fn reported(payload: &serde_json::Value, key: &str) -> Option<String> {
     payload
         .get(key)
         .and_then(|value| value.as_str())
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+/// The process an envelope names as its sender. Absent, null and empty name
+/// none — a shell reporter that could not tell its process sends `""` — and
+/// a string is a name, which the door reads as a process. Anything else is no
+/// name at all, and the envelope is malformed rather than read as unnamed: an
+/// unnamed sender is admitted from further out than a named one.
+fn reporter(payload: &serde_json::Value) -> Result<Option<String>, String> {
+    match payload.get("reporter") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(name)) => Ok((!name.is_empty()).then(|| name.clone())),
+        Some(_) => Err("its reporter is not a process name".into()),
+    }
 }
 
 /// The binding's `facts`: its string-valued entries, the rest dropped — a
@@ -243,16 +278,18 @@ pub(super) fn interpret(content: &str) -> Result<Inbound, String> {
             ) else {
                 return Err("session.bound with empty fields".into());
             };
-            Ok(Inbound::SessionBound(SessionBound {
-                transcript_path: reported(&envelope.payload, "transcriptPath"),
-                source: reported(&envelope.payload, "source"),
-                reporter: reported(&envelope.payload, "reporter"),
-                facts: facts(&envelope.payload),
-                pane_id: envelope.pane_id,
-                session_id: session_id.to_string(),
+            Ok(Inbound::SessionBound {
+                bound: SessionBound {
+                    transcript_path: reported(&envelope.payload, "transcriptPath"),
+                    source: reported(&envelope.payload, "source"),
+                    reporter: reporter(&envelope.payload).map_err(|why| format!("session.bound: {why}"))?,
+                    facts: facts(&envelope.payload),
+                    pane_id: envelope.pane_id,
+                    session_id: session_id.to_string(),
+                    agent,
+                },
                 token: envelope.token,
-                agent,
-            }))
+            })
         }
         // One scan, no guard to re-prove: this module's contract is that
         // malformed input degrades to a logged reason, never a panic path.
@@ -265,14 +302,15 @@ pub(super) fn interpret(content: &str) -> Result<Inbound, String> {
             if envelope.pane_id.is_empty() || envelope.token.is_empty() || agent.is_empty() {
                 return Err(format!("{kind} with empty fields"));
             }
+            let reporter = reporter(&envelope.payload).map_err(|why| format!("{kind}: {why}"))?;
             Ok(Inbound::Opaque {
                 event,
                 report: Report {
                     pane_id: envelope.pane_id,
-                    token: envelope.token,
-                    reporter: reported(&envelope.payload, "reporter"),
+                    reporter,
                     payload: envelope.payload,
                 },
+                token: envelope.token,
             })
         }
         other => Err(format!("unknown type \"{}\"", printable(other))),
@@ -307,7 +345,7 @@ pub(super) mod tests {
 
     fn usage_envelope(pane: &str, token: &str, agent: &str) -> String {
         serde_json::json!({
-            "v": 2, "type": "usage.report", "paneId": pane, "token": token,
+            "v": BRIDGE_PROTOCOL_VERSION, "type": "usage.report", "paneId": pane, "token": token,
             "payload": { "agent": agent, "statusline": { "rate_limits": { "five_hour": { "used_percentage": 42 } } } },
         })
         .to_string()
@@ -315,7 +353,7 @@ pub(super) mod tests {
 
     fn status_envelope(pane: &str, token: &str, agent: &str) -> String {
         serde_json::json!({
-            "v": 2, "type": "agent.status", "paneId": pane, "token": token,
+            "v": BRIDGE_PROTOCOL_VERSION, "type": "agent.status", "paneId": pane, "token": token,
             "payload": { "agent": agent, "event": { "hook_event_name": "Stop", "session_id": "abc" } },
         })
         .to_string()
@@ -327,43 +365,67 @@ pub(super) mod tests {
         // unknown extra on purpose — `agent` is a PAYLOAD field, so one
         // sitting at envelope level must not be mistaken for the real one.
         let mut value: serde_json::Value =
-            serde_json::from_str(&envelope(2, "session.bound", "pane-3", "tok", "abc")).unwrap();
+            serde_json::from_str(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "pane-3", "tok", "abc")).unwrap();
         value["agent"] = "codex".into();
         value["payload"]["agent"] = "claude".into();
         assert_eq!(
             interpret(&value.to_string()),
-            Ok(Inbound::SessionBound(SessionBound {
-                pane_id: "pane-3".into(),
-                session_id: "abc".into(),
+            Ok(Inbound::SessionBound {
+                bound: SessionBound {
+                    pane_id: "pane-3".into(),
+                    session_id: "abc".into(),
+                    transcript_path: None,
+                    agent: "claude".into(),
+                    source: None,
+                    reporter: None,
+                    facts: Default::default(),
+                },
                 token: "tok".into(),
-                transcript_path: None,
-                agent: "claude".into(),
-                source: None,
-                reporter: None,
-                facts: Default::default(),
-            }))
+            })
         );
         // With a transcript path — what the codex usage tailer follows.
         value["payload"]["transcriptPath"] = "/x/y.jsonl".into();
         assert_eq!(
             interpret(&value.to_string()),
-            Ok(Inbound::SessionBound(SessionBound {
-                pane_id: "pane-3".into(),
-                session_id: "abc".into(),
+            Ok(Inbound::SessionBound {
+                bound: SessionBound {
+                    pane_id: "pane-3".into(),
+                    session_id: "abc".into(),
+                    transcript_path: Some("/x/y.jsonl".into()),
+                    agent: "claude".into(),
+                    source: None,
+                    reporter: None,
+                    facts: Default::default(),
+                },
                 token: "tok".into(),
-                transcript_path: Some("/x/y.jsonl".into()),
-                agent: "claude".into(),
-                source: None,
-                reporter: None,
-                facts: Default::default(),
-            }))
+            })
         );
         // An empty path is as good as none.
         value["payload"]["transcriptPath"] = "".into();
-        let Ok(Inbound::SessionBound(bound)) = interpret(&value.to_string()) else {
+        let Ok(Inbound::SessionBound { bound, .. }) = interpret(&value.to_string()) else {
             panic!("expected a binding");
         };
         assert_eq!(bound.transcript_path, None);
+    }
+
+    #[test]
+    fn the_secret_an_envelope_names_is_judged_at_the_door_and_never_emitted() {
+        // The door counts it; past the door nothing needs it, and an event
+        // that carried it would hand the pane's secret to every listener.
+        for content in [
+            envelope(BRIDGE_PROTOCOL_VERSION, "session.bound", "pane-3", "tok", "abc"),
+            usage_envelope("pane-3", "tok", "claude"),
+        ] {
+            let inbound = interpret(&content).expect("an envelope");
+            assert_eq!(inbound.token(), "tok");
+            let emitted = match &inbound {
+                Inbound::SessionBound { bound, .. } => serde_json::to_value(bound),
+                Inbound::Opaque { report, .. } => serde_json::to_value(report),
+            }
+            .expect("serializes");
+            assert!(emitted.get("token").is_none(), "{emitted}");
+            assert!(!emitted.to_string().contains("tok\""), "{emitted}");
+        }
     }
 
     // The payload must ride through VERBATIM — the webview's normalizers own
@@ -374,12 +436,13 @@ pub(super) mod tests {
         let Ok(Inbound::Opaque {
             event: USAGE_REPORT_EVENT,
             report,
+            token,
         }) = result
         else {
             panic!("expected a usage report, got {result:?}");
         };
         assert_eq!(report.pane_id, "pane-7");
-        assert_eq!(report.token, "tok");
+        assert_eq!(token, "tok");
         assert_eq!(report.payload["agent"], "claude");
         assert_eq!(
             report.payload["statusline"]["rate_limits"]["five_hour"]["used_percentage"],
@@ -407,12 +470,13 @@ pub(super) mod tests {
         let Ok(Inbound::Opaque {
             event: AGENT_STATUS_EVENT,
             report,
+            token,
         }) = result
         else {
             panic!("expected a status report, got {result:?}");
         };
         assert_eq!(report.pane_id, "pane-7");
-        assert_eq!(report.token, "tok");
+        assert_eq!(token, "tok");
         assert_eq!(report.payload["agent"], "claude");
         assert_eq!(report.payload["event"]["hook_event_name"], "Stop");
     }
@@ -432,6 +496,7 @@ pub(super) mod tests {
         let Ok(Inbound::Opaque {
             event: COMPANION_HELLO_EVENT,
             report,
+            ..
         }) = result
         else {
             panic!("expected a companion hello, got {result:?}");
@@ -457,6 +522,7 @@ pub(super) mod tests {
         let Ok(Inbound::Opaque {
             event: COMPANION_DECLINED_EVENT,
             report,
+            ..
         }) = result
         else {
             panic!("expected a declined wake, got {result:?}");
@@ -479,7 +545,7 @@ pub(super) mod tests {
                 "facts": {"originator": "codex-tui", "count": 3, "nested": {"x": "y"}},
             },
         });
-        let Ok(Inbound::SessionBound(bound)) = interpret(&with_facts.to_string()) else {
+        let Ok(Inbound::SessionBound { bound, .. }) = interpret(&with_facts.to_string()) else {
             panic!("expected a binding");
         };
         assert_eq!(bound.facts.len(), 1);
@@ -487,7 +553,7 @@ pub(super) mod tests {
         let json = serde_json::to_value(&bound).unwrap();
         assert_eq!(json["facts"]["originator"], "codex-tui");
 
-        let Ok(Inbound::SessionBound(bare)) = interpret(&envelope(2, "session.bound", "p", "t", "s"))
+        let Ok(Inbound::SessionBound { bound: bare, .. }) = interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "p", "t", "s"))
         else {
             panic!("expected a binding");
         };
@@ -511,6 +577,7 @@ pub(super) mod tests {
         let Ok(Inbound::Opaque {
             event: SESSION_UNBOUND_EVENT,
             report,
+            ..
         }) = result
         else {
             panic!("expected a session unbinding, got {result:?}");
@@ -531,12 +598,15 @@ pub(super) mod tests {
     #[test]
     fn rejects_unsupported_versions_and_unknown_types() {
         // 1 is not merely "not current": it is a reporter left behind by an
-        // older install, which would have written a file nothing watches.
+        // older install, which would have written a file nothing watches. 2
+        // is one that knows only the TCP address no longer handed out.
         assert!(interpret(&envelope(1, "session.bound", "p", "t", "s"))
             .is_err_and(|e| e.contains("version 1")));
-        assert!(interpret(&envelope(3, "session.bound", "p", "t", "s"))
-            .is_err_and(|e| e.contains("version 3")));
-        assert!(interpret(&envelope(2, "session.stopped", "p", "t", "s"))
+        assert!(interpret(&envelope(2, "session.bound", "p", "t", "s"))
+            .is_err_and(|e| e.contains("version 2")));
+        assert!(interpret(&envelope(4, "session.bound", "p", "t", "s"))
+            .is_err_and(|e| e.contains("version 4")));
+        assert!(interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.stopped", "p", "t", "s"))
             .is_err_and(|e| e.contains("session.stopped")));
     }
 
@@ -544,9 +614,9 @@ pub(super) mod tests {
     fn rejects_garbage_and_empty_fields() {
         assert!(interpret("not json").is_err());
         assert!(interpret("{}").is_err());
-        assert!(interpret(&envelope(2, "session.bound", "", "t", "s")).is_err());
-        assert!(interpret(&envelope(2, "session.bound", "p", "", "s")).is_err());
-        assert!(interpret(&envelope(2, "session.bound", "p", "t", "")).is_err());
+        assert!(interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "", "t", "s")).is_err());
+        assert!(interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "p", "", "s")).is_err());
+        assert!(interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "p", "t", "")).is_err());
     }
 
     // The webview listens for this exact wire shape — pin it. An unreported
@@ -557,7 +627,6 @@ pub(super) mod tests {
         let json = serde_json::to_value(SessionBound {
             pane_id: "pane-3".into(),
             session_id: "abc".into(),
-            token: "tok".into(),
             agent: "claude".into(),
             transcript_path: None,
             source: None,
@@ -570,14 +639,12 @@ pub(super) mod tests {
             serde_json::json!({
                 "paneId": "pane-3",
                 "sessionId": "abc",
-                "token": "tok",
                 "agent": "claude",
             })
         );
         let json = serde_json::to_value(SessionBound {
             pane_id: "pane-3".into(),
             session_id: "abc".into(),
-            token: "tok".into(),
             agent: "claude".into(),
             transcript_path: Some("/x/y.jsonl".into()),
             source: Some("startup".into()),
@@ -596,7 +663,7 @@ pub(super) mod tests {
     #[test]
     fn a_session_bound_without_an_agent_is_refused() {
         let content = serde_json::json!({
-            "v": 2,
+            "v": BRIDGE_PROTOCOL_VERSION,
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",
@@ -612,7 +679,7 @@ pub(super) mod tests {
     #[test]
     fn session_bound_carries_the_reporters_attribution() {
         let content = serde_json::json!({
-            "v": 2,
+            "v": BRIDGE_PROTOCOL_VERSION,
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",
@@ -624,7 +691,7 @@ pub(super) mod tests {
             },
         })
         .to_string();
-        let Ok(Inbound::SessionBound(bound)) = interpret(&content) else {
+        let Ok(Inbound::SessionBound { bound, .. }) = interpret(&content) else {
             panic!("expected a session binding");
         };
         assert_eq!(bound.agent, "kimi");
@@ -641,7 +708,7 @@ pub(super) mod tests {
     #[test]
     fn an_empty_attribution_reads_as_unreported() {
         let content = serde_json::json!({
-            "v": 2,
+            "v": BRIDGE_PROTOCOL_VERSION,
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",
@@ -653,15 +720,15 @@ pub(super) mod tests {
             },
         })
         .to_string();
-        let Ok(Inbound::SessionBound(bound)) = interpret(&content) else {
+        let Ok(Inbound::SessionBound { bound, .. }) = interpret(&content) else {
             panic!("expected a session binding");
         };
         assert_eq!(bound.source, None);
         assert_eq!(bound.reporter, None);
     }
 
-    // The opaque arm reads its reporter by the same rule: what the origin
-    // judge lets through as unnamed travels to the webview as unnamed.
+    // The opaque arm reads its reporter by the same rule: what the door lets
+    // through as unnamed travels to the webview as unnamed.
     #[test]
     fn an_opaque_report_names_its_process_once_and_a_blank_one_names_none() {
         let named = interpret(&serde_json::json!({
@@ -670,13 +737,30 @@ pub(super) mod tests {
         }).to_string());
         let Ok(Inbound::Opaque { report, .. }) = named else { panic!("expected a report, got {named:?}") };
         assert_eq!(report.reporter.as_deref(), Some("4021"));
-        for blank in [serde_json::json!(""), serde_json::json!(null), serde_json::json!(4021)] {
+        for blank in [serde_json::json!(""), serde_json::json!(null)] {
             let content = serde_json::json!({
                 "v": BRIDGE_PROTOCOL_VERSION, "type": "usage.report", "paneId": "pane-3", "token": "tok",
                 "payload": { "agent": "claude", "reporter": blank },
             });
             let Ok(Inbound::Opaque { report, .. }) = interpret(&content.to_string()) else { panic!("expected a report") };
             assert_eq!(report.reporter, None, "{blank}");
+        }
+    }
+
+    // A reporter that is there and is no name is not the same as one left
+    // out: read as unnamed, it would be admitted from wherever an unnamed
+    // sender is, and no strict check of a named process would ever run.
+    #[test]
+    fn a_reporter_that_is_not_a_name_makes_the_envelope_malformed() {
+        for kind in ["usage.report", "session.bound"] {
+            for odd in [serde_json::json!(4021), serde_json::json!(true), serde_json::json!({ "pid": 4021 }), serde_json::json!(["4021"])] {
+                let content = serde_json::json!({
+                    "v": BRIDGE_PROTOCOL_VERSION, "type": kind, "paneId": "pane-3", "token": "tok",
+                    "payload": { "agent": "claude", "sessionId": "abc", "reporter": odd },
+                });
+                let read = interpret(&content.to_string());
+                assert!(read.as_ref().is_err_and(|why| why.contains("reporter")), "{kind} {odd}: {read:?}");
+            }
         }
     }
 
@@ -687,7 +771,6 @@ pub(super) mod tests {
     fn usage_report_serializes_camel_case() {
         let json = serde_json::to_value(Report {
             pane_id: "pane-7".into(),
-            token: "tok".into(),
             reporter: None,
             payload: serde_json::json!({ "agent": "claude" }),
         })
@@ -695,12 +778,11 @@ pub(super) mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "paneId": "pane-7", "token": "tok", "payload": { "agent": "claude" },
+                "paneId": "pane-7", "payload": { "agent": "claude" },
             })
         );
         let named = serde_json::to_value(Report {
             pane_id: "pane-7".into(),
-            token: "tok".into(),
             reporter: Some("4021".into()),
             payload: serde_json::json!({ "agent": "claude", "reporter": "4021" }),
         })
@@ -708,7 +790,7 @@ pub(super) mod tests {
         assert_eq!(
             named,
             serde_json::json!({
-                "paneId": "pane-7", "token": "tok", "reporter": "4021", "payload": { "agent": "claude", "reporter": "4021" },
+                "paneId": "pane-7", "reporter": "4021", "payload": { "agent": "claude", "reporter": "4021" },
             })
         );
     }

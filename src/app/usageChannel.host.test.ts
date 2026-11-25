@@ -92,9 +92,10 @@ describe("the usage channel, on the host", () => {
     it("follows the file a binding names, read for exactly what its plugin declares", async () => {
       const d = await open();
       const { paneId, session } = await followedUp(d);
+      // No secret: the tail is the deck's own reader of the file, and what it
+      // reads crosses no door.
       expect(tailsOf(paneId)).toContainEqual({
         path: join(d.stub.storeDir, `${session}.jsonl`),
-        token: expect.any(String),
         agent: "stub",
         session,
         // Its numbers' records, then its turns': the usage watch first.
@@ -116,9 +117,10 @@ describe("the usage channel, on the host", () => {
       const { paneId } = await followedUp(d);
       const mark = host().tape.length;
       // Swaps to another conversation: the secret alone decides. The forged
-      // one names a conversation and a file of its own.
+      // one names a conversation and a file of its own, and is refused at
+      // the bridge's door.
       const swap = (sessionId: string) => ({ type: "session.bound", payload: { sessionId, source: "clear", transcriptPath: storeFile(d, `${sessionId}.jsonl`) } });
-      expect(await d.report(paneId, { ...swap("s-forged"), token: "forged" })).toBe(204);
+      expect(await d.report(paneId, { ...swap("s-forged"), token: "forged" })).toBe(403);
       // The same, under the pane's own secret, is followed — and by then the
       // forged one would have been too.
       const control = swap("s-control");
@@ -143,15 +145,19 @@ describe("the usage channel, on the host", () => {
       await until("its file is let go", () => unwatches(paneId, mark) > 0);
     });
 
-    it("lets go of a file whose follow lands after its pane left", async () => {
+    it("lets go of a file whose follow lands after its pane left — once the follow was answered", async () => {
       const d = await open();
       const landing = host().hold({ reply: "usage_watch_session_file" });
       const { paneId } = await d.agentUp();
       await landing.caught;
-      await d.closeAgent(paneId);
       const mark = host().tape.length;
+      await d.closeAgent(paneId);
+      // Its let-go waits its turn behind the follow, so the core never hears
+      // the two the wrong way round.
+      await aWhile();
+      expect(unwatches(paneId, mark)).toBe(0);
       landing.release();
-      await until("the late follow is undone", () => unwatches(paneId, mark) > 0);
+      await until("the follow is let go of", () => unwatches(paneId, mark) > 0);
     });
   });
 

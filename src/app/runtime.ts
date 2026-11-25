@@ -370,7 +370,7 @@ export function createAppRuntime(
   // a question all three have to answer the same way.
   const attribution = createPaneAttribution({
     workspaces: () => deckStore.getSnapshot().workspaces,
-    secretOf: (paneId) => peekPaneSpawnSpec(paneId)?.token,
+    reports: (paneId) => planReports(peekPaneSpawnSpec(paneId)),
     restartsConversation: (agentId, report) =>
       agentEntry(agentId)?.binding?.restartsConversation?.(report) ?? false,
     swapSources: (agentId) => agentEntry(agentId)?.binding?.swapSources ?? [],

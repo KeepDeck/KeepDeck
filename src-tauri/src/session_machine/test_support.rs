@@ -37,10 +37,21 @@ pub(super) fn named_pid(events: &Consumer, seen: &mut String, name: &str) -> u32
     panic!("no {name} printed: {seen}");
 }
 
-/// The `<name>=<n>` in `seen`, once its line has ended: a pid split across two
-/// reads is not a pid yet.
+/// The `<name>=<n>` a line of `seen` begins with, once that line has ended: a
+/// pid split across two reads is not a pid yet. Matched at a line's start,
+/// because one name can end another — `WHOOK=` holds `HOOK=` — and the
+/// processes print in whichever order they happen to run.
 pub(super) fn pid_after(seen: &str, name: &str) -> Option<u32> {
-    let rest = seen.split(format!("{name}=").as_str()).nth(1)?;
-    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
-    rest[digits.len()..].starts_with(['\r', '\n']).then(|| digits.parse().ok())?
+    let prefix = format!("{name}=");
+    let ended = &seen[..seen.rfind('\n').map_or(0, |end| end + 1)];
+    ended
+        .lines()
+        .find_map(|line| line.trim_end_matches('\r').strip_prefix(prefix.as_str())?.parse().ok())
+}
+
+#[test]
+fn a_pid_is_read_by_its_own_name_from_a_whole_line() {
+    assert_eq!(pid_after("WHOOK=9\r\nHOOK=5\r\n", "HOOK"), Some(5));
+    assert_eq!(pid_after("HOOK=5", "HOOK"), None, "a line not ended yet");
+    assert_eq!(pid_after("WHOOK=9\r\n", "HOOK"), None);
 }
