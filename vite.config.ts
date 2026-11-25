@@ -63,8 +63,11 @@ export default defineConfig(async ({ mode }): Promise<UserConfig> => {
           }
         : undefined,
       watch: {
-        // 3. tell Vite to ignore watching `src-tauri`
-        ignored: ["**/src-tauri/**"],
+        // 3. tell Vite to ignore watching `src-tauri`, and the build output in
+        // `target/`: a dev run's bundle resources are copied there, and claude
+        // writes its Mod's types into the Mod's folder as it loads it — seen,
+        // that write reloaded the page two seconds into every claude pane.
+        ignored: ["**/src-tauri/**", "**/target/**"],
       },
     },
 
