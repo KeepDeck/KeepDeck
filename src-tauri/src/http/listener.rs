@@ -260,11 +260,11 @@ mod tests {
         peer.write_all(b"GET / HTTP/1.1\r\n").expect("write");
         let serving = std::thread::spawn(move || serve_connection(accepted, Limits::NO_BODY, &|_, _| {}));
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while probe.read_timeout().expect("read bound") != Some(HEAD_TIMEOUT) {
-            assert!(std::time::Instant::now() < deadline, "the head is being read with no bound on it");
+        let bounds = || (probe.read_timeout().expect("read bound"), probe.write_timeout().expect("write bound"));
+        while bounds() != (Some(HEAD_TIMEOUT), Some(WRITE_TIMEOUT)) {
+            assert!(std::time::Instant::now() < deadline, "the head is being read with no bound on it: {:?}", bounds());
             std::thread::sleep(Duration::from_millis(5));
         }
-        assert_eq!(probe.write_timeout().expect("write bound"), Some(WRITE_TIMEOUT));
         peer.write_all(b"Host: x\r\n\r\n").expect("write");
         serving.join().unwrap();
     }

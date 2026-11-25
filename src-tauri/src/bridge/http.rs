@@ -573,7 +573,13 @@ mod tests {
         let envelope = asking_envelope("pane-1", "corr-slow");
         write!(client, "POST {ENVELOPE_PATH} HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n", envelope.len()).unwrap();
         let mut late = client.try_clone().expect("clone");
+        // Timed from the door's own bound, which it sets once it took the
+        // connection: the patience is the whole wait from there.
+        let probe = served.try_clone().expect("clone");
         let sender = std::thread::spawn(move || {
+            while probe.read_timeout().expect("read bound").is_none() {
+                std::thread::sleep(Duration::from_millis(1));
+            }
             std::thread::sleep(HOOK_WAIT);
             late.write_all(envelope.as_bytes()).unwrap();
         });
@@ -599,11 +605,11 @@ mod tests {
         client.write_all(b"GET /nope HTTP/1.1\r\n").expect("write");
         let serving = std::thread::spawn(move || serve_connection(&mut served, &Waiters::default(), &|_| Ok(()), &|_| {}));
         let deadline = Instant::now() + Duration::from_secs(2);
-        while probe.read_timeout().expect("read bound") != Some(HEAD_TIMEOUT) {
-            assert!(Instant::now() < deadline, "the head is being read with no bound on it");
+        let bounds = || (probe.read_timeout().expect("read bound"), probe.write_timeout().expect("write bound"));
+        while bounds() != (Some(HEAD_TIMEOUT), Some(WRITE_TIMEOUT)) {
+            assert!(Instant::now() < deadline, "the head is being read with no bound on it: {:?}", bounds());
             std::thread::sleep(Duration::from_millis(5));
         }
-        assert_eq!(probe.write_timeout().expect("write bound"), Some(WRITE_TIMEOUT));
         client.write_all(b"Host: x\r\n\r\n").expect("write");
         serving.join().unwrap();
     }
