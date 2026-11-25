@@ -2759,6 +2759,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-process",
  "tauri-plugin-updater",
+ "tauri-utils",
  "tempfile",
  "tokio",
  "unicode-normalization",

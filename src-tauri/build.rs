@@ -1,10 +1,13 @@
 //! The app's build script: tauri's, and one correction to where it leaves the
 //! bundle's resources for a dev run.
 
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+
+use tauri_utils::resources::ResourcePaths;
 
 fn main() {
     // Re-process bundled resources whenever they change: a renamed reporter
@@ -25,10 +28,14 @@ fn main() {
 /// `<profile>/build` and a dev run finds no resource at all: its agents start
 /// with nothing of KeepDeck's to report through (tauri-apps/tauri#14790).
 ///
-/// So each destination `bundle.resources` names in tauri.conf.json is copied
-/// on from there to beside the binary. Nothing to do where the two agree:
-/// under the old layout, or once tauri-build finds the folder itself. A
-/// release bundle is not concerned — the bundler places its resources itself.
+/// So the resources `bundle.resources` names in tauri.conf.json are copied
+/// beside the binary here, from their SOURCES, walked the way tauri-build
+/// walks them, each destination's earlier copy removed first. Not from the
+/// folder tauri-build copied them to: it never prunes that one, so a reporter
+/// removed or renamed in the tree would come back beside the binary from it.
+/// Nothing to do where the two places agree: under the old layout, or once
+/// tauri-build finds the folder itself. A release bundle is not concerned —
+/// the bundler places its resources itself.
 fn resources_beside_the_binary() -> io::Result<()> {
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
     let Some(copied) = out_dir.ancestors().nth(3) else {
@@ -48,31 +55,33 @@ fn resources_beside_the_binary() -> io::Result<()> {
     }
     let config: serde_json::Value =
         serde_json::from_str(&fs::read_to_string("tauri.conf.json")?).map_err(io::Error::other)?;
-    let Some(destinations) = config["bundle"]["resources"].as_object() else {
+    let Some(named) = config["bundle"]["resources"].as_object() else {
         return Ok(());
     };
-    for destination in destinations.values().filter_map(serde_json::Value::as_str) {
-        replace(&copied.join(destination), &profile.join(destination))?;
+    let resources: HashMap<String, String> = named
+        .iter()
+        .filter_map(|(source, destination)| Some((source.clone(), destination.as_str()?.to_string())))
+        .collect();
+    for destination in resources.values() {
+        remove(&profile.join(destination))?;
+    }
+    for resource in ResourcePaths::from_map(&resources, true).iter() {
+        let resource = resource.map_err(io::Error::other)?;
+        let to = profile.join(resource.target());
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(resource.path(), to)?;
     }
     Ok(())
 }
 
-/// Make `to` a copy of `from`, a file or a folder, keeping nothing an earlier
-/// copy left there that `from` no longer has.
-fn replace(from: &Path, to: &Path) -> io::Result<()> {
-    if to.is_dir() {
-        fs::remove_dir_all(to)?;
+/// Remove what an earlier copy left at `path`, a file or a folder.
+fn remove(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
+        Ok(_) => fs::remove_file(path),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error),
     }
-    if from.is_dir() {
-        fs::create_dir_all(to)?;
-        for entry in fs::read_dir(from)? {
-            let entry = entry?;
-            replace(&entry.path(), &to.join(entry.file_name()))?;
-        }
-        return Ok(());
-    }
-    if let Some(parent) = to.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::copy(from, to).map(|_| ())
 }
