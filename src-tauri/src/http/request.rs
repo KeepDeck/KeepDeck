@@ -19,6 +19,7 @@ use std::io::{BufRead, BufReader, Read};
 
 use crate::http::response::Status;
 use std::net::TcpStream;
+use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 /// The whole head, not one line: a peer can spread bytes across many
@@ -28,6 +29,45 @@ pub(crate) const HEAD_TIMEOUT: Duration = Duration::from_secs(30);
 /// Write bound for every socket op (set once at accept; inherited by
 /// clones) — a stalled peer errors instead of pinning a thread forever.
 pub(crate) const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A socket this HTTP is served over — a TCP one for the artifacts, a unix
+/// one for the bridge: what its bounds are set on.
+pub(crate) trait Socket {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()>;
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()>;
+}
+
+impl Socket for TcpStream {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        TcpStream::set_read_timeout(self, timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        TcpStream::set_write_timeout(self, timeout)
+    }
+}
+
+impl Socket for UnixStream {
+    fn set_read_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        UnixStream::set_read_timeout(self, timeout)
+    }
+    fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        UnixStream::set_write_timeout(self, timeout)
+    }
+}
+
+/// Bound an accepted socket before its head is read — by whoever accepted
+/// it, since [`read_request`] reads any stream and can set nothing on one.
+/// The head must arrive within [`HEAD_TIMEOUT`]: a peer that connects and
+/// stalls costs a thread no longer. Every write fails after
+/// [`WRITE_TIMEOUT`] rather than pinning a thread: socket options are
+/// inherited by every `try_clone`, so one set covers the answer and any
+/// clone a route keeps (the artifacts' SSE subscribers). `Err` is the
+/// status to answer with when the read bound cannot be set.
+pub(crate) fn bound(socket: &impl Socket) -> Result<(), Status> {
+    socket.set_read_timeout(Some(HEAD_TIMEOUT)).map_err(|_| Status::BadRequest)?;
+    let _ = socket.set_write_timeout(Some(WRITE_TIMEOUT));
+    Ok(())
+}
 
 /// The methods this HTTP speaks, as a closed set.
 ///
@@ -78,27 +118,16 @@ pub(crate) struct Request {
     pub(crate) body: Vec<u8>,
 }
 
-/// Read one request head. `Err(status)` is the status to answer with — the
-/// caller writes it, because only the caller knows whether it also wants to
-/// say anything else first.
-pub(crate) fn read_request(stream: &mut TcpStream, limits: Limits) -> Result<Request, Status> {
-    let Ok(()) = stream.set_read_timeout(Some(HEAD_TIMEOUT)) else {
-        return Err(Status::BadRequest);
-    };
-    // SO_SNDTIMEO here, on the ACCEPTED socket: socket options are
-    // inherited by every try_clone (the mechanism the SSE path already
-    // relies on) — one set covers the head read, every body write, and
-    // any stored subscriber clone.
-    let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
-    let cloned = match stream.try_clone() {
-        Ok(c) => c,
-        Err(_) => return Err(Status::BadRequest),
-    };
+/// Read one request head — and its body, if the surface takes one — off a
+/// stream its acceptor has [`bound`]. `Err(status)` is the status to answer
+/// with — the caller writes it, because only the caller knows whether it
+/// also wants to say anything else first.
+pub(crate) fn read_request(stream: &mut impl Read, limits: Limits) -> Result<Request, Status> {
     // Bounded from the FIRST byte: read_line buffers an entire line
     // before any cap check, so a peer streaming bytes with no newline
     // would grow memory unbounded — Take enforces the cap DURING the
     // read, not after it.
-    let mut reader = BufReader::new(cloned.take(HEAD_CAP as u64 + 1));
+    let mut reader = BufReader::new(Read::take(stream, HEAD_CAP as u64 + 1));
     let mut request_line = String::new();
     match reader.read_line(&mut request_line) {
         Ok(0) => return Err(Status::BadRequest),

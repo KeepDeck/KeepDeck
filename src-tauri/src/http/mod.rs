@@ -8,7 +8,8 @@
 //! none of the artifacts feature's.
 //!
 //! What lives here is exactly what has no consumer-specific knowledge: the
-//! bounded head parse, percent-decoding, and the two response shapes. What
+//! bounded head parse, percent-decoding, and the two response shapes —
+//! over any stream, TCP for the artifacts, a unix socket for the bridge. What
 //! does NOT live here is routing — a route table is the consumer's own
 //! vocabulary, and a shared module that knew `/a/<token>/<slug>` would be
 //! the same smear it was extracted to end.
@@ -21,5 +22,5 @@ pub(crate) mod request;
 pub(crate) mod response;
 
 pub(crate) use listener::{bind, Listener};
-pub(crate) use request::{read_request, Limits, Method};
+pub(crate) use request::{bound, read_request, Limits, Method};
 pub(crate) use response::{respond_empty, respond_with_body, Status};

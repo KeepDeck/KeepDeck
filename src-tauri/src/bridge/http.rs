@@ -11,7 +11,7 @@
 //! both ended at `wire::interpret` and `emit_inbound` on purpose, so that
 //! when one went away nothing downstream had to notice.
 
-use std::net::TcpStream;
+use std::io::Write;
 use std::sync::Arc;
 
 use tauri::{AppHandle, Manager, Runtime};
@@ -89,7 +89,7 @@ pub(super) fn serve<R: Runtime>(app: AppHandle<R>, waiters: Arc<Waiters>) -> Res
 /// `pane_of(pid)` is the answer [`origin::judge`] needs: the pane whose
 /// terminal that process belongs to, if any.
 fn handle(
-    stream: &mut TcpStream,
+    stream: &mut impl Write,
     request: Request,
     waiters: &Waiters,
     pane_of: &dyn Fn(u32) -> Option<String>,
@@ -213,8 +213,8 @@ fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{Read as _, Write as _};
-    use std::net::TcpListener;
+    use std::io::Read as _;
+    use std::net::{TcpListener, TcpStream};
     use std::sync::{Arc, Mutex};
 
     /// Post one request at `handle` over a real socket and read the status

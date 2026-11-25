@@ -14,15 +14,15 @@ use std::path::Path;
 use std::time::Duration;
 
 /// The lock file that makes ownership of the socket name exclusive.
-pub(crate) const LOCK_FILE: &str = "lock";
+pub(super) const LOCK_FILE: &str = "lock";
 
 /// How long a claim waits out a lock held only in passing, and how often it
 /// re-checks. A released claim is NOT free instantly: every process this app
 /// spawns (a PTY agent, a git child) inherits open descriptors across fork
 /// and keeps our lock alive until it execs, so a claim taken right after a
 /// release can still see the old one — measured at ~3ms under load, which
-/// is exactly the down→up gap a page reload produces (its disable, then the
-/// new page's enable). Waiting costs a genuine refusal a fraction of a
+/// is exactly the down→up gap a page reload produces for the MCP door (its
+/// disable, then the new page's enable). Waiting costs a genuine refusal a fraction of a
 /// second; not waiting costs a legitimate re-enable a false "another
 /// instance owns this".
 const CLAIM_TIMEOUT: Duration = Duration::from_millis(250);
@@ -59,7 +59,7 @@ pub(super) fn claim(lock: &File, path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mcp::server::test_support::temp_sock;
+    use crate::unix_door::test_support::temp_sock;
 
     #[test]
     fn a_claim_waits_out_a_holder_that_lets_go() {

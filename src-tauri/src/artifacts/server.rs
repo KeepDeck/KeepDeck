@@ -449,8 +449,8 @@ fn subscribe(
         return;
     }
     // The write timeout rides the ACCEPTED socket (inherited by this
-    // clone) — set in read_request; a wedged subscriber errors and
-    // prunes instead of blocking the registry lock.
+    // clone) — set by the listener at accept (`http::bound`); a wedged
+    // subscriber errors and prunes instead of blocking the registry lock.
     shared
         .subs
         .lock()

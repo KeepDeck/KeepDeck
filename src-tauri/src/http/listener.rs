@@ -15,7 +15,7 @@
 use std::net::{TcpListener, TcpStream};
 
 use crate::http::request::{Limits, Request};
-use crate::http::{read_request, respond_empty};
+use crate::http::{bound, read_request, respond_empty};
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -203,7 +203,7 @@ where
             .name(format!("keepdeck {label} conn"))
             .spawn(move || {
                 let mut stream = stream;
-                match read_request(&mut stream, limits) {
+                match bound(&stream).and_then(|()| read_request(&mut stream, limits)) {
                     Ok(request) => handler(stream, request),
                     Err(status) => {
                         let _ = respond_empty(&mut stream, status);
@@ -213,5 +213,34 @@ where
         if let Err(e) = spawned {
             log::warn!("{label}: dropping connection, no thread: {e}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::http::request::{HEAD_TIMEOUT, WRITE_TIMEOUT};
+    use std::io::Write as _;
+
+    #[test]
+    fn a_connection_reaches_its_handler_bounded() {
+        // The parser reads any stream and can set nothing on one, so the
+        // listener bounds what it accepted: the artifacts' SSE subscribers
+        // keep a clone that inherits the write bound, and a wedged one must
+        // error rather than hold the registry's lock.
+        let bound = bind("test").expect("bind");
+        let port = bound.port;
+        let (seen, heard) = std::sync::mpsc::channel();
+        let seen = Mutex::new(seen);
+        let listener = Listener::serve(bound, "test", Limits::NO_BODY, move |stream, _| {
+            let bounds = (stream.read_timeout().ok().flatten(), stream.write_timeout().ok().flatten());
+            let _ = seen.lock().unwrap().send(bounds);
+        })
+        .expect("serve");
+        let mut peer = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        peer.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n").expect("write");
+        let bounds = heard.recv_timeout(Duration::from_secs(5)).expect("handled");
+        assert_eq!(bounds, (Some(HEAD_TIMEOUT), Some(WRITE_TIMEOUT)));
+        listener.stop();
     }
 }

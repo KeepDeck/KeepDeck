@@ -10,8 +10,8 @@
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-/// Ready the socket's directory and return it. The directory IS the
-/// transport's permission model (see paths::mcp_socket), so it is created
+/// Ready the socket's directory and return it. The directory IS the door's
+/// permission model (see paths::mcp_socket), so it is created
 /// 0700 — never created loose and tightened after, which would leave a
 /// window where another user can open a directory handle that survives the
 /// chmod. A pre-existing directory is validated and retightened; a symlink
@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 pub(super) fn prepare_socket_dir(path: &Path) -> Result<PathBuf, String> {
     let dir = path
         .parent()
-        .ok_or_else(|| "the MCP socket path has no directory".to_string())?;
+        .ok_or_else(|| format!("the socket path {} has no directory", path.display()))?;
     if let Some(home) = dir.parent() {
         std::fs::create_dir_all(home).map_err(|e| e.to_string())?;
     }
@@ -31,7 +31,7 @@ pub(super) fn prepare_socket_dir(path: &Path) -> Result<PathBuf, String> {
             let meta = std::fs::symlink_metadata(dir).map_err(|e| e.to_string())?;
             if meta.file_type().is_symlink() {
                 return Err(format!(
-                    "{} is a symlink — refusing to serve the MCP socket through it",
+                    "{} is a symlink — refusing to serve a socket through it",
                     dir.display()
                 ));
             }
@@ -49,7 +49,7 @@ pub(super) fn prepare_socket_dir(path: &Path) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mcp::server::test_support::{temp_base, temp_sock};
+    use crate::unix_door::test_support::{temp_base, temp_sock};
 
     #[test]
     fn a_directory_this_call_creates_is_born_owner_only() {

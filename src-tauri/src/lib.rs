@@ -45,6 +45,7 @@ mod rpc_child;
 mod run_bounded;
 mod skills;
 mod tasks;
+mod unix_door;
 mod voice;
 mod history;
 mod recent_projects;
