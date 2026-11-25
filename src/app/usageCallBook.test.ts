@@ -100,7 +100,7 @@ describe("usage call book", () => {
 
   it("dates the session from when the deck accepted it, not from its first call", () => {
     const calls = setup();
-    announce({ paneId: "pane-2", sessionId: "s-2", token: "t" });
+    announce({ paneId: "pane-2", sessionId: "s-2" });
     deck.setPaneSession("ws-1", "pane-2", { id: "s-2", boundAt: BOUND_AT });
     clock = 5_000;
     calls.book("pane-2", [call("x")]);
@@ -129,7 +129,7 @@ describe("usage call book", () => {
     vi.advanceTimersByTime(BOOK_DELAY_MS);
     // The pane moves on; the old session's tail still has a report in flight.
     clock = 3_000;
-    announce({ paneId: "pane-1", sessionId: "s-9", token: "t" });
+    announce({ paneId: "pane-1", sessionId: "s-9" });
     deck.setPaneSession("ws-1", "pane-1", { id: "s-9", boundAt: BOUND_AT });
     calls.book("pane-1", [call("late")], "s-1");
     calls.book("pane-1", [call("new")]);

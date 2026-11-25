@@ -26,8 +26,6 @@ export function onUsageReport(
 export interface TailArming {
   /** The session's store. */
   path: string;
-  /** The pane's secret: the tail's reports carry it. */
-  token: string;
   /** The agent whose pane this is. Reports ride under it, and it is passed
    * from HERE because this is the side that knows which pane belongs to
    * which plugin — the backend has no way to tell and no business guessing. */
@@ -52,8 +50,8 @@ export interface TailArming {
   since: number | null;
 }
 
-/** Follow a pane's session file; its records arrive as reports carrying
- * `token`. Idempotent per pane — a rebind replaces the old tail. */
+/** Follow a pane's session file; its records arrive as reports for the
+ * pane. Idempotent per pane — a rebind replaces the old tail. */
 export function watchSessionFile(paneId: string, tail: TailArming): Promise<void> {
   return invoke("usage_watch_session_file", { paneId, tail });
 }

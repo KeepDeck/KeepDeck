@@ -35,7 +35,7 @@ describe("usage maintenance", () => {
       deck: store,
       attribution: createPaneAttribution({
         workspaces: () => store.getSnapshot().workspaces,
-        secretOf: () => "token-1",
+        reports: () => true,
         swapSources: () => [],
       }),
       bindings: { subscribe: () => () => {} },

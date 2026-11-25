@@ -55,13 +55,10 @@ use reader::{drain_file, TailCursor};
 use route::{batch_status, route, wrap, Origin, Routed};
 
 /// One followed session: where every source file is up to and how to
-/// attribute what it yields. The token is the pane's spawn-plan secret,
-/// passed by the webview at watch time so tailer reports ride the reporter
-/// envelope's verification path.
+/// attribute what it yields.
 struct TailState {
     path: PathBuf,
     pane_id: String,
-    token: String,
     /// The agent whose pane this is, as the deck knows it — passed at
     /// arming rather than derived here. Reports ride under it, and the side
     /// that hands it over is the side that knows which plugin will read
@@ -95,7 +92,6 @@ impl TailState {
     fn origin(&self) -> Origin<'_> {
         Origin {
             pane_id: &self.pane_id,
-            token: &self.token,
             agent: &self.agent,
             session: &self.session,
         }
@@ -340,9 +336,6 @@ fn spawn_tailer(
 #[serde(rename_all = "camelCase")]
 pub struct TailArming {
     path: String,
-    /// The pane's spawn-plan secret, so tailer reports ride the reporter
-    /// envelope's verification path.
-    token: String,
     agent: String,
     /// The session the binding named for this store.
     session: String,
@@ -373,7 +366,6 @@ pub fn usage_watch_session_file<R: tauri::Runtime>(
     let state = Arc::new(Mutex::new(TailState {
         path: PathBuf::from(&path),
         pane_id: pane_id.clone(),
-        token: tail.token,
         agent: agent.clone(),
         session: tail.session,
         root: TailCursor::default(),
@@ -632,7 +624,6 @@ mod tests {
         TailState {
             path,
             pane_id: "pane-1".into(),
-            token: "tok".into(),
             agent: "codex".into(),
             session: "ses-1".into(),
             root: TailCursor::default(),
@@ -1050,7 +1041,6 @@ mod tests {
         event.source_mtime_ms = Some(1_234);
         let wrapped = report(&state, event, false);
         assert_eq!(wrapped.pane_id, "pane-1");
-        assert_eq!(wrapped.token, "tok");
         assert_eq!(wrapped.payload["agent"], "codex");
         assert_eq!(wrapped.payload["event"]["record"]["type"], "turn_context");
         assert_eq!(wrapped.payload["catchUp"], false);
@@ -1183,7 +1173,6 @@ mod tests {
             ])
         );
         assert_eq!(report.pane_id, "pane-1");
-        assert_eq!(report.token, "tok");
         // Rotation replays history: never as live status — as a reconcile.
         let guard = state.lock().unwrap();
         fs::write(&path, "{\"type\":\"status\",\"edge\":\"old\"}\n").unwrap();

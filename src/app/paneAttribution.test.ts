@@ -29,14 +29,13 @@ const CONTINUED = ["resume", "clear", "compact", "fork"];
 const attribution = () =>
   createPaneAttribution({
     workspaces: () => workspaces,
-    secretOf: () => "tok",
+    reports: () => true,
     swapSources: () => CONTINUED,
   });
 
 const report = (over: Partial<SessionBound> = {}): SessionBound => ({
   paneId: "pane-1",
   sessionId: "s-1",
-  token: "tok",
   agent: "claude",
   source: "startup",
   reporter: "4021",
@@ -111,7 +110,7 @@ describe("createPaneAttribution", () => {
     const asked: unknown[] = [];
     const owner = createPaneAttribution({
       workspaces: () => workspaces,
-      secretOf: () => "tok",
+      reports: () => true,
       swapSources: () => CONTINUED,
       restartsConversation: (agent, given) => {
         asked.push([agent, given]);
@@ -140,7 +139,7 @@ describe("createPaneAttribution", () => {
     // nothing but the agent's word.
     const owner = createPaneAttribution({
       workspaces: () => workspaces,
-      secretOf: () => "tok",
+      reports: () => true,
       swapSources: () => CONTINUED,
       restartsConversation: () => {
         throw new Error("plugin bug");
@@ -169,7 +168,7 @@ describe("createPaneAttribution", () => {
     // And the consequence the pin exists for: the pane's OWN agent is still
     // admitted on the lanes — the half a continuation's verdict, accepted
     // whatever the pin holds, can no longer show.
-    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
+    expect(owner.admitsReport("pane-1", "claude","4021")).toBe(true);
   });
 
   it("follows the pane's agent to the process it re-hosts its session in", () => {
@@ -184,10 +183,10 @@ describe("createPaneAttribution", () => {
     ).toEqual({ accepted: true });
     owner.recordBinding("pane-1", "920");
 
-    expect(owner.admitsReport("pane-1", "tok", "claude", "920")).toBe(true);
+    expect(owner.admitsReport("pane-1", "claude","920")).toBe(true);
     // The process it left speaks for nothing now: whatever still runs there is
     // no longer the conversation this pane is having.
-    expect(owner.admitsReport("pane-1", "tok", "claude", "22422")).toBe(false);
+    expect(owner.admitsReport("pane-1", "claude","22422")).toBe(false);
     // A fresh session from a third process is still somebody else's.
     expect(owner.judge(report({ reporter: "9137" }))).toEqual({
       accepted: false,
@@ -208,8 +207,8 @@ describe("createPaneAttribution", () => {
     // the pin says, so it can no longer show this: blind admits every process
     // on the report lanes, while an adopted 9137 would have locked out the
     // pane's own agent...
-    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
-    expect(owner.admitsReport("pane-1", "tok", "claude", "9137")).toBe(true);
+    expect(owner.admitsReport("pane-1", "claude","4021")).toBe(true);
+    expect(owner.admitsReport("pane-1", "claude","9137")).toBe(true);
     // ...and a fresh session is then refused for the GENERATION, which is the
     // rule that has something to say, rather than for its process.
     expect(owner.judge(report({ reporter: "4021" }))).toEqual({
@@ -260,31 +259,36 @@ describe("createPaneAttribution", () => {
     expect(owner.judge(report({ paneId: "pane-2" }))).toEqual({
       accepted: true,
     });
-    expect(owner.admitsReport("pane-2", "tok", "claude", "4021")).toBe(true);
+    expect(owner.admitsReport("pane-2", "claude","4021")).toBe(true);
   });
 
-  it("admits a report only from the pane's own agent, with the pane's secret", () => {
+  it("admits a report only from the pane's own agent, while the pane holds a plan that reports", () => {
     const owner = attribution();
-    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
-    expect(owner.admitsReport("pane-1", "tok", "kimi", "4021")).toBe(false);
-    expect(owner.admitsReport("pane-1", "forged", "claude", "4021")).toBe(false);
-    expect(owner.admitsReport("pane-1", "tok", undefined, "4021")).toBe(false);
+    expect(owner.admitsReport("pane-1", "claude", "4021")).toBe(true);
+    expect(owner.admitsReport("pane-1", "kimi", "4021")).toBe(false);
+    expect(owner.admitsReport("pane-1", undefined, "4021")).toBe(false);
     // A pane the deck no longer holds has no agent to speak for.
-    expect(owner.admitsReport("pane-gone", "tok", "claude", "4021")).toBe(false);
+    expect(owner.admitsReport("pane-gone", "claude", "4021")).toBe(false);
+    // A teardown retired the plan before stopping the process: the door still
+    // takes what that process says, and the pane takes none of it.
+    const retired = createPaneAttribution({ workspaces: () => workspaces, reports: () => false, swapSources: () => CONTINUED });
+    expect(retired.admitsReport("pane-1", "claude", "4021")).toBe(false);
+    expect(retired.judge(report())).toEqual({ accepted: false, refusal: "no-plan" });
   });
 
   it("refuses a report from a process the pane's generation is not pinned to", () => {
     // The lane the identity rule does not cover: a nested run refused a
-    // binding still holds a valid secret and names the pane's own agent, and
-    // its statusline would otherwise write this pane's usage and context.
+    // binding still runs in the pane's terminal and names the pane's own
+    // agent, and its statusline would otherwise write this pane's usage and
+    // context.
     const owner = attribution();
     owner.recordBinding("pane-1", "4021");
-    expect(owner.admitsReport("pane-1", "tok", "claude", "9137")).toBe(false);
-    expect(owner.admitsReport("pane-1", "tok", "claude", "4021")).toBe(true);
+    expect(owner.admitsReport("pane-1", "claude","9137")).toBe(false);
+    expect(owner.admitsReport("pane-1", "claude","4021")).toBe(true);
     // Before anything bound, and from a reporter that cannot name itself,
     // the pin has nothing to say and the other two rules decide alone.
-    expect(owner.admitsReport("pane-2", "tok", "claude", "9137")).toBe(true);
-    expect(owner.admitsReport("pane-1", "tok", "claude", undefined)).toBe(true);
+    expect(owner.admitsReport("pane-2", "claude","9137")).toBe(true);
+    expect(owner.admitsReport("pane-1", "claude",undefined)).toBe(true);
   });
 });
 

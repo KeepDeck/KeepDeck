@@ -249,6 +249,26 @@ describe("a pane's reports through the bridge, on the host", () => {
       expect(usageOf(d, paneId)).toBeUndefined();
     });
 
+    it("drops what its agent says once the deck retired the pane's plan, while its process waits to be stopped", async () => {
+      const d = await open();
+      const { ws, paneId } = await ready(d);
+      // The machine retires the plan, then stops the process once that is
+      // answered: the answer held, the process lives on, its terminal and
+      // secret still open the door — and the page has no launch left that
+      // it speaks for.
+      const answering = host().hold({ request: "lifecycle_applied" });
+      const restarting = d.runtime.orchestrator.restart(ws.id, paneId, "resume");
+      await answering.caught;
+      expect(d.holdsPlan(paneId)).toBe(false);
+      const before = activityOf(d, paneId);
+      expect(await d.report(paneId, usage(40))).toBe(204);
+      expect(await d.report(paneId, status("turn-start"))).toBe(204);
+      expect(usageOf(d, paneId)).toBeUndefined();
+      expect(activityOf(d, paneId)).toBe(before);
+      answering.release();
+      expect((await restarting).kind).toBe("accepted");
+    });
+
     it("refuses at the door anything about a process that is gone: no terminal is left to place a sender in", async () => {
       const d = await open();
       const { paneId, session } = await ready(d);

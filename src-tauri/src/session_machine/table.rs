@@ -95,16 +95,6 @@ impl Table {
         inner.panes.retain(|_, session| *session != id);
     }
 
-    /// The pane whose terminal process `pid` belongs to itself — runs in it,
-    /// or was started from it ([`Standing::strict`]) — or None. The bridge's
-    /// TCP route asks it of the process an envelope names.
-    pub fn pane_of(&self, pid: u32) -> Option<PaneId> {
-        match self.locate(pid) {
-            CallerPlace::Terminal { pane, standing, .. } if standing.strict() => Some(pane),
-            CallerPlace::Terminal { .. } | CallerPlace::Outside | CallerPlace::OutsideWhileSpawning => None,
-        }
-    }
-
     /// Where process `pid` runs, as a caller is judged by it: in the terminal
     /// of a pane, with the session that is that terminal and how it stands
     /// there; in none — a process of no pane, a daemon's worker some pane's
@@ -272,25 +262,24 @@ mod tests {
         let pane = PaneId(1);
         let (old, old_events) = sleeper("echo PID=$$; sleep 30");
         let old_pid = first_pid(&old_events);
+        let in_terminal = |id: SessionId| CallerPlace::Terminal { id: id.0, pane, standing: Standing::InTerminal };
         let old_id = table.insert(old, Some(pane)).ok().unwrap();
-        assert_eq!(table.pane_of(old_pid), Some(pane));
-        // This test process runs in no pane's terminal.
-        assert_eq!(table.pane_of(std::process::id()), None);
+        assert_eq!(table.locate(old_pid), in_terminal(old_id));
 
         // A restart re-points the pane before the old terminal is reaped; the
         // old one's late removal must not take the new one's entry with it.
         let (new, new_events) = sleeper("echo PID=$$; sleep 30");
         let new_pid = first_pid(&new_events);
-        table.insert(new, Some(pane)).ok().unwrap();
+        let new_id = table.insert(new, Some(pane)).ok().unwrap();
         table.remove(old_id);
-        assert_eq!(table.pane_of(new_pid), Some(pane));
-        assert_eq!(table.pane_of(old_pid), None, "the retired terminal is no pane's");
+        assert_eq!(table.locate(new_pid), in_terminal(new_id));
+        assert_eq!(table.locate(old_pid), CallerPlace::Outside, "the retired terminal is no pane's");
 
         // A terminal that is no pane's makes its processes nobody's.
         let (plain, plain_events) = sleeper("echo PID=$$; sleep 30");
         let plain_pid = first_pid(&plain_events);
         table.insert(plain, None).ok().unwrap();
-        assert_eq!(table.pane_of(plain_pid), None);
+        assert_eq!(table.locate(plain_pid), CallerPlace::Outside);
         table.shutdown(Duration::from_millis(200));
     }
 
@@ -314,8 +303,6 @@ mod tests {
 
         assert_eq!(table.locate(agent), CallerPlace::Terminal { id: id.0, pane, standing: Standing::ChildOfTerminal });
         assert_eq!(table.locate(server), CallerPlace::Terminal { id: id.0, pane, standing: Standing::SessionFromTerminal });
-        assert_eq!(table.pane_of(agent), Some(pane));
-        assert_eq!(table.pane_of(server), None);
 
         for pid in [server, agent] {
             // SAFETY: processes this test started; they left the terminal's

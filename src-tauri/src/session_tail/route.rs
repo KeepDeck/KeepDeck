@@ -39,11 +39,11 @@ pub(super) fn batch_status(reports: Vec<Report>) -> Option<Report> {
     Some(first)
 }
 
-/// Who a tail reports for: the pane, its secret, its agent, and the session
-/// whose store the tail follows.
+/// Who a tail reports for: the pane, its agent, and the session whose store
+/// the tail follows. No secret: the tail is the deck's own reader of the
+/// store, and nothing it reports crossed a door.
 pub(super) struct Origin<'a> {
     pub pane_id: &'a str,
-    pub token: &'a str,
     pub agent: &'a str,
     pub session: &'a str,
 }
@@ -74,7 +74,6 @@ pub(super) fn wrap(origin: &Origin, event: TailedEvent, catch_up: bool) -> Repor
     // pane speaks here.
     Report {
         pane_id: origin.pane_id.to_string(),
-        token: origin.token.to_string(),
         reporter: None,
         payload,
     }
@@ -147,7 +146,6 @@ pub(super) fn route(report: Report) -> Routed {
     }
     Routed::Status(Report {
         pane_id: report.pane_id,
-        token: report.token,
         reporter: report.reporter,
         payload: body,
     })
@@ -159,7 +157,7 @@ mod tests {
     use super::*;
 
     fn origin<'a>(pane_id: &'a str, agent: &'a str) -> Origin<'a> {
-        Origin { pane_id, token: "tok", agent, session: "ses-1" }
+        Origin { pane_id, agent, session: "ses-1" }
     }
 
     fn event(payload: serde_json::Value) -> TailedEvent {
@@ -219,7 +217,6 @@ mod tests {
             panic!("a carried record must switch channels");
         };
         assert_eq!(status.pane_id, "pane-1");
-        assert_eq!(status.token, "tok");
         assert_eq!(status.payload["agent"], "codex");
         assert_eq!(status.payload["kind"], CARRIED_RECORD);
         // The record travels whole and unread: this side does not know that
@@ -272,7 +269,6 @@ mod tests {
             panic!("expected status batch")
         };
         assert_eq!(status.pane_id, "pane-1");
-        assert_eq!(status.token, "tok");
         assert_eq!(
             status.payload,
             json!({ "agent": "agent", "kind": BATCH,

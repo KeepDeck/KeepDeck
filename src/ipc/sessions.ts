@@ -11,15 +11,14 @@ import type { BridgeReport } from "./bridgeReport";
  */
 export const SESSION_BOUND_EVENT = "deck://session/bound";
 
-/** Mirrors the Rust `SessionBound` (camelCase). The token is the per-pane
- * bridge secret — the binding hook verifies it against the pane's spawn plan
- * before believing the postback. It proves the reporter runs somewhere under
- * this pane, which is NOT the same as being the pane's own agent session:
- * the two fields below are what the deck judges that by. */
+/** Mirrors the Rust `SessionBound` (camelCase). The bridge's door has judged
+ * where it comes from — the pane's terminal and its bridge secret — which
+ * proves the reporter runs somewhere under this pane, NOT that it is the
+ * pane's own agent session: the fields below are what the deck judges that
+ * by. */
 export interface SessionBound {
   paneId: string;
   sessionId: string;
-  token: string;
   /** The session's transcript/rollout file when the reporter knows it —
    * what the codex usage tailer follows. */
   transcriptPath?: string;

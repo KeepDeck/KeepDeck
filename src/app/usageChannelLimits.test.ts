@@ -46,7 +46,7 @@ describe("the limits lane's word on an answer that does not normalize", () => {
       deck: store,
       attribution: createPaneAttribution({
         workspaces: () => store.getSnapshot().workspaces,
-        secretOf: () => "token-1",
+        reports: () => true,
         swapSources: () => [],
       }),
       bindings: { subscribe: () => () => {} },

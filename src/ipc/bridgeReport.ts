@@ -6,8 +6,6 @@
  */
 export interface BridgeReport {
   paneId: string;
-  /** The per-spawn bridge secret, verified against the pane's plan. */
-  token: string;
   /** The process that sent it, as its envelope names it — the one reading
    * of the payload's `reporter`, the one the bridge's door checked belongs
    * to the sender's own terminal. Absent when it named none. */

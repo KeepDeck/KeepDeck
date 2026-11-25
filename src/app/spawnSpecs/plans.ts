@@ -72,15 +72,16 @@ export interface SpawnPlan {
    * (`SpawnPlanOutput.yolo`) — what the pane runs in until the agent reports
    * its own mode. Absent = not in YOLO. */
   yolo?: boolean;
-  /** The PER-PANE bridge secret — NOT per build. A reporter must echo it in
-   * its postback; the binding hook refuses postbacks whose token doesn't
-   * match — reaching the surface is not enough to bind a pane.
+  /** The PER-PANE bridge secret — NOT per build. A reporter must name it in
+   * its envelope, and the bridge's door counts it only from the pane's own
+   * terminal, while its session is live: reaching the door is not enough to
+   * speak for a pane.
    *
    * INVARIANT: rebuilding a plan for a pane whose process is still alive
    * must REUSE the cached token (`buildPlan` does; any new plan-building
-   * path must too) — a fresh mint would orphan the token the live process's
-   * reporters echo, and every postback would fail verification forever.
-   * Only an explicit restart, which drops the spec first, mints fresh. */
+   * path must too) — the session was registered with the secret its process
+   * was spawned with, and the tail lane keeps following under it. Only an
+   * explicit restart, which drops the spec first, mints fresh. */
   token?: string;
   /** The PER-PANE MCP secret, minted and retired exactly like `token`: the
    * one an injected MCP server greets the deck's socket with. Both secrets

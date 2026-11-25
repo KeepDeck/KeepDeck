@@ -92,9 +92,10 @@ describe("the usage channel, on the host", () => {
     it("follows the file a binding names, read for exactly what its plugin declares", async () => {
       const d = await open();
       const { paneId, session } = await followedUp(d);
+      // No secret: the tail is the deck's own reader of the file, and what it
+      // reads crosses no door.
       expect(tailsOf(paneId)).toContainEqual({
         path: join(d.stub.storeDir, `${session}.jsonl`),
-        token: expect.any(String),
         agent: "stub",
         session,
         // Its numbers' records, then its turns': the usage watch first.

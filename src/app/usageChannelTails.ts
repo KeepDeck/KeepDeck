@@ -23,7 +23,10 @@ export interface UsageTailsLane extends UsageLane {
   link(paneId: string, ids: readonly string[]): void;
 }
 
-/** What a pane was armed with. */
+/** What a pane was armed with. `token` is the pane's plan's secret at the
+ * arm, kept here alone: a tail stands while it is still the plan's — a plan
+ * retired, or another minted, ends it — and the reports it carries name no
+ * secret, being the deck's own reading of the pane's store. */
 interface Armed {
   path: string;
   token: string;
@@ -119,7 +122,6 @@ export function createUsageTailsLane({
     const pending = sinceFor(paneId, agentId, sessionId).then((since) =>
       watchSessionFile(paneId, {
         path,
-        token,
         agent: agentId,
         session: sessionId,
         watches,
@@ -277,9 +279,8 @@ export function createUsageTailsLane({
     const desired = desiredPanes();
     for (const paneId of [...tailed]) {
       // A tail stands while the secret it was armed with is still the
-      // pane's. A plan retired, or another minted since, leaves it reading
-      // for reports that are refused — the next arm follows under the
-      // secret that stands then.
+      // pane's. A plan retired, or another minted since, is another
+      // generation's — the next arm follows under the plan that stands then.
       const armed = armedWith.get(paneId);
       if (desired.has(paneId) && armed !== undefined && armed.token === peekPaneSpawnSpec(paneId)?.token) continue;
       tailed.delete(paneId);
@@ -301,7 +302,7 @@ export function createUsageTailsLane({
   // report would come back "already bound" and the tail would never arm.
   const unsubscribeBindings = bindings.subscribe((bound) => {
     if (disposed) return;
-    const { paneId, sessionId, transcriptPath, token } = bound;
+    const { paneId, sessionId, transcriptPath } = bound;
     if (!transcriptPath) {
       log.debug(
         "web:usage",
@@ -325,6 +326,10 @@ export function createUsageTailsLane({
       return;
     }
 
+    // Accepted only while the pane holds a plan that reports, so its secret
+    // stands: the tail is armed under it.
+    const token = peekPaneSpawnSpec(paneId)?.token;
+    if (!token) return;
     // The agent's own declaration of which records to carry, handed through
     // verbatim: the backend applies it without reading it.
     log.debug(

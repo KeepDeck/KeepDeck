@@ -2,8 +2,8 @@
 //! facts back to KeepDeck (its session id, its usage reports) and to ask, at
 //! a turn boundary, whether anything is waiting for it.
 //!
-//! This module is the composition: serve the surface [`http`] listens on,
-//! parse what arrives with [`wire`], emit it. The parts it composes change
+//! This module is the composition: open the door [`http`] serves, parse what
+//! arrives with [`wire`], emit it. The parts it composes change
 //! for different reasons — the wire schema when the deck needs a new field,
 //! the run directory when locking or sweeping semantics do — and only the
 //! wire half is shared outside the bridge (the session tailer emits the same
@@ -13,9 +13,8 @@
 //! to every pane at spawn through the single `KEEPDECK_BRIDGE` env var — the
 //! kernel names the process on the far end, so the sessions machine judges
 //! every sender by where it runs. A reporter posts one envelope per
-//! connection and reads the deck's answer off the same connection. The port
-//! it answered on before still listens, unpublished, until every sender is
-//! known to reach the door.
+//! connection and reads the deck's answer off the same connection. There is
+//! no port: a TCP peer is nobody the kernel can name.
 //!
 //! There used to be a second lane: each launch minted a run directory, and
 //! reporters dropped files in it that a watcher parsed and consumed. It is
@@ -28,8 +27,8 @@
 //!
 //! The bridge is an ephemeral signal bus, not a durable queue. Envelopes are
 //! data, never code: size-capped, schema-validated, logged only after control
-//! characters are stripped, and carrying a per-spawn token the webview
-//! verifies against the pane's own spawn plan before applying anything.
+//! characters are stripped, and naming the pane's bridge secret, which the
+//! door counts only from the pane's own live terminal.
 
 mod http;
 mod nudge;
@@ -58,17 +57,15 @@ pub use wire::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 const MAX_ENVELOPE_BYTES: u64 = 256 * 1024;
 
 /// This run's live bridge — kept in Tauri managed state so the lock fd and
-/// the surfaces survive for the app's lifetime.
+/// the door survive for the app's lifetime.
 pub struct Bridge {
     /// Hooks parked on an open connection, waiting for the deck's answer.
-    /// Shared with the surfaces: the route parks, `bridge_reply` unparks.
+    /// Shared with the door: the route parks, `bridge_reply` unparks.
     waiters: std::sync::Arc<waiters::Waiters>,
     /// This run's door, when it opened. Held for the run: dropping it would
     /// close it. None when its socket could not be served — the app runs on,
     /// and its panes start with no bridge to report through.
     door: Option<UnixDoor>,
-    /// Held for the run: dropping it would take the port down.
-    _surface: http::Surface,
     /// This run's directory. Panes are given a subdirectory of it at spawn,
     /// and the only thing that lands there now is a doorbell.
     pub run_dir: PathBuf,
@@ -107,8 +104,6 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<Bridge, String> {
     );
 
     let waiters = std::sync::Arc::new(waiters::Waiters::default());
-    let surface = http::serve(app.clone(), std::sync::Arc::clone(&waiters))?;
-    log::info!("bridge: port at {}, published to no pane", surface.url);
     // A socket that cannot be served leaves the app running: its panes go
     // without a bridge, which the plan says, rather than the deck not
     // starting at all.
@@ -126,7 +121,6 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<Bridge, String> {
     Ok(Bridge {
         waiters,
         door,
-        _surface: surface,
         run_dir: run.dir,
         _lock: run.lock,
     })
@@ -196,10 +190,11 @@ pub fn bridge_nudge(bridge: tauri::State<Bridge>, pane: String) {
 /// Kept apart from the route that calls it because the two answer different
 /// questions: the route knows how bytes arrive, this knows what a report
 /// MEANS. That separation is what let the file lane be removed without
-/// anything downstream noticing.
+/// anything downstream noticing. The secret the envelope named was the door's
+/// to judge, and is not emitted.
 fn emit_inbound<R: Runtime>(app: &AppHandle<R>, inbound: Inbound) {
     match inbound {
-        Inbound::SessionBound(bound) => {
+        Inbound::SessionBound { bound, .. } => {
             log::info!(
                 "bridge: bound pane={} session={}",
                 printable(&bound.pane_id),
@@ -211,7 +206,7 @@ fn emit_inbound<R: Runtime>(app: &AppHandle<R>, inbound: Inbound) {
         }
         // Opaque reports arrive continuously (per statusline update / turn
         // transition) — debug, not info, or they'd dominate keepdeck.log.
-        Inbound::Opaque { event, report } => {
+        Inbound::Opaque { event, report, .. } => {
             log::debug!("bridge: {event} pane={}", printable(&report.pane_id));
             if let Err(e) = app.emit(event, &report) {
                 log::warn!("bridge: emitting {event} failed: {e}");

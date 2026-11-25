@@ -1,16 +1,24 @@
 /**
  * Who may speak for a pane.
  *
- * A reporter proves itself with the bridge secret its spawn was handed. That
- * secret travels in the environment, and the environment is inherited by the
- * pane's WHOLE process tree — so it proves "something running under this
- * pane", never "this pane's agent session". Everything else in here exists
- * because those two are not the same thing: a nested agent CLI, or a second
- * session of the same agent (a teammate, a `--print` run started from a tool
- * call), holds a perfectly valid secret and would otherwise rebind the pane
- * to a conversation the user is not having.
+ * The bridge's door has proven where a report comes from before the page
+ * hears it: the kernel placed its sender in the pane's live terminal — or in
+ * a session a process of it started, as an agent runs its hooks — that sender
+ * named the pane's bridge secret, and a process it named belongs to that
+ * terminal itself (keepdeck-pty `sessions::judge_caller`). That proves
+ * "something running under this pane", never "this pane's agent session".
+ * Everything else in here exists because those two are not the same thing: a
+ * nested agent CLI, or a second session of the same agent (a teammate, a
+ * `--print` run started from a tool call), runs in the same terminal and
+ * would otherwise rebind the pane to a conversation the user is not having.
  *
- * Three rules separate them, and none subsumes the others:
+ * One rule comes first, and is about the pane rather than the report: a pane
+ * takes reports only while it holds a plan that reports. A teardown retires
+ * the plan before it stops the process, and the door, which judges by the
+ * live terminal, still takes what that process says in between; taken, a
+ * binding there would pin a retired generation to the old process.
+ *
+ * Three rules separate the sessions, and none subsumes the others:
  *
  *  - a report may only speak for a pane running the SAME agent — which
  *    catches a foreign CLI on its very first report;
@@ -32,9 +40,9 @@
  * who can say it — a nested run needs the spawn's injected settings to report
  * at all.
  *
- * Bounded further since: the bridge now takes a report only from a process
- * belonging to the pane's terminal (src-tauri/src/bridge/origin.rs), and a
- * daemon's worker does not. Claude 2.1.303 compacts in-process and moves a
+ * Bounded further since: the bridge's door refuses a report whose named
+ * process does not belong to the pane's terminal itself, and a daemon's
+ * worker does not. Claude 2.1.303 compacts in-process and moves a
  * conversation into its daemon only when the user sends it to the background
  * (verified live, task-422) — whose worker then speaks for no pane. What this
  * exemption still admits is a continuation from another process of the
@@ -53,21 +61,9 @@ export type BindingOrigin =
   | "swap";
 
 /**
- * Whether a reporter proved itself with THIS pane's secret. A pane that armed
- * no reporter has no secret and therefore matches nothing — an inbox file is
- * not evidence on its own.
- */
-export function secretMatches(
-  paneSecret: string | undefined,
-  reported: string,
-): boolean {
-  return paneSecret !== undefined && paneSecret !== "" && paneSecret === reported;
-}
-
-/**
  * Whether a report claiming to come from `reported` may speak for a pane
  * running `expected`. Shared by every lane the bridge carries — identity,
- * usage and status all correlate by pane and all inherit the same secret.
+ * usage and status all correlate by pane and all come from its terminal.
  *
  * An unattributed report (a reporter older than the field) is refused rather
  * than trusted: the pane keeps what it has, which is recoverable, instead of
@@ -88,10 +84,9 @@ export function speaksForPane(
  * old to answer, or a `ps` that could not — and the caller falls back to the
  * rules that need no process.
  *
- * Shared by the binding rule and the report lanes, because the secret they
- * both authenticate with is inherited by the pane's whole process tree: a
- * guard on one lane and not the other is how a refused session keeps
- * reporting through the weaker one.
+ * Shared by the binding rule and the report lanes, because both take reports
+ * from the pane's whole terminal: a guard on one lane and not the other is
+ * how a refused session keeps reporting through the weaker one.
  */
 export function sameProcess(
   pinned: string | undefined,
@@ -103,8 +98,9 @@ export function sameProcess(
 /** Why a binding was refused — one reason per rule, so a log line says which
  * rule spoke rather than only that something did. */
 export type BindingRefusal =
-  /** The secret is not this pane's: not a KeepDeck-spawned reporter at all. */
-  | "wrong-token"
+  /** The pane holds no plan that reports: it armed none, or a teardown has
+   * retired it before stopping the process that still speaks. */
+  | "no-plan"
   /** A different CLI than the one this pane runs. */
   | "foreign-agent"
   /** A FRESH session from a different PROCESS than the one that bound this
@@ -119,10 +115,8 @@ export type BindingVerdict =
   | { readonly accepted: false; readonly refusal: BindingRefusal };
 
 export interface BindingClaim {
-  /** The secret this pane's own spawn handed its reporters; absent when the
-   * pane armed none, which accepts nothing. */
-  readonly paneSecret: string | undefined;
-  readonly reportedSecret: string;
+  /** Whether the pane holds a plan that reports; none accepts nothing. */
+  readonly paneReports: boolean;
   /** The agent the pane runs, and the one the reporter says it is. The
    * reported side is not optional: the bridge refuses an unsigned binding, so
    * by the time a claim exists somebody has signed it. */
@@ -147,17 +141,17 @@ export interface BindingClaim {
 
 /**
  * The whole binding rule, in the order that gives the most specific reason:
- * an unknown secret is not our reporter at all, an unsigned one cannot be
- * placed, a foreign agent is placed but wrong, and only then do the two rules
- * about a FRESH session get to speak.
+ * a pane with no plan that reports takes nothing, a foreign agent is placed
+ * but wrong, and only then do the two rules about a FRESH session get to
+ * speak.
  */
 export function bindingVerdict(claim: BindingClaim): BindingVerdict {
   const refuse = (refusal: BindingRefusal): BindingVerdict => ({
     accepted: false,
     refusal,
   });
-  if (!secretMatches(claim.paneSecret, claim.reportedSecret)) {
-    return refuse("wrong-token");
+  if (!claim.paneReports) {
+    return refuse("no-plan");
   }
   if (!speaksForPane(claim.paneAgent, claim.reportedAgent)) {
     return refuse("foreign-agent");
