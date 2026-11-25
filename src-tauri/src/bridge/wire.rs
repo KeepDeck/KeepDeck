@@ -20,7 +20,12 @@ use serde::{Deserialize, Serialize};
 /// version had to move now: nothing watches for that file any more, so a
 /// reporter left behind by an older install would report into nowhere and
 /// look alive doing it. Refusing its envelopes is how it says so out loud.
-pub const BRIDGE_PROTOCOL_VERSION: u64 = 2;
+///
+/// 3 moved the bridge onto a unix socket, where the kernel names the sender:
+/// the variable carries `socket` instead of `url`. A reporter of 2 knows only
+/// the address that is no longer handed out, so it cannot reach this door,
+/// and its envelopes are refused wherever they land.
+pub const BRIDGE_PROTOCOL_VERSION: u64 = 3;
 
 /// Event delivering one session binding to the webview (`src/ipc/sessions.ts`).
 pub const SESSION_BOUND_EVENT: &str = "deck://session/bound";
@@ -97,9 +102,11 @@ pub struct SessionBound {
     pub source: Option<String>,
     /// Which PROCESS reported it — opaque here, and only ever compared for
     /// equality with the one that bound the pane's current generation. The
-    /// bridge secret is inherited by a pane's whole process tree; this is
-    /// what a nested run of the same agent cannot forge. Optional: a reporter
-    /// that cannot name its own process says nothing.
+    /// bridge secret is inherited by a pane's whole process tree; the door
+    /// has checked that this process belongs to the sender's own terminal,
+    /// and within it this is what tells the pane's agent from a nested run of
+    /// it naming itself. Optional: a reporter that cannot name its own
+    /// process says nothing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reporter: Option<String>,
     /// What the reporter added about the session — string values only, as
@@ -183,6 +190,15 @@ impl Inbound {
         match self {
             Self::SessionBound(bound) => bound.reporter.clone(),
             Self::Opaque { report, .. } => report.reporter.clone(),
+        }
+    }
+
+    /// The secret it names: the one its pane's process tree was given for
+    /// the bridge.
+    pub(super) fn token(&self) -> &str {
+        match self {
+            Self::SessionBound(bound) => &bound.token,
+            Self::Opaque { report, .. } => &report.token,
         }
     }
 }
@@ -307,7 +323,7 @@ pub(super) mod tests {
 
     fn usage_envelope(pane: &str, token: &str, agent: &str) -> String {
         serde_json::json!({
-            "v": 2, "type": "usage.report", "paneId": pane, "token": token,
+            "v": BRIDGE_PROTOCOL_VERSION, "type": "usage.report", "paneId": pane, "token": token,
             "payload": { "agent": agent, "statusline": { "rate_limits": { "five_hour": { "used_percentage": 42 } } } },
         })
         .to_string()
@@ -315,7 +331,7 @@ pub(super) mod tests {
 
     fn status_envelope(pane: &str, token: &str, agent: &str) -> String {
         serde_json::json!({
-            "v": 2, "type": "agent.status", "paneId": pane, "token": token,
+            "v": BRIDGE_PROTOCOL_VERSION, "type": "agent.status", "paneId": pane, "token": token,
             "payload": { "agent": agent, "event": { "hook_event_name": "Stop", "session_id": "abc" } },
         })
         .to_string()
@@ -327,7 +343,7 @@ pub(super) mod tests {
         // unknown extra on purpose — `agent` is a PAYLOAD field, so one
         // sitting at envelope level must not be mistaken for the real one.
         let mut value: serde_json::Value =
-            serde_json::from_str(&envelope(2, "session.bound", "pane-3", "tok", "abc")).unwrap();
+            serde_json::from_str(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "pane-3", "tok", "abc")).unwrap();
         value["agent"] = "codex".into();
         value["payload"]["agent"] = "claude".into();
         assert_eq!(
@@ -487,7 +503,7 @@ pub(super) mod tests {
         let json = serde_json::to_value(&bound).unwrap();
         assert_eq!(json["facts"]["originator"], "codex-tui");
 
-        let Ok(Inbound::SessionBound(bare)) = interpret(&envelope(2, "session.bound", "p", "t", "s"))
+        let Ok(Inbound::SessionBound(bare)) = interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "p", "t", "s"))
         else {
             panic!("expected a binding");
         };
@@ -531,12 +547,15 @@ pub(super) mod tests {
     #[test]
     fn rejects_unsupported_versions_and_unknown_types() {
         // 1 is not merely "not current": it is a reporter left behind by an
-        // older install, which would have written a file nothing watches.
+        // older install, which would have written a file nothing watches. 2
+        // is one that knows only the TCP address no longer handed out.
         assert!(interpret(&envelope(1, "session.bound", "p", "t", "s"))
             .is_err_and(|e| e.contains("version 1")));
-        assert!(interpret(&envelope(3, "session.bound", "p", "t", "s"))
-            .is_err_and(|e| e.contains("version 3")));
-        assert!(interpret(&envelope(2, "session.stopped", "p", "t", "s"))
+        assert!(interpret(&envelope(2, "session.bound", "p", "t", "s"))
+            .is_err_and(|e| e.contains("version 2")));
+        assert!(interpret(&envelope(4, "session.bound", "p", "t", "s"))
+            .is_err_and(|e| e.contains("version 4")));
+        assert!(interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.stopped", "p", "t", "s"))
             .is_err_and(|e| e.contains("session.stopped")));
     }
 
@@ -544,9 +563,9 @@ pub(super) mod tests {
     fn rejects_garbage_and_empty_fields() {
         assert!(interpret("not json").is_err());
         assert!(interpret("{}").is_err());
-        assert!(interpret(&envelope(2, "session.bound", "", "t", "s")).is_err());
-        assert!(interpret(&envelope(2, "session.bound", "p", "", "s")).is_err());
-        assert!(interpret(&envelope(2, "session.bound", "p", "t", "")).is_err());
+        assert!(interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "", "t", "s")).is_err());
+        assert!(interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "p", "", "s")).is_err());
+        assert!(interpret(&envelope(BRIDGE_PROTOCOL_VERSION,"session.bound", "p", "t", "")).is_err());
     }
 
     // The webview listens for this exact wire shape — pin it. An unreported
@@ -596,7 +615,7 @@ pub(super) mod tests {
     #[test]
     fn a_session_bound_without_an_agent_is_refused() {
         let content = serde_json::json!({
-            "v": 2,
+            "v": BRIDGE_PROTOCOL_VERSION,
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",
@@ -612,7 +631,7 @@ pub(super) mod tests {
     #[test]
     fn session_bound_carries_the_reporters_attribution() {
         let content = serde_json::json!({
-            "v": 2,
+            "v": BRIDGE_PROTOCOL_VERSION,
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",
@@ -641,7 +660,7 @@ pub(super) mod tests {
     #[test]
     fn an_empty_attribution_reads_as_unreported() {
         let content = serde_json::json!({
-            "v": 2,
+            "v": BRIDGE_PROTOCOL_VERSION,
             "type": "session.bound",
             "paneId": "pane-3",
             "token": "tok",

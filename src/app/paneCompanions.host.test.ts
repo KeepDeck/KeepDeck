@@ -85,7 +85,7 @@ describe("a companion in a pane's process, on the host", () => {
       expect(await d.report(paneId, hello)).toBe(204);
       // Admitted — no process named is no other process — and dropped by
       // the lane itself, for naming none.
-      expect(await d.report(paneId, hello, "outside")).toBe(204);
+      expect(await d.report(paneId, hello, "unnamed")).toBe(204);
       await host().until("the lane drops it", () => logged(`companion hello for ${paneId} names no process — ignored`) === 1);
       await turnsPassedOver(d, paneId, 41);
     });
@@ -94,15 +94,16 @@ describe("a companion in a pane's process, on the host", () => {
       const d = await open();
       const paneId = await agentFollowed(d);
       const refused = (from: string) => logged(`companion hello for ${paneId} from ${from} — ignored`);
-      // Each refused where it is refused: naming no process by the lane;
-      // another secret, another process in the pane's terminal, another
-      // agent by the pane's attribution.
-      expect(await d.report(paneId, hello, "outside")).toBe(204);
+      // Each refused where it is refused: another secret, or a process
+      // outside the pane's terminal, by the bridge's door; naming no process
+      // by the lane; another process in the pane's terminal, another agent
+      // by the pane's attribution.
+      expect(await d.report(paneId, { ...hello, token: "stolen" })).toBe(403);
+      expect(await d.report(paneId, hello, "outside")).toBe(403);
+      expect(await d.report(paneId, hello, "unnamed")).toBe(204);
       await host().until("dropped for naming no process", () => logged(`companion hello for ${paneId} names no process — ignored`) === 1);
-      expect(await d.report(paneId, { ...hello, token: "stolen" })).toBe(204);
-      await host().until("refused for its secret", () => refused("stub") === 1);
       expect(await d.report(paneId, hello, "child")).toBe(204);
-      await host().until("refused for its process", () => refused("stub") === 2);
+      await host().until("refused for its process", () => refused("stub") === 1);
       expect(await d.report(paneId, { ...hello, payload: { agent: "codex" } })).toBe(204);
       await host().until("refused for its agent", () => refused("codex") === 1);
       // The file still says the pane's turns.

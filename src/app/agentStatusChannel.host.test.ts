@@ -69,17 +69,18 @@ describe("the status channel, on the host", () => {
       expect(stateOf(d, other)).toBe("waiting");
     });
 
-    it("sweeps a spawn that failed like an exit: what its hook said while it started does not outlive it", async () => {
+    it("hears nothing for a spawn that fails: no terminal places a sender, and nothing outlives it", async () => {
       // The agent's program is gone between its plan and its spawn.
       const d = await open({ programGone: true });
       await d.workspaceUp();
       const spawning = host().hold({ request: "pty_open" });
       const paneId = await d.addAgent({ role: "lead" });
       await spawning.caught;
-      // A hook beats the spawn's answer: taken, the process still starting.
-      expect(await d.report(paneId, permission, "outside")).toBe(204);
+      // A sender holding the pane's secret while the spawn is on its way:
+      // no terminal of the pane's holds it, so the door refuses it.
+      expect(await d.report(paneId, permission, "outside")).toBe(403);
       expect(d.slot(paneId)).toBe("starting");
-      expect(stateOf(d, paneId)).toBe("waiting");
+      expect(stateOf(d, paneId)).not.toBe("waiting");
       spawning.release();
       await until("the spawn failed", () => d.slot(paneId) === "failed");
       expect(activity(d, paneId)).toBeUndefined();
@@ -234,13 +235,13 @@ describe("the status channel, on the host", () => {
     });
 
     it("answers nothing by a key pressed before the session is live: the write went nowhere", async () => {
-      const d = await open({ unbound: true });
+      const d = await open({ startsWaiting: true });
       await d.workspaceUp();
       const spawned = host().hold({ reply: "pty_open" });
       const paneId = await d.addAgent({ role: "lead" });
       await spawned.caught;
       // A hook beats the spawn's answer, and the pane waits while starting.
-      expect(await d.report(paneId, permission, "outside")).toBe(204);
+      await until("the pane waits", () => stateOf(d, paneId) === "waiting");
       expect(d.slot(paneId)).toBe("starting");
       d.press(paneId, "\r");
       expect(stateOf(d, paneId)).toBe("waiting");

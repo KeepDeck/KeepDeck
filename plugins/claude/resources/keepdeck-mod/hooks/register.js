@@ -22,11 +22,13 @@
  * Mod rules this file lives under (claude 2.1.303): event names and `$`
  * calls are static literals, nothing is imported from outside this plugin,
  * and there is no `process`, `require` or global `fetch` — the wire is
- * handed `$.http.fetch`.
+ * handed `$.http.fetch`, which goes over the deck's unix socket when given
+ * its `socketPath` (claude 2.1.331's API): claude itself is then the process
+ * the kernel names to the deck.
  */
-import { createWire, parseBridge } from "./keepdeck-wire.js";
+import { createWire, ENVELOPE_URL, parseBridge } from "./keepdeck-wire.js";
 
-/** @typedef {{ process: { run: (argv: string[], options?: { timeoutMs: number }) => Promise<{ stdout: string, exitCode: number }> }, http: { fetch: (url: string, init: { method: string, headers: Record<string, string>, body: string }) => Promise<{ status: number, text: string }> }, fs: { exists: (path: string) => Promise<boolean> }, prompt: { submit: (input: { text: string }) => Promise<unknown>, read: () => Promise<unknown> }, env: { get: (name: string) => Promise<string | undefined> }, clock: { every: (ms: number, tick: () => Promise<void>) => unknown } }} ModContext */
+/** @typedef {{ process: { run: (argv: string[], options?: { timeoutMs: number }) => Promise<{ stdout: string, exitCode: number }> }, http: { fetch: (url: string, init: { method: string, headers: Record<string, string>, body: string, socketPath: string }) => Promise<{ status: number, text: string }> }, fs: { exists: (path: string) => Promise<boolean> }, prompt: { submit: (input: { text: string }) => Promise<unknown>, read: () => Promise<unknown> }, env: { get: (name: string) => Promise<string | undefined> }, clock: { every: (ms: number, tick: () => Promise<void>) => unknown } }} ModContext */
 /** @typedef {{ reason?: string, turnId?: string, agentId?: string, door?: string, origin?: { kind?: string }, message?: { type?: string, isMeta?: boolean } }} ModEvent */
 /** @typedef {{ v: number, type: string, paneId: string, token: string, payload: Record<string, unknown> }} Envelope */
 /** @typedef {{ publish: (envelope: Envelope) => Promise<{ accepted: boolean }>, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope }} Wire */
@@ -49,16 +51,17 @@ async function processGroup($) {
   }
 }
 
-/** The wire's POST, over the Mod's own HTTP.
+/** The wire's POST, over the Mod's own HTTP and the deck's unix socket.
  * @param {ModContext} $
  */
 function poster($) {
-  /** @param {string} url @param {string} body */
-  return async (url, body) => {
-    const response = await $.http.fetch(url, {
+  /** @param {string} socket @param {string} body */
+  return async (socket, body) => {
+    const response = await $.http.fetch(ENVELOPE_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body,
+      socketPath: socket,
     });
     return { status: response.status, body: response.text };
   };

@@ -1,30 +1,49 @@
-//! The bridge's own surface: one port, one route, and no knowledge of what
-//! an envelope means.
+//! The bridge's own surfaces: its door, a unix socket, and — until every
+//! sender knocks there — a port; one route, and no knowledge of what an
+//! envelope means.
 //!
-//! Its own port on purpose. The artifacts surface serves HTML that agents
-//! wrote, and a page loaded from there could call anything sharing its
-//! origin — so the control plane does not share it. Two ports is a wall the
-//! browser enforces without being asked, and it costs one bind.
+//! The door is where a sender is judged by what the kernel says of it: the
+//! process on the far end of the socket, which the sessions machine places
+//! in a pane's terminal or nowhere, and the pane's bridge secret — both
+//! checked before anything is parked or emitted. A port's peer is nobody
+//! the kernel can name, which is why the port goes.
 //!
-//! This is now the ONLY way an envelope reaches the deck. It was one of two
-//! — the other was a file a reporter dropped in a watched directory — and
-//! both ended at `wire::interpret` and `emit_inbound` on purpose, so that
-//! when one went away nothing downstream had to notice.
+//! The port is the bridge's own on purpose. The artifacts surface serves
+//! HTML that agents wrote, and a page loaded from there could call anything
+//! sharing its origin — so the control plane does not share it.
+//!
+//! These are the ONLY ways an envelope reaches the deck. A file a reporter
+//! dropped in a watched directory was another once, and every lane ends at
+//! `wire::interpret` and `emit_inbound` on purpose, so that when one goes
+//! away nothing downstream has to notice.
 
 use std::io::Write;
+use std::os::unix::net::UnixStream;
+use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
+use keepdeck_pty::sessions::{Door, Secret};
 use tauri::{AppHandle, Manager, Runtime};
 
-use crate::bridge::origin;
+use crate::bridge::origin::{self, Refusal};
 use crate::bridge::waiters::{Waiters, HOOK_WAIT};
 use crate::bridge::wire::{interpret, printable, Inbound};
 use crate::http::request::{Limits, Method, Request};
-use crate::http::{bind, respond_empty, respond_with_body, Listener, Status};
+use crate::http::{bind, bound, read_request, respond_empty, respond_with_body, Listener, Status};
+use crate::session_machine::SessionMachine;
+use crate::unix_door::{Serve, UnixDoor};
 
 /// Where a reporter posts an envelope. One route, because the bridge speaks
 /// one sentence: here is something that happened.
 const ENVELOPE_PATH: &str = "/envelope";
+
+/// What either surface reads of a request. Reporters send small JSON — a
+/// statusline payload runs a few KB — and anything past this is not ours.
+const LIMITS: Limits = Limits { max_body: super::MAX_ENVELOPE_BYTES as usize };
+
+/// A sender's judgment, before anything it sent is parked or emitted.
+type Judge<'a> = &'a dyn Fn(&Inbound) -> Result<(), Refusal>;
 
 /// Compose the address a reporter posts to.
 ///
@@ -43,58 +62,82 @@ pub(super) struct Surface {
     pub(super) url: String,
 }
 
-/// Bind and serve. Called during boot, BEFORE any pane is spawned — a pane
-/// started earlier would inherit an environment with no address in it, and
-/// since the file lane was cut there is nothing else for it to use: its
-/// reporters would report nothing for that pane's whole life.
+/// Bind and serve the port. Called during boot, BEFORE any pane is spawned.
 pub(super) fn serve<R: Runtime>(app: AppHandle<R>, waiters: Arc<Waiters>) -> Result<Surface, String> {
     let bound = bind("bridge")?;
     let port = bound.port;
-    let listener = Listener::serve(
-        bound,
-        "bridge",
-        Limits {
-            // Reporters send small JSON — a statusline payload runs a few
-            // KB — and anything past this is not ours.
-            max_body: super::MAX_ENVELOPE_BYTES as usize,
-        },
-        move |mut stream, request| {
-            let app = app.clone();
-            let sessions = app.clone();
-            handle(
-                &mut stream,
-                request,
-                &waiters,
-                &move |pid| {
-                    sessions
-                        .state::<crate::session_machine::SessionMachine>()
-                        .table
-                        .pane_of(pid)
-                        .map(|pane| pane.to_string())
-                },
-                &move |inbound| super::emit_inbound(&app, inbound),
-            );
-        },
-    )?;
+    let listener = Listener::serve(bound, "bridge", LIMITS, move |mut stream, request| {
+        let arrived = Instant::now();
+        let sessions = app.clone();
+        let pane_of = move |pid| sessions.state::<SessionMachine>().table.pane_of(pid).map(|pane| pane.to_string());
+        handle(&mut stream, request, waiters.as_ref(), arrived, &by_terminal(&pane_of), &|inbound| {
+            super::emit_inbound(&app, inbound)
+        });
+    })?;
     Ok(Surface {
         _listener: listener,
         url: envelope_url(port),
     })
 }
 
-/// Route one request. The EFFECT is injected rather than reached for: a
-/// Tauri handle cannot be built in a unit test, and a route nobody can
-/// exercise is a route nobody has checked.
+/// The port's judgment: a process an envelope names must belong to the
+/// pane's terminal now, by `pane_of(pid)` — the pane whose terminal that
+/// process belongs to, if any ([`origin::judge`]).
+fn by_terminal(pane_of: &dyn Fn(u32) -> Option<String>) -> impl Fn(&Inbound) -> Result<(), Refusal> + '_ {
+    move |inbound| origin::judge(inbound.reporter().as_deref(), inbound.pane(), pane_of)
+}
+
+/// Open the bridge's door at `socket`. Called once the sessions machine is
+/// managed, BEFORE any pane is spawned: the door asks it of every sender
+/// from its first connection on, and a pane started earlier would inherit
+/// an environment with no door in it — its reporters would report nothing
+/// for that pane's whole life.
+pub(super) fn open_door<R: Runtime>(app: AppHandle<R>, waiters: Arc<Waiters>, socket: &Path) -> Result<UnixDoor, String> {
+    let sessions = app.state::<SessionMachine>().inner().clone();
+    let judge = move |peer, inbound: &Inbound| {
+        let reporter = inbound.reporter();
+        let secret = Secret::new(inbound.token());
+        let caller = sessions.caller(peer, Some(&secret), origin::named(reporter.as_deref()), Door::Bridge);
+        origin::admitted(tauri::async_runtime::block_on(caller), inbound.pane())
+    };
+    UnixDoor::open(socket, "bridge", door(waiters, judge, move |inbound| super::emit_inbound(&app, inbound)))
+}
+
+/// What the door does with each connection: bound it, read its one request,
+/// and route it with its sender judged by `judge(peer, envelope)` — `peer`
+/// being the process the kernel names on the socket's far end. The effects
+/// are injected for the same reason as [`handle`]'s.
+fn door(
+    waiters: Arc<Waiters>,
+    judge: impl Fn(Option<u32>, &Inbound) -> Result<(), Refusal> + Send + Sync + 'static,
+    emit: impl Fn(Inbound) + Send + Sync + 'static,
+) -> Serve {
+    Arc::new(move |mut stream: UnixStream, peer| {
+        serve_connection(&mut stream, waiters.as_ref(), &|inbound| judge(peer, inbound), &emit);
+    })
+}
+
+/// One connection at the door. The ask's patience counts from here: the
+/// judging, which may wait for a terminal still being registered, is spent
+/// from it, and the sender's own patience outlasts the whole.
+fn serve_connection(stream: &mut UnixStream, waiters: &Waiters, judge: Judge, emit: &dyn Fn(Inbound)) {
+    let arrived = Instant::now();
+    match bound(&*stream).and_then(|()| read_request(stream, LIMITS)) {
+        Ok(request) => handle(stream, request, waiters, arrived, judge, emit),
+        Err(status) => {
+            let _ = respond_empty(stream, status);
+        }
+    }
+}
+
+/// Route one request that arrived at `arrived`. The EFFECT is injected
+/// rather than reached for: a Tauri handle cannot be built in a unit test,
+/// and a route nobody can exercise is a route nobody has checked.
 ///
-/// `pane_of(pid)` is the answer [`origin::judge`] needs: the pane whose
-/// terminal that process belongs to, if any.
-fn handle(
-    stream: &mut impl Write,
-    request: Request,
-    waiters: &Waiters,
-    pane_of: &dyn Fn(u32) -> Option<String>,
-    emit: &dyn Fn(Inbound),
-) {
+/// `judge` says whether the sender may speak for the pane its envelope
+/// names — the door's by the kernel's word, the port's by the process the
+/// envelope names.
+fn handle(stream: &mut impl Write, request: Request, waiters: &Waiters, arrived: Instant, judge: Judge, emit: &dyn Fn(Inbound)) {
     // Matched as a pair: an unknown path and a wrong method answer the same
     // 404, so probing tells a caller nothing it did not already know.
     if !matches!((&request.method, request.path.as_str()), (Method::Post, ENVELOPE_PATH)) {
@@ -115,9 +158,7 @@ fn handle(
             // with the pane's mail. 403 tells an in-process reporter it is
             // not this pane's — the one sender that acts on the answer.
             let reporter = inbound.reporter();
-            if let Err(refusal) =
-                origin::judge(reporter.as_deref(), inbound.pane(), pane_of)
-            {
+            if let Err(refusal) = judge(&inbound) {
                 log::warn!(
                     "bridge: refused envelope for pane={} from {}: {}",
                     printable(inbound.pane()),
@@ -166,7 +207,7 @@ fn handle(
                         return;
                     };
                     emit(inbound);
-                    match parked.wait(HOOK_WAIT) {
+                    match parked.wait(HOOK_WAIT.saturating_sub(arrived.elapsed())) {
                     // Answered, and there was nothing waiting. That is the
                     // common end to a turn, and 204 is what it means — the
                     // deck already treats an empty answer as a thing that
@@ -213,9 +254,14 @@ fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bridge::wire::BRIDGE_PROTOCOL_VERSION;
+    use crate::http::request::{HEAD_TIMEOUT, WRITE_TIMEOUT};
+    use crate::unix_door::test_support::temp_sock;
+    use keepdeck_pty::sessions::CallerRefusal;
     use std::io::Read as _;
     use std::net::{TcpListener, TcpStream};
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     /// Post one request at `handle` over a real socket and read the status
     /// line back, recording whatever it chose to emit.
@@ -261,15 +307,9 @@ mod tests {
             answer
         });
         let (mut accepted, _) = listener.accept().unwrap();
-        let request = crate::http::read_request(
-            &mut accepted,
-            Limits {
-                max_body: super::super::MAX_ENVELOPE_BYTES as usize,
-            },
-        )
-        .expect("the head must parse");
+        let request = crate::http::read_request(&mut accepted, LIMITS).expect("the head must parse");
         let seen = Mutex::new(0usize);
-        handle(&mut accepted, request, waiters, pane_of, &|_| {
+        handle(&mut accepted, request, waiters, Instant::now(), &by_terminal(pane_of), &|_| {
             *seen.lock().unwrap() += 1;
         });
         drop(accepted);
@@ -281,7 +321,7 @@ mod tests {
 
     fn status_envelope(pane: &str) -> String {
         serde_json::json!({
-            "v": 2,
+            "v": BRIDGE_PROTOCOL_VERSION,
             "type": "agent.status",
             "paneId": pane,
             "token": "tok",
@@ -292,7 +332,7 @@ mod tests {
 
     fn reported_envelope(pane: &str, reporter: &str) -> String {
         serde_json::json!({
-            "v": 2,
+            "v": BRIDGE_PROTOCOL_VERSION,
             "type": "companion.hello",
             "paneId": pane,
             "token": "tok",
@@ -360,7 +400,7 @@ mod tests {
         // Parked, it would be handed the pane's mail.
         let waiters = Waiters::default();
         let body = serde_json::json!({
-            "v": 2, "type": "agent.status", "paneId": "pane-5", "token": "tok",
+            "v": BRIDGE_PROTOCOL_VERSION, "type": "agent.status", "paneId": "pane-5", "token": "tok",
             "payload": { "agent": "claude", "reporter": "4021", "reply": "corr-1" }
         })
         .to_string();
@@ -402,7 +442,7 @@ mod tests {
 
     fn asking_envelope(pane: &str, correlation: &str) -> String {
         serde_json::json!({
-            "v": 2,
+            "v": BRIDGE_PROTOCOL_VERSION,
             "type": "agent.status",
             "paneId": pane,
             "token": "tok",
@@ -444,14 +484,8 @@ mod tests {
             answer
         });
         let (mut accepted, _) = listener.accept().unwrap();
-        let request = crate::http::read_request(
-            &mut accepted,
-            Limits {
-                max_body: super::super::MAX_ENVELOPE_BYTES as usize,
-            },
-        )
-        .unwrap();
-        handle(&mut accepted, request, &waiters, &|_| Some("pane-1".into()), &|_| {});
+        let request = crate::http::read_request(&mut accepted, LIMITS).unwrap();
+        handle(&mut accepted, request, &waiters, Instant::now(), &|_| Ok(()), &|_| {});
         drop(accepted);
         let answer = peer.join().unwrap();
         assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
@@ -580,5 +614,84 @@ mod tests {
             &waiters,
         );
         assert!(status.starts_with("HTTP/1.1 504"), "{status}");
+    }
+
+    /// One request through a real door at a fresh socket, its sender judged
+    /// by `judge`: the status line back, and how many envelopes the deck
+    /// heard.
+    fn knock(body: &str, judge: impl Fn(Option<u32>, &Inbound) -> Result<(), Refusal> + Send + Sync + 'static) -> (String, usize) {
+        let path = temp_sock();
+        let heard = Arc::new(Mutex::new(0usize));
+        let counted = Arc::clone(&heard);
+        let emit = move |_| *counted.lock().unwrap() += 1;
+        let opened = UnixDoor::open(&path, "bridge test", door(Arc::new(Waiters::default()), judge, emit)).expect("open");
+        let mut client = UnixStream::connect(&path).expect("connect");
+        write!(client, "POST {ENVELOPE_PATH} HTTP/1.1\r\nHost: keepdeck\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+        let mut answer = String::new();
+        let _ = client.read_to_string(&mut answer);
+        drop(opened);
+        let status = answer.lines().next().unwrap_or("").to_string();
+        let count = *heard.lock().unwrap();
+        (status, count)
+    }
+
+    #[test]
+    fn the_door_judges_each_sender_by_the_process_the_kernel_names_and_the_secret_it_names() {
+        let judged = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&judged);
+        let (status, heard) = knock(&status_envelope("pane-1"), move |peer, inbound| {
+            seen.lock().unwrap().push((peer, inbound.token().to_string()));
+            Ok(())
+        });
+        assert!(status.starts_with("HTTP/1.1 204"), "{status}");
+        assert_eq!(heard, 1);
+        let this = cfg!(any(target_os = "macos", target_os = "linux")).then(std::process::id);
+        assert_eq!(*judged.lock().unwrap(), vec![(this, "tok".to_string())]);
+    }
+
+    #[test]
+    fn a_sender_the_door_refuses_is_answered_403_and_never_heard() {
+        for refusal in [
+            Refusal::Caller(CallerRefusal::OutsideTerminal),
+            Refusal::Caller(CallerRefusal::WrongSecret),
+            Refusal::Caller(CallerRefusal::NamedOutside),
+            Refusal::OtherPane,
+        ] {
+            let (status, heard) = knock(&reported_envelope("pane-5", "4021"), move |_, _| Err(refusal));
+            assert!(status.starts_with("HTTP/1.1 403"), "{refusal:?}: {status}");
+            assert_eq!(heard, 0, "{refusal:?}");
+        }
+    }
+
+    #[test]
+    fn a_connection_at_the_door_is_bounded_before_its_head_is_read() {
+        // A unix stream carries no bound of its own and the parser can set
+        // none: the door sets them, or a peer that connects and stalls holds
+        // a thread for good.
+        let (mut client, mut served) = UnixStream::pair().expect("socketpair");
+        client.write_all(b"GET /nope HTTP/1.1\r\nHost: x\r\n\r\n").expect("write");
+        serve_connection(&mut served, &Waiters::default(), &|_| Ok(()), &|_| {});
+        assert_eq!(served.read_timeout().expect("read bound"), Some(HEAD_TIMEOUT));
+        assert_eq!(served.write_timeout().expect("write bound"), Some(WRITE_TIMEOUT));
+    }
+
+    #[test]
+    fn an_asks_patience_counts_from_its_arrival() {
+        // Judging a sender may wait for a terminal still being registered.
+        // That wait is spent from the ask's patience, not added to it, or
+        // the sender — whose own patience barely outlasts the deck's — would
+        // give up first and read a socket error instead of the deck's 504.
+        let arrived = Instant::now().checked_sub(HOOK_WAIT).expect("the clock runs further back");
+        let request = Request {
+            method: Method::Post,
+            path: ENVELOPE_PATH.into(),
+            query: None,
+            body: asking_envelope("pane-1", "corr-late").into_bytes(),
+        };
+        let mut answer = Vec::new();
+        let started = Instant::now();
+        handle(&mut answer, request, &Waiters::default(), arrived, &|_| Ok(()), &|_| {});
+        assert!(String::from_utf8_lossy(&answer).starts_with("HTTP/1.1 504"));
+        assert!(started.elapsed() < Duration::from_millis(500), "waited {:?} past a spent patience", started.elapsed());
     }
 }

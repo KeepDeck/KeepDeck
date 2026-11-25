@@ -29,10 +29,10 @@
 import { request as httpRequest } from "node:http";
 // The wire itself — envelope, ask, ordered publishing — is shared with every
 // in-process reporter; this file is only opencode's adapter onto it: Node's
-// environment, Node's HTTP, this process's pid.
-import { createWire, parseBridge, SEND_TIMEOUT_MS } from "./keepdeck-wire.js";
+// environment, Node's HTTP over the deck's unix socket, this process's pid.
+import { createWire, ENVELOPE_URL, parseBridge, SEND_TIMEOUT_MS } from "./keepdeck-wire.js";
 
-/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ dir: string, pane: string, token: string, socket: string }} Bridge */
 /** @typedef {{ v: number, type: string, paneId: string, token: string, payload: Record<string, unknown> }} Envelope */
 /** @typedef {{ bridge: Bridge, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope, send: (envelope: Envelope) => Promise<{ answer: string | null, accepted: boolean }>, publish: (envelope: Envelope) => Promise<{ answer: string | null, accepted: boolean }>, drained: () => Promise<void> }} Wire */
 
@@ -64,7 +64,7 @@ export function readBridge() {
 let wire = null;
 /** @param {Bridge} bridge @returns {Wire} */
 function wireFor(bridge) {
-  if (wire === null || wire.bridge.url !== bridge.url || wire.bridge.token !== bridge.token) {
+  if (wire === null || wire.bridge.socket !== bridge.socket || wire.bridge.token !== bridge.token) {
     wire = createWire({ bridge, agent: "opencode", reporter: REPORTER, post });
   }
   return wire;
@@ -102,13 +102,14 @@ export function drained() {
   return wire?.drained() ?? Promise.resolve();
 }
 
-/** One POST, resolving to `{ status, body }` — `status` is 0 when nothing
+/** One POST over the deck's unix socket — Node's `fetch` cannot reach one,
+ * its HTTP can — resolving to `{ status, body }`: `status` is 0 when nothing
  * answered at all, which means this report is lost.
- * @param {string} url
+ * @param {string} socket
  * @param {string} body
  * @returns {Promise<{ status: number, body: string }>}
  */
-function post(url, body) {
+function post(socket, body) {
   return new Promise((resolve) => {
     let settled = false;
     /** @param {{ status: number, body: string }} value */
@@ -119,8 +120,9 @@ function post(url, body) {
     };
     try {
       const request = httpRequest(
-        url,
+        ENVELOPE_URL,
         {
+          socketPath: socket,
           method: "POST",
           headers: {
             "content-type": "application/json",

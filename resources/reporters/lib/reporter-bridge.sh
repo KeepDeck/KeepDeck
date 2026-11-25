@@ -3,8 +3,8 @@
 #
 # One extractor, one set of names. It was written out three times before this
 # file existed — identically, which is the only reason nothing had drifted yet
-# — and `url` arriving as a fourth field is exactly the moment a fourth copy
-# would have been made.
+# — and a fourth field arriving is exactly the moment a fourth copy would
+# have been made.
 #
 # The values are minted by KeepDeck as plain strings, so the text between
 # the quotes after a key is the value. Read with parameter expansion, never a
@@ -36,10 +36,9 @@ field pane
 pane=$field_value
 field token
 token=$field_value
-# Whole rather than assembled: a reporter that built an address would be a
-# second thing to edit the day the route moves. Empty means the deck's surface
-# never came up, and since the cutoff that means there is nowhere to report —
-# `dir` is still in the env, but it now holds nothing but a doorbell, which
-# only an in-process reporter watches.
-field url
-url=$field_value
+# The deck's door: the unix socket it answers on, whole, as the deck named
+# it. Empty means the door never opened, and that means there is nowhere to
+# report — `dir` is still in the env, but it holds nothing but a doorbell,
+# which only an in-process reporter watches.
+field socket
+socket=$field_value

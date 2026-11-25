@@ -28,19 +28,22 @@ import type { SpawnSecrets } from "../../ipc/session";
  * version but 2, this armed panes with 1, and it went unnoticed because
  * nothing reads the field — reporters carry the version in the envelope
  * themselves. A var that lies about its own protocol is a var the first
- * reporter to check it would refuse. */
-export const BRIDGE_PROTOCOL_VERSION = 2;
+ * reporter to check it would refuse.
+ *
+ * 3: the bridge answers on a unix socket, named by `socket` where `url`
+ * stood. */
+export const BRIDGE_PROTOCOL_VERSION = 3;
 
 /** Per-install constants, resolved once at boot (`session_spawn_context`). */
 export interface SpawnPlanContext {
   /** This run's bridge directory — the root the panes' own live under;
    * "" = bridge unavailable, identity mechanisms off. */
   bridgeDir: string;
-  /** Where this run's bridge surface answers, and the only lane a reporter
-   * has. "" = unavailable, and a pane is then armed with nothing at all: a
-   * reporter with no address has nowhere to report, and arming one anyway
-   * would leave it looking alive for its whole life. */
-  bridgeUrl: string;
+  /** Where this run's bridge door answers — its unix socket — and the only
+   * lane a reporter has. "" = unavailable, and a pane is then armed with
+   * nothing at all: a reporter with no address has nowhere to report, and
+   * arming one anyway would leave it looking alive for its whole life. */
+  bridgeSocket: string;
   /** Create (or reuse) the directory belonging to ONE pane and answer its
    * path. It carries the deck's doorbell — the one thing still travelling as
    * a file, because it runs deck-to-pane and the surface cannot push. Asked
@@ -51,7 +54,7 @@ export interface SpawnPlanContext {
 /** A context with the bridge off — safe boot fallback. */
 export const EMPTY_SPAWN_CONTEXT: SpawnPlanContext = {
   bridgeDir: "",
-  bridgeUrl: "",
+  bridgeSocket: "",
   paneBridgeDir: () => Promise.reject(new Error("the bridge is unavailable")),
 };
 

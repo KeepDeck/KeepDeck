@@ -78,6 +78,10 @@ export interface StubAgentControl {
   /** The agent reports nothing at start — neither its conversation nor
    * itself at its prompt: what it reports is cued. */
   unbound: boolean;
+  /** The agent, coming up, says it waits on a permission rather than that
+   * it is at its prompt — from its terminal, as an agent's hook can before
+   * the spawn's answer reaches the page. */
+  startsWaiting: boolean;
   /** The agent can resume a recorded conversation: its manifest says so,
    * and its plugin has the hook. Read once, at activation. */
   resumes: boolean;
@@ -304,7 +308,7 @@ export function stubPlugin(control: StubAgentControl): PluginInstall {
   const run = (output: SpawnPlanOutput, args: string[]) => {
     // A program gone from where the plan names it: the spawn finds nothing.
     output.command = control.programGone ? join(control.storeDir, "gone", "node") : process.execPath;
-    output.args = [program, ...args, ...(control.keepsStore ? ["--store", control.storeDir] : []), ...(control.deaf ? ["--deaf"] : []), ...(control.unbound ? ["--unbound"] : [])];
+    output.args = [program, ...args, ...(control.keepsStore ? ["--store", control.storeDir] : []), ...(control.deaf ? ["--deaf"] : []), ...(control.unbound ? ["--unbound"] : []), ...(control.startsWaiting ? ["--waiting"] : [])];
   };
   /** The stub's search of its own store for a conversation's file — what a
    * CLI's rollout search is — for a pane's own conversation and for one its

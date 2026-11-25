@@ -226,7 +226,7 @@ describe("the deck's commands as opencode 2.x tools", () => {
 
   it("greets with the bridge's secret when the launch named none, as the shim does", async () => {
     vi.stubEnv(DECK_SOCKET_ENV, encodeDeckSocket({ path }));
-    vi.stubEnv("KEEPDECK_BRIDGE", JSON.stringify({ dir, pane: "pane-1", token: "bridge-secret", url: "http://127.0.0.1:1" }));
+    vi.stubEnv("KEEPDECK_BRIDGE", JSON.stringify({ dir, pane: "pane-1", token: "bridge-secret", socket: "/nonexistent/s" }));
     deck.answer(() => listing(MAIL_SEND));
     await listed(standInHost());
 

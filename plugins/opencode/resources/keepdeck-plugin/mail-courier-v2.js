@@ -28,7 +28,7 @@ import { follower } from "./follower.js";
 import { answerText, askMail } from "./mail-ask.js";
 import { requestShow } from "./show-request.js";
 
-/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ dir: string, pane: string, token: string, socket: string }} Bridge */
 /** @typedef {{ root: string | undefined, left: string | undefined, bound: boolean, classify: (id: string) => Promise<"root" | "child" | "unknown">, rootOf: (id: string) => string, chain: (id: string) => Array<[string, string]>, note: (child: string, parent: string) => void, newGeneration: (id: string) => boolean, bindFromChain: (id: string, keep?: Array<[string, string]>) => boolean, concernsPane: (id: string) => boolean, detach: () => boolean }} Pane */
 /** @typedef {{ agent?: unknown, model?: unknown }} Selection */
 /** @typedef {{ content?: unknown, output?: unknown }} ToolResult */

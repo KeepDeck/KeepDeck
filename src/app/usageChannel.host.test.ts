@@ -116,9 +116,10 @@ describe("the usage channel, on the host", () => {
       const { paneId } = await followedUp(d);
       const mark = host().tape.length;
       // Swaps to another conversation: the secret alone decides. The forged
-      // one names a conversation and a file of its own.
+      // one names a conversation and a file of its own, and is refused at
+      // the bridge's door.
       const swap = (sessionId: string) => ({ type: "session.bound", payload: { sessionId, source: "clear", transcriptPath: storeFile(d, `${sessionId}.jsonl`) } });
-      expect(await d.report(paneId, { ...swap("s-forged"), token: "forged" })).toBe(204);
+      expect(await d.report(paneId, { ...swap("s-forged"), token: "forged" })).toBe(403);
       // The same, under the pane's own secret, is followed — and by then the
       // forged one would have been too.
       const control = swap("s-control");

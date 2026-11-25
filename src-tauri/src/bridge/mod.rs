@@ -9,9 +9,13 @@
 //! wire half is shared outside the bridge (the session tailer emits the same
 //! shapes for what it recovers from transcripts).
 //!
-//! Transport: an HTTP surface on its own port, published to every pane at
-//! spawn through the single `KEEPDECK_BRIDGE` env var. A reporter posts one
-//! envelope per message and reads the deck's answer off the same connection.
+//! Transport: HTTP on a unix socket of this run's own, its door, published
+//! to every pane at spawn through the single `KEEPDECK_BRIDGE` env var — the
+//! kernel names the process on the far end, so the sessions machine judges
+//! every sender by where it runs. A reporter posts one envelope per
+//! connection and reads the deck's answer off the same connection. The port
+//! it answered on before still listens, unpublished, until every sender is
+//! known to reach the door.
 //!
 //! There used to be a second lane: each launch minted a run directory, and
 //! reporters dropped files in it that a watcher parsed and consumed. It is
@@ -36,8 +40,10 @@ mod waiters;
 mod wire;
 
 use std::fs::{self, File};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Runtime};
+
+use crate::unix_door::UnixDoor;
 
 use wire::{printable, Inbound, SESSION_BOUND_EVENT};
 // Only what the rest of the crate actually consumes: the session tailer emits
@@ -52,16 +58,16 @@ pub use wire::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
 const MAX_ENVELOPE_BYTES: u64 = 256 * 1024;
 
 /// This run's live bridge — kept in Tauri managed state so the lock fd and
-/// the surface survive for the app's lifetime.
+/// the surfaces survive for the app's lifetime.
 pub struct Bridge {
-    /// Where this run's bridge answers, whole. Published to every pane at
-    /// spawn — and composed once, so nothing downstream assembles an address
-    /// of its own.
-    pub url: String,
     /// Hooks parked on an open connection, waiting for the deck's answer.
-    /// Shared with the surface: the route parks, `bridge_reply` unparks.
+    /// Shared with the surfaces: the route parks, `bridge_reply` unparks.
     waiters: std::sync::Arc<waiters::Waiters>,
-    /// Held for the run: dropping it would take the surface down.
+    /// This run's door, when it opened. Held for the run: dropping it would
+    /// close it. None when its socket could not be served — the app runs on,
+    /// and its panes start with no bridge to report through.
+    door: Option<UnixDoor>,
+    /// Held for the run: dropping it would take the port down.
     _surface: http::Surface,
     /// This run's directory. Panes are given a subdirectory of it at spawn,
     /// and the only thing that lands there now is a doorbell.
@@ -69,7 +75,21 @@ pub struct Bridge {
     _lock: File,
 }
 
+impl Bridge {
+    /// Where this run's door answers, whole — published to every pane at
+    /// spawn, so nothing downstream assembles an address of its own. None
+    /// when the door is not open.
+    pub fn socket(&self) -> Option<&Path> {
+        self.door.as_ref().map(UnixDoor::path)
+    }
+}
+
 /// Boot the bridge: sweep orphaned run dirs, publish this run's own, serve.
+///
+/// Call once the sessions machine is managed — the door judges every sender
+/// by it from its first connection on — and before anything can be spawned:
+/// the door has to exist by the time a pane's environment is built, or that
+/// pane never learns of it.
 pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<Bridge, String> {
     let home = crate::paths::keepdeck_home().ok_or("no home directory for the bridge")?;
     // Pre-bridge installs dropped postbacks into one shared spool; reap it
@@ -80,25 +100,35 @@ pub fn start<R: Runtime>(app: &AppHandle<R>) -> Result<Bridge, String> {
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
     rundir::restrict(&root);
 
-    let (run_dir, lock, swept) = rundir::boot(&root)?;
+    let (run, swept) = rundir::boot(&root)?;
     log::info!(
         "bridge: run dir {} (swept {swept} orphaned run dir(s))",
-        run_dir.display()
+        run.dir.display()
     );
 
-    // Before anything can be spawned: the address has to exist by the time a
-    // pane's environment is built, or that pane never learns it — and there
-    // is no longer a second lane for one that did not.
     let waiters = std::sync::Arc::new(waiters::Waiters::default());
     let surface = http::serve(app.clone(), std::sync::Arc::clone(&waiters))?;
-    log::info!("bridge: surface at {}", surface.url);
+    log::info!("bridge: port at {}, published to no pane", surface.url);
+    // A socket that cannot be served leaves the app running: its panes go
+    // without a bridge, which the plan says, rather than the deck not
+    // starting at all.
+    let door = match http::open_door(app.clone(), std::sync::Arc::clone(&waiters), &run.socket) {
+        Ok(door) => {
+            log::info!("bridge: door at {}", run.socket.display());
+            Some(door)
+        }
+        Err(e) => {
+            log::warn!("bridge: no door at {}: {e} — panes start without a bridge", run.socket.display());
+            None
+        }
+    };
 
     Ok(Bridge {
-        url: surface.url.clone(),
         waiters,
+        door,
         _surface: surface,
-        run_dir,
-        _lock: lock,
+        run_dir: run.dir,
+        _lock: run.lock,
     })
 }
 

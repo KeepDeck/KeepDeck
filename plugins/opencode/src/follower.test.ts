@@ -82,7 +82,7 @@ describe("the pane follows the session on screen", () => {
     ({ paneSession } = await import("../resources/keepdeck-plugin/pane-session.js"));
     dir = mkdtempSync(join(tmpdir(), "kd-follow-"));
     deck = await startDeck();
-    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir, pane: "pane-3", token: "tok", url: deck.url });
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 3, dir, pane: "pane-3", token: "tok", socket: deck.socket });
     parents = {};
   });
 

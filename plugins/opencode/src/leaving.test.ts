@@ -151,7 +151,7 @@ describe("leaving a conversation, and mail on the home screen", () => {
       const answer = pending.shift();
       return answer ? { status: 200, body: JSON.stringify(answer) } : { status: 204 };
     });
-    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir, pane: "pane-3", token: "tok", url: deck.url });
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 3, dir, pane: "pane-3", token: "tok", socket: deck.socket });
     parents = {};
     calls = { abort: [], create: 0, select: [], prompts: [] };
     onSelect = (id) => {

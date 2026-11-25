@@ -9,7 +9,8 @@
  * the envelope or the reporter rule in one copy and the deck ignores that
  * agent's postbacks with nothing logged on either side. So the rule is
  * written once, and each agent's adapter supplies only what its runtime
- * spells differently — how to read the environment and how to POST.
+ * spells differently — how to read the environment and how to POST over the
+ * deck's unix socket.
  *
  * Nothing here may name a runtime: opencode runs it under Node, claude's Mod
  * has no `process`, no `require` and no global `fetch`. A copy of this file
@@ -17,15 +18,20 @@
  * host lets a plugin import from outside its own directory.
  */
 
-/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ dir: string, pane: string, token: string, socket: string }} Bridge */
 /** @typedef {{ status: number, body: string }} PostResult */
-/** @typedef {(url: string, body: string) => Promise<PostResult>} Post */
+/** @typedef {(socket: string, body: string) => Promise<PostResult>} Post */
 /** @typedef {{ v: number, type: string, paneId: string, token: string, payload: Record<string, unknown> }} Envelope */
 /** @typedef {{ answer: string | null, accepted: boolean }} SendResult */
 /** @typedef {{ bridge: Bridge, makeEnvelope: (type: string, payload: Record<string, unknown>) => Envelope, send: (envelope: Envelope) => Promise<SendResult>, publish: (envelope: Envelope) => Promise<SendResult>, drained: () => Promise<void> }} Wire */
 
 /** The bridge protocol these envelopes speak — the deck refuses others. */
-export const BRIDGE_PROTOCOL = 2;
+export const BRIDGE_PROTOCOL = 3;
+
+/** What an envelope is posted to, over the deck's socket: the bridge's one
+ * route. The host is a name for the request line only — on a unix socket
+ * nothing resolves it. The shell reporters post to the same. */
+export const ENVELOPE_URL = "http://keepdeck/envelope";
 
 /** How long to give the whole round trip, matching the shell reporters'
  * `SEND_MAX`: one number for one rule, so no two lanes disagree about it.
@@ -41,10 +47,11 @@ export const SEND_TIMEOUT_MS = 3000;
  * nothing spawned the agent from KeepDeck.
  *
  * `dir` is the pane's OWN directory; the only thing that lands there is the
- * deck's doorbell, which runs the other way — the surface takes envelopes
- * from panes and cannot push to them, so a knock still needs a file. All four
- * fields are required: a pane without an address has nowhere to report and
- * should say so by being absent rather than by looking armed.
+ * deck's doorbell, which runs the other way — the door takes envelopes from
+ * panes and cannot push to them, so a knock still needs a file. `socket` is
+ * the door: the deck's unix socket, where the kernel names this process to
+ * the deck. All four fields are required: a pane without a door has nowhere
+ * to report and should say so by being absent rather than by looking armed.
  */
 /** @param {string | undefined} raw @returns {Bridge | null} */
 export function parseBridge(raw) {
@@ -54,9 +61,9 @@ export function parseBridge(raw) {
   } catch {
     return null;
   }
-  const { dir, pane, token, url } = bridge ?? {};
-  return dir && pane && token && typeof url === "string" && url
-    ? { dir, pane, token, url }
+  const { dir, pane, token, socket } = bridge ?? {};
+  return dir && pane && token && typeof socket === "string" && socket
+    ? { dir, pane, token, socket }
     : null;
 }
 
@@ -68,9 +75,10 @@ export function parseBridge(raw) {
  * - `reporter`: which process is reporting. The deck pins a pane to ONE
  *   reporting process and refuses the others — the bridge secret is inherited
  *   by the pane's whole process tree, so it cannot tell them apart on its own.
- * - `post(url, body)`: one POST, resolving to `{ status, body }` with `status`
- *   0 when nothing answered; it gives up after `SEND_TIMEOUT_MS`. A post that
- *   throws or rejects counts as nothing answering.
+ * - `post(socket, body)`: one POST of `body` to `ENVELOPE_URL` over the unix
+ *   socket `socket`, resolving to `{ status, body }` with `status` 0 when
+ *   nothing answered; it gives up after `SEND_TIMEOUT_MS`. A post that throws
+ *   or rejects counts as nothing answering.
  */
 /**
  * @param {{ bridge: Bridge, agent: string, reporter: string, post: Post }} input
@@ -93,8 +101,9 @@ export function createWire({ bridge, agent, reporter, post }) {
    * Hand one envelope to the deck and wait for what it answers: `answer` is
    * the deck's reply when it had one, and `null` otherwise; `accepted` says
    * whether the deck took the envelope at all. A refusal (403) means the
-   * sender is not this pane's — a process that detached from the pane's
-   * terminal and kept its environment — and nothing it says will count.
+   * sender is not this pane's — a process that left the pane's terminal and
+   * kept its environment, as a daemon's worker does — and nothing it says
+   * will count.
    *
    * ONLY 200 CARRIES A BODY. What the other codes mean is decided by
    * src-tauri/src/bridge/http.rs and written down there, once; nothing here
@@ -106,7 +115,7 @@ export function createWire({ bridge, agent, reporter, post }) {
     /** @type {PostResult | null} */
     let posted;
     try {
-      posted = await post(bridge.url, JSON.stringify(envelope));
+      posted = await post(bridge.socket, JSON.stringify(envelope));
     } catch {
       posted = null;
     }

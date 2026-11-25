@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useHost } from "../testing/host/host";
 import { startDeck, type AgentAsk, type Deck } from "../testing/host/deck";
 import type { StubAgentControl } from "../testing/host/stubPlugin";
+import { present } from "@keepdeck/plugin-api/testing";
 
 /**
  * What a pane's agent says through the deck's bridge, end to end on the app
@@ -155,7 +156,8 @@ describe("a pane's reports through the bridge, on the host", () => {
       const d = await open();
       const { paneId, session } = await d.agentUp();
       await d.report(paneId, usage(40));
-      expect(await d.report(paneId, { ...unbound, token: "stolen" })).toBe(204);
+      // Refused at the door: not the secret of the terminal it runs in.
+      expect(await d.report(paneId, { ...unbound, token: "stolen" })).toBe(403);
       // A process of the pane's terminal its reports are not pinned to.
       expect(await d.report(paneId, unbound, "child")).toBe(204);
       expect(await d.report(paneId, { ...unbound, payload: { agent: "kimi" } })).toBe(204);
@@ -194,39 +196,73 @@ describe("a pane's reports through the bridge, on the host", () => {
       expect(usageOf(d, paneId)?.context?.usedPct).toBe(40);
     });
 
-    it("drops a report under a secret that is not the pane's plan's", async () => {
+    it("refuses at the door a report under a secret that is not the pane's bridge secret — the pane's MCP secret too", async () => {
       const d = await open();
       const { paneId } = await ready(d);
-      expect(await d.report(paneId, { ...status("turn-start"), token: "stolen" })).toBe(204);
-      expect(await d.report(paneId, { ...usage(40), token: "stolen" })).toBe(204);
+      expect(await d.report(paneId, { ...status("turn-start"), token: "stolen" })).toBe(403);
+      expect(await d.report(paneId, { ...usage(40), token: "stolen" })).toBe(403);
+      // The MCP secret stands in an argv some agents are given: it opens the
+      // MCP door, never the bridge.
+      const mcp = present(d.plan(paneId)?.mcpToken, "the pane's MCP secret");
+      expect(await d.report(paneId, { ...usage(40), token: mcp })).toBe(403);
       expect(activityOf(d, paneId)).toBe("ready");
       expect(usageOf(d, paneId)).toBeUndefined();
     });
 
-    it("drops a report for a pane the deck no longer holds", async () => {
+    it("takes a report from a hook its agent ran detached, a session out, naming the agent", async () => {
+      const d = await open();
+      const { paneId } = await ready(d);
+      expect(await d.report(paneId, status("turn-start"), "hook")).toBe(204);
+      expect(activityOf(d, paneId)).toBe("working");
+      expect(await d.report(paneId, usage(40), "hook")).toBe(204);
+      expect(usageOf(d, paneId)?.context?.usedPct).toBe(40);
+    });
+
+    it("refuses at the door a sender standing where a hook does that names itself, as a daemon's worker does", async () => {
+      // A worker of a daemon some pane's agent started inherits the pane's
+      // secret and stands one session out like a hook; the process it names
+      // is no process of the pane's terminal.
+      const d = await open();
+      const { paneId } = await ready(d);
+      expect(await d.report(paneId, status("turn-start"), "worker")).toBe(403);
+      expect(await d.report(paneId, usage(40), "worker")).toBe(403);
+      expect(activityOf(d, paneId)).toBe("ready");
+      expect(usageOf(d, paneId)).toBeUndefined();
+    });
+
+    it("refuses at the door a sender outside every pane's terminal, whatever secret it holds", async () => {
+      const d = await open();
+      const { paneId } = await ready(d);
+      expect(await d.report(paneId, status("turn-start"), "outside")).toBe(403);
+      expect(await d.report(paneId, usage(40), "outside")).toBe(403);
+      expect(activityOf(d, paneId)).toBe("ready");
+      expect(usageOf(d, paneId)).toBeUndefined();
+    });
+
+    it("refuses at the door every report for a pane the deck no longer holds", async () => {
       const d = await open();
       const { paneId } = await ready(d);
       await d.closeAgent(paneId);
       await host().until("its process is gone", () => d.slot(paneId) === "none");
       // A hook that outlived its agent, under the pane's old secret.
-      expect(await d.report(paneId, usage(40), "outside")).toBe(204);
+      expect(await d.report(paneId, usage(40), "outside")).toBe(403);
       expect(usageOf(d, paneId)).toBeUndefined();
     });
 
-    it("takes no claim about a process that is gone — its status, its leaving the conversation — but its usage, which outlives it", async () => {
+    it("refuses at the door anything about a process that is gone: no terminal is left to place a sender in", async () => {
       const d = await open();
       const { paneId, session } = await ready(d);
       d.type(paneId, "exit 1");
       await host().until("its agent ended", () => d.slot(paneId) === "exited");
       const before = activityOf(d, paneId);
-      // A hook outliving its agent, naming no process: the bridge has no
-      // terminal to judge it by, the page has its own rules.
-      expect(await d.report(paneId, status("turn-start"), "outside")).toBe(204);
+      // A hook outliving its agent: its status, its leaving the
+      // conversation, its usage alike.
+      expect(await d.report(paneId, status("turn-start"), "outside")).toBe(403);
       expect(activityOf(d, paneId)).toBe(before);
-      expect(await d.report(paneId, { type: "session.unbound" }, "outside")).toBe(204);
+      expect(await d.report(paneId, { type: "session.unbound" }, "outside")).toBe(403);
       expect(d.pane(paneId).session?.id).toBe(session);
-      expect(await d.report(paneId, usage(70), "outside")).toBe(204);
-      expect(usageOf(d, paneId)?.context?.usedPct).toBe(70);
+      expect(await d.report(paneId, usage(70), "outside")).toBe(403);
+      expect(usageOf(d, paneId)).toBeUndefined();
     });
 
     it("takes a status from a process still starting: its hook can beat the spawn's answer", async () => {

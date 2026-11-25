@@ -53,8 +53,8 @@ if [ -n "$KEEPDECK_BRIDGE" ] && [ -z "$KEEPDECK_STATUSLINE_NESTED" ]; then
 #
 # One extractor, one set of names. It was written out three times before this
 # file existed — identically, which is the only reason nothing had drifted yet
-# — and `url` arriving as a fourth field is exactly the moment a fourth copy
-# would have been made.
+# — and a fourth field arriving is exactly the moment a fourth copy would
+# have been made.
 #
 # The values are minted by KeepDeck as plain strings, so the text between
 # the quotes after a key is the value. Read with parameter expansion, never a
@@ -86,19 +86,20 @@ field pane
 pane=$field_value
 field token
 token=$field_value
-# Whole rather than assembled: a reporter that built an address would be a
-# second thing to edit the day the route moves. Empty means the deck's surface
-# never came up, and since the cutoff that means there is nowhere to report —
-# `dir` is still in the env, but it now holds nothing but a doorbell, which
-# only an in-process reporter watches.
-field url
-url=$field_value
+# The deck's door: the unix socket it answers on, whole, as the deck named
+# it. Empty means the door never opened, and that means there is nowhere to
+# report — `dir` is still in the env, but it holds nothing but a doorbell,
+# which only an in-process reporter watches.
+field socket
+socket=$field_value
 # shellcheck shell=sh
 # WHICH process is reporting — the process GROUP of the hook's parent.
 #
-# The bridge secret proves only "something under this pane", so the deck needs
-# a value a nested CLI cannot forge by inheriting the environment. This is it,
-# and it is measured rather than assumed: across one agent process every hook
+# The bridge secret proves only "something under this pane", and the deck's
+# door checks that the process named here belongs to the pane's terminal —
+# within it, this is the sender's word, which tells the agent from a nested
+# CLI that inherited the environment and names its own group. It is measured
+# rather than assumed: across one agent process every hook
 # invocation reports the same group (the agent leads it), while a CLI started
 # from a tool call lands in the group that call created and reports another.
 # The hook's OWN group is useless here — agents spawn hooks detached, so it is
@@ -126,14 +127,16 @@ esac
 # the only lane a deck too old to publish an address had. It is gone, and with
 # it the reason a reporter had to know how to write an inbox at all.
 #
-# Needs `url` in scope, read from KEEPDECK_BRIDGE by the caller. Empty means
-# the deck published no address, which after the cutoff means there is nowhere
-# to report: silent, because a hook that printed a complaint would print it
-# into the agent's own transcript on every turn.
+# Needs `socket` in scope, read from KEEPDECK_BRIDGE by the caller. Empty
+# means the deck published no door, which means there is nowhere to report:
+# silent, because a hook that printed a complaint would print it into the
+# agent's own transcript on every turn.
 #
 # `curl` is the one client that can be relied on here. `nc` on macOS races its
 # own stdin EOF and leaves without waiting for a reply, and there is no flag
-# that stops it doing so.
+# that stops it doing so. It speaks HTTP over the deck's unix socket, where
+# the kernel tells the deck which process is on this end — curl itself, in
+# the session its agent started this hook in.
 
 # How long to give the whole round trip.
 #
@@ -161,11 +164,14 @@ SEND_MAX=3
 # difference, and a reader who does has one place to look.
 send_envelope() {
   send_body=$1
-  [ -n "$url" ] || return 0
+  [ -n "$socket" ] || return 0
   command -v curl >/dev/null 2>&1 || return 0
+  # The host is a name for the request line only: on a unix socket nothing
+  # resolves it. The path is the bridge's one route.
   send_answer=$(printf '%s' "$send_body" \
     | curl -s --max-time "$SEND_MAX" -w '\n%{http_code}' \
-        -X POST --data-binary @- "$url" 2>/dev/null)
+        --unix-socket "$socket" -X POST --data-binary @- \
+        http://keepdeck/envelope 2>/dev/null)
   # The status is the last line curl wrote and the body everything before
   # it — cut apart in place, the body printed as `sed '$d'` printed it.
   case ${send_answer##*"
@@ -175,7 +181,7 @@ send_envelope() {
   esac
   return 0
 }
-  if [ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ]; then
+  if [ -n "$socket" ] && [ -n "$pane" ] && [ -n "$token" ]; then
     # No capture time is stamped here. The transcript's mtime looked like one,
     # but claude's own housekeeping touches the file hourly with no API call
     # behind it, so an idle session's frozen limits arrived dated as new — the
@@ -189,7 +195,7 @@ send_envelope() {
     # nested run's statusline holds a valid secret and would otherwise
     # overwrite this pane's numbers with another session's.
     [ -n "$reporter" ] && extra="$extra,\"reporter\":\"$reporter\""
-    send_envelope "$(printf '{"v":2,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":%s%s}}' \
+    send_envelope "$(printf '{"v":3,"type":"usage.report","paneId":"%s","token":"%s","payload":{"agent":"claude","statusline":%s%s}}' \
       "$pane" "$token" "$payload" "$extra")"
   fi
 fi

@@ -84,11 +84,11 @@ describe("opencode session reporter", () => {
     dir = mkdtempSync(join(tmpdir(), "kd-reporter-"));
     deck = await startDeck();
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
-      v: 2,
+      v: 3,
       dir,
       pane: "pane-3",
       token: "tok",
-      url: deck.url,
+      socket: deck.socket,
     });
     // The reporter reads its pane's launch mode from the environment, and
     // this suite says which mode each case is in. Run from INSIDE a pane
@@ -147,8 +147,8 @@ describe("opencode session reporter", () => {
 
     expect((await envelopes())).toEqual([
       {
-        v: 2,
-        type: "session.bound",
+        v: 3,
+        type:"session.bound",
         paneId: "pane-3",
         token: "tok",
         payload: {
@@ -383,7 +383,7 @@ describe("opencode session reporter", () => {
   });
 
   it("stays inert when the bridge envelope is incomplete", async () => {
-    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir });
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 3, dir });
     expect(await rawReporter()).toEqual({});
   });
 
@@ -393,8 +393,8 @@ describe("opencode session reporter", () => {
 
     expect((await usageReports())).toEqual([
       {
-        v: 2,
-        type: "usage.report",
+        v: 3,
+        type:"usage.report",
         paneId: "pane-3",
         token: "tok",
         payload: {
@@ -1195,11 +1195,11 @@ describe("opencode session reporter", () => {
     // one's window, and narrow enough to keep the suite quick.
     deck = await startDeck(undefined, 25);
     process.env.KEEPDECK_BRIDGE = JSON.stringify({
-      v: 2,
+      v: 3,
       dir,
       pane: "pane-3",
       token: "tok",
-      url: deck.url,
+      socket: deck.socket,
     });
 
     const { event } = await reporter();

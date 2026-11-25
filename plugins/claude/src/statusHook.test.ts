@@ -41,7 +41,7 @@ function hook(
   stdin: string | Buffer,
   armed = true,
 ) {
-  return runReporter(SCRIPT, { url: deck.url, stdin, args, env: LOCALE, armed });
+  return runReporter(SCRIPT, { socket: deck.socket, stdin, args, env: LOCALE, armed });
 }
 
 const run = (stdin: string | Buffer, agent = "claude") => hook([agent], stdin);
@@ -67,7 +67,7 @@ describe("kd-status-hook.sh", () => {
   it("wraps the hook payload verbatim under the agent's envelope", async () => {
     await run(JSON.stringify({ hook_event_name: "Stop", extra: "kept" }));
     expect(envelope()).toEqual({
-      v: 2,
+      v: 3,
       type: "agent.status",
       paneId: "pane-3",
       token: "tok",
@@ -127,7 +127,7 @@ describe("kd-status-hook.sh", () => {
     // a partial match would let a field creep back in unnoticed — which is
     // how the value-copying and the invented task entry both shipped.
     expect(envelope(1)).toEqual({
-      v: 2,
+      v: 3,
       type: "agent.status",
       paneId: "pane-3",
       token: "tok",
@@ -258,7 +258,7 @@ describe("kd-status-hook.sh", () => {
       }),
     );
     expect(envelope()).toEqual({
-      v: 2,
+      v: 3,
       type: "agent.status",
       paneId: "pane-3",
       token: "tok",

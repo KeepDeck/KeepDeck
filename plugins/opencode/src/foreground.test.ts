@@ -142,7 +142,7 @@ describe("the TUI half", () => {
   it("in a KeepDeck pane, writes the route opencode shows, and stops on dispose", async () => {
     vi.useFakeTimers();
     const before = process.env.KEEPDECK_BRIDGE;
-    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 2, dir, pane: "pane-1", token: "t", url: "http://127.0.0.1:9/envelope" });
+    process.env.KEEPDECK_BRIDGE = JSON.stringify({ v: 3, dir, pane: "pane-1", token: "t", socket: "/nonexistent/s" });
     try {
       let current: unknown = { name: "session", params: { sessionID: "ses_a" } };
       let dispose: (() => void) | undefined;

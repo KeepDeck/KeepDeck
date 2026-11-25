@@ -30,10 +30,12 @@ export interface SessionBound {
   /** The CLI's own word for why the session started, verbatim — each agent's
    * normalizer maps its own vocabulary. */
   source?: string;
-  /** Which PROCESS reported it, opaque and only ever compared for equality:
-   * the secret is inherited by the pane's whole process tree, so this is what
-   * a nested run of the same agent cannot forge. Absent when the reporter
-   * cannot name its own process. */
+  /** Which PROCESS reported it, as its envelope names it — opaque, and only
+   * ever compared for equality. The bridge's door has checked that the named
+   * process belongs to the sender's own terminal, so a daemon's worker naming
+   * itself never gets here; within that terminal it is the sender's word,
+   * which tells the pane's agent from a nested run of it naming itself.
+   * Absent when the reporter cannot name its own process. */
   reporter?: string;
   /** What the reporter added about the session, string values only, for the
    * agent's own binding contribution (API 63). Absent when it added none. */
@@ -69,13 +71,13 @@ export function onSessionBound(
 }
 
 /** The per-install spawn-plan context (mirrors the Rust `SpawnContextDto`):
- * this run's bridge inbox and the address its surface answers on, resolved
- * once at boot. */
+ * this run's bridge inbox and the socket its door answers on, resolved once
+ * at boot. */
 export interface SpawnContextDto {
   /** This run's bridge inbox; "" = unavailable. */
   bridgeDir: string;
-  /** Where its surface answers, whole; "" = unavailable. */
-  bridgeUrl: string;
+  /** Where its door answers, whole; "" = unavailable. */
+  bridgeSocket: string;
 }
 
 export function spawnContext(): Promise<SpawnContextDto> {

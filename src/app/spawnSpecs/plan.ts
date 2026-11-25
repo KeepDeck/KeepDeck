@@ -451,10 +451,10 @@ export async function buildPlan(
   // whole life reporting into nowhere and looking alive doing it. Arming
   // nothing says so instead.
   //
-  // Whole, not a port: assembling an address means knowing the route, and a
-  // reporter that knew it would have to be told when the route moves.
+  // The door's socket, whole: the deck's own path for it, which a reporter
+  // carries byte for byte rather than assembles.
   const bridge: [string, string][] =
-    token && paneDir && ctx.bridgeUrl
+    token && paneDir && ctx.bridgeSocket
       ? [
           [
             BRIDGE_ENV,
@@ -463,7 +463,7 @@ export async function buildPlan(
               dir: paneDir,
               pane: paneId,
               token,
-              url: ctx.bridgeUrl,
+              socket: ctx.bridgeSocket,
             }),
           ],
         ]

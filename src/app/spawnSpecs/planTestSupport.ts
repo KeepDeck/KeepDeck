@@ -140,7 +140,7 @@ export const armCwd: CwdArmAsk = async (agentId, request) => {
 export const ctx = {
   ...EMPTY_SPAWN_CONTEXT,
   bridgeDir: "/bridge/run-1",
-  bridgeUrl: "http://127.0.0.1:51611/envelope",
+  bridgeSocket: "/bridge/a1b2c",
   paneBridgeDir: (paneId: string) => Promise.resolve(`/bridge/run-1/${paneId}`),
 };
 export const W1: WorkspaceRef = { id: "ws-1", instance: "workspace-instance-1" };

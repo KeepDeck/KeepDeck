@@ -5,7 +5,7 @@ import {
   parseBridge,
 } from "../resources/reporters/keepdeck-wire.js";
 
-const BRIDGE = { dir: "/run/p-1", pane: "p-1", token: "secret", url: "http://127.0.0.1:9/envelope" };
+const BRIDGE = { dir: "/run/p-1", pane: "p-1", token: "secret", socket: "/home/bridge/a1b2c" };
 
 /**
  * The next queued answer; a test that posts more than it queued fails here.
@@ -21,15 +21,17 @@ function next(queue) {
 
 describe("parseBridge", () => {
   it("reads the four fields a pane is armed with", () => {
-    expect(parseBridge(JSON.stringify({ ...BRIDGE, v: 2 }))).toEqual(BRIDGE);
+    expect(parseBridge(JSON.stringify({ ...BRIDGE, v: 3 }))).toEqual(BRIDGE);
   });
 
   it("is absent, not half-armed, when anything is missing or unreadable", () => {
-    for (const raw of [undefined, "", "not json", "null", JSON.stringify({ ...BRIDGE, url: "" })]) {
+    for (const raw of [undefined, "", "not json", "null", JSON.stringify({ ...BRIDGE, socket: "" })]) {
       expect(parseBridge(raw)).toBeNull();
     }
-    const { url: _url, ...noUrl } = BRIDGE;
-    expect(parseBridge(JSON.stringify(noUrl))).toBeNull();
+    const { socket: _socket, ...noSocket } = BRIDGE;
+    expect(parseBridge(JSON.stringify(noSocket))).toBeNull();
+    // An address no longer handed out is no door.
+    expect(parseBridge(JSON.stringify({ ...noSocket, v: 2, url: "http://127.0.0.1:9/envelope" }))).toBeNull();
   });
 });
 
@@ -58,8 +60,8 @@ describe("createWire", () => {
       { status: 504, body: "late" },
       { status: 0, body: "" },
     ];
-    const wire = wireWith(async (url, body) => {
-      sent.push([url, JSON.parse(body)]);
+    const wire = wireWith(async (socket, body) => {
+      sent.push([socket, JSON.parse(body)]);
       return next(answers);
     });
     const envelope = wire.makeEnvelope("agent.status", {});
@@ -69,7 +71,7 @@ describe("createWire", () => {
     for (let i = 0; i < 3; i++) {
       expect(await wire.send(envelope)).toEqual({ answer: null, accepted: false });
     }
-    expect(sent[0]).toEqual([BRIDGE.url, envelope]);
+    expect(sent[0]).toEqual([BRIDGE.socket, envelope]);
 
     const throwing = wireWith(() => {
       throw new Error("no network");
@@ -96,7 +98,7 @@ describe("createWire", () => {
     /** @type {(() => void)[]} */
     const releases = [];
     const wire = wireWith(
-      (_url, body) =>
+      (_socket, body) =>
         new Promise((resolve, reject) => {
           const n = JSON.parse(body).payload.n;
           order.push(`start ${n}`);

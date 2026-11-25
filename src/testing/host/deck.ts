@@ -18,7 +18,7 @@ import type { Intent } from "../../ipc/generated/lifecycle/Intent";
 import type { Preview } from "../../ipc/generated/lifecycle/Preview";
 import type { PaneLaunch, PaneSessionState, PaneSpawnSpec, PtyManager } from "../../app/ptyManager";
 import type { AppRuntime } from "../../app/runtime";
-import { BRIDGE_ENV } from "../../app/spawnSpecs/plans";
+import { BRIDGE_ENV, type SpawnPlan } from "../../app/spawnSpecs/plans";
 import type { Host } from "./host";
 import { STUB_AGENT, STUB_PLUGIN_ID, stubPlugin, type StubAgentControl } from "./stubPlugin";
 
@@ -86,10 +86,13 @@ function answerOf(reply: Record<string, unknown>, command: string): Answer {
   return result.isError === true ? { ok: false, error: { message: text } } : { ok: true, value: JSON.parse(text) };
 }
 
-/** Who sends a report for a pane: its agent; a process the agent started in
- * its terminal; or a reporter outside every pane's terminal, which names no
- * process — a hook outliving its agent. */
-export type Reporter = "agent" | "child" | "outside";
+/** Who sends a report for a pane: its agent; its agent naming no process, as
+ * a hook that could not tell its process does; a process the agent started
+ * in its terminal; a hook, run by a shell the agent started detached and
+ * naming the agent; a worker, in such a session too and naming itself, as a
+ * daemon's worker does; or a reporter outside every pane's terminal, which
+ * names no process — a hook outliving its agent. */
+export type Reporter = "agent" | "unnamed" | "child" | "hook" | "worker" | "outside";
 
 export interface Deck {
   runtime: AppRuntime;
@@ -122,6 +125,9 @@ export interface Deck {
   launches(paneId: string): Launch[];
   /** Whether the page still holds a launch plan for the pane. */
   holdsPlan(paneId: string): boolean;
+  /** The launch plan the page holds for the pane, if it holds one — its
+   * secrets with it. */
+  plan(paneId: string): SpawnPlan | undefined;
   /** The deck's first workspace, as the page holds it now. */
   workspace(): Workspace;
   /** A pane of any workspace, as the page holds it now. */
@@ -342,6 +348,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     resumePlanFails: null,
     deaf: false,
     unbound: false,
+    startsWaiting: false,
     resumes: true,
     storeDir: join(host.home, "stub-store"),
     sessions: null,
@@ -402,10 +409,15 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     const channels = opened(paneId).flatMap(({ channel }) => (channel === null ? [] : [channel]));
     return host.tape.map(({ way, line }) => (way === "← host" ? channels.map((channel) => outputOf(line, channel)).join("") : "")).join("");
   };
-  /** Cue a stub in the pane's terminal — its agent, or the process the
-   * agent started — to send the envelope; the bridge's answer. */
-  async function postInTerminal(paneId: string, envelope: Envelope, from: "agent" | "child", cue: string): Promise<number> {
-    sessions.writePane(paneId, `${from === "child" ? "child " : ""}post ${JSON.stringify({ ...envelope, cue })}\r`);
+  /** Cue a stub in the pane's terminal — its agent, the process the agent
+   * started, or a hook or worker the agent starts detached — to send the
+   * envelope; the bridge's answer. */
+  async function postInTerminal(paneId: string, envelope: Envelope, from: Exclude<Reporter, "outside">, cue: string): Promise<number> {
+    const named = { worker: "self", unnamed: "" }[from as string];
+    const sent = named === undefined ? envelope : { ...envelope, payload: { ...envelope.payload, reporter: named } };
+    const said = JSON.stringify({ ...sent, cue });
+    const line = { agent: `post ${said}`, unnamed: `post ${said}`, child: `child post ${said}`, hook: `hook ${said}`, worker: `hook ${said}` }[from];
+    sessions.writePane(paneId, `${line}\r`);
     let answer: number | null = null;
     await host.until(`${paneId}'s report ${cue} is answered`, () => (answer = answerTo(output(paneId), cue)) !== null);
     return answer ?? 0;
@@ -504,6 +516,7 @@ export async function startDeck(host: Host, told: Partial<StubAgentControl> = {}
     },
     type: (paneId, line) => sessions.writePane(paneId, `${line}\r`),
     holdsPlan: (paneId) => peekPaneSpawnSpec(paneId) !== undefined,
+    plan: (paneId) => peekPaneSpawnSpec(paneId),
     press(paneId, key) {
       reportPaneKey(paneId, key);
       sessions.writePane(paneId, key);

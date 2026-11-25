@@ -13,6 +13,8 @@
 //                  reported nothing
 //   --deaf         ignore a polite stop (TERM), so only the kill ends it
 //   --unbound      report nothing at start: what it reports is cued
+//   --waiting      at start, say it waits on a permission rather than that
+//                  it is at its prompt
 //   --child        a process the agent started in its own terminal: it
 //                  reports nothing of its own and takes its cues from the
 //                  agent
@@ -20,6 +22,12 @@
 //                  CLI keeps its transcript, and name it in its binding
 //   --linger <socket> <file> <agent pid>
 //                  the daemon a `linger` cue starts: nothing else
+//   --hook <json> <agent pid>
+//                  the shell a `hook` cue starts, leading a session of its
+//                  own as an agent's hook shell does: it runs the sender
+//   --send <json> <agent pid>
+//                  that shell's child, the hook itself: it posts the
+//                  envelope and ends
 //
 // With KEEPDECK_STUB_LIVE set — a process run outside the deck's panes —
 // it keeps a file named for its conversation in that folder while it runs:
@@ -38,6 +46,11 @@
 //                  the cue naming which post was answered
 //   child <cue>    hand the cue to the process this one started in its
 //                  terminal — started at the first such cue
+//   hook <json>    send the envelope as an agent's hook does: from a child
+//                  of a shell this agent started detached, in that shell's
+//                  session, naming this agent as the reporting process — or
+//                  itself, when the payload's reporter says `self`, as a
+//                  daemon's worker does
 //   record <json>  write one record to the conversation's file, as a CLI
 //                  writes a line of its transcript; then print
 //                  `stub: recorded <type>`
@@ -56,6 +69,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { request } from "node:http";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -145,6 +159,59 @@ if (lingering !== undefined) {
   process.exit(0);
 }
 
+/** One POST to the deck's door — its unix socket, which Node's `fetch`
+ * cannot reach and its HTTP can — resolving to the answer's status.
+ * @param {string} socket @param {string} body @returns {Promise<number>} */
+function postTo(socket, body) {
+  return new Promise((resolve, reject) => {
+    const asked = request("http://keepdeck/envelope", { socketPath: socket, method: "POST" }, (answer) => {
+      answer.resume();
+      answer.on("end", () => resolve(answer.statusCode ?? 0));
+    });
+    asked.on("error", reject);
+    asked.end(body);
+  });
+}
+
+/** Send one envelope through the bridge the plan armed, as a hook does: by
+ * the pane's token, from this process, naming `reporter` as the process
+ * that reports — this one's, unless told.
+ * @param {{ type: string, paneId?: string, token?: string, payload?: object, cue?: string }} envelope
+ * @param {string} reporter */
+async function post({ type, paneId, token, payload, cue = "start" }, reporter = String(process.pid)) {
+  if (!bridge) return print("stub: no bridge");
+  const sent = {
+    v: 3,
+    type,
+    paneId: paneId ?? bridge.pane,
+    token: token ?? bridge.token,
+    payload: { agent: "stub", reporter, ...payload },
+  };
+  const status = await postTo(bridge.socket, JSON.stringify(sent));
+  print(`stub: posted ${type} ${status} ${cue}`);
+}
+
+// A hook's shell: a session of its own, its parent the agent. Its child is
+// the hook, as a shell runs a hook's command.
+const hookShell = valueOf("--hook");
+if (hookShell !== undefined) {
+  const [agent = ""] = args.slice(args.indexOf("--hook") + 2);
+  const hook = spawn(process.execPath, [process.argv[1], "--send", hookShell, agent], { stdio: "inherit" });
+  const code = await new Promise((resolve) => hook.on("exit", resolve));
+  process.exit(typeof code === "number" ? code : 1);
+}
+const hookSends = valueOf("--send");
+if (hookSends !== undefined) {
+  // The hook: it names its agent as the process reporting, as a hook names
+  // its agent's group — or itself, as a daemon's worker names its own.
+  const [envelope = "{}", agent = ""] = [hookSends, args[args.indexOf("--send") + 2]];
+  const said = JSON.parse(envelope);
+  const reporter = said.payload?.reporter === "self" ? String(process.pid) : agent;
+  const { reporter: _named, ...payload } = said.payload ?? {};
+  await post({ ...said, payload }, reporter).catch((error) => print(`stub: post failed: ${String(error)}`));
+  process.exit(0);
+}
+
 const child = flag("--child");
 const resumed = valueOf("--resume");
 const forked = valueOf("--fork");
@@ -172,22 +239,6 @@ if (live && !child) {
   process.on("exit", () => rmSync(held, { force: true }));
 }
 
-/** Send one envelope through the bridge the plan armed, as a hook does: by
- * the pane's token, from this process.
- * @param {{ type: string, paneId?: string, token?: string, payload?: object, cue?: string }} envelope */
-async function post({ type, paneId, token, payload, cue = "start" }) {
-  if (!bridge) return print("stub: no bridge");
-  const sent = {
-    v: 2,
-    type,
-    paneId: paneId ?? bridge.pane,
-    token: token ?? bridge.token,
-    payload: { agent: "stub", reporter: String(process.pid), ...payload },
-  };
-  const answer = await fetch(bridge.url, { method: "POST", body: JSON.stringify(sent) });
-  print(`stub: posted ${type} ${answer.status} ${cue}`);
-}
-
 /** @type {import("node:stream").Writable | undefined} */
 let helper;
 
@@ -212,6 +263,10 @@ cues.on("line", (line) => {
       .catch((error) => print(`stub: post failed: ${String(error)}`));
   }
   if (cue === "child") toHelper(rest);
+  if (cue === "hook") {
+    const shell = [process.argv[1], "--hook", rest, String(process.pid)];
+    spawn(process.execPath, shell, { detached: true, stdio: ["ignore", "inherit", "inherit"] }).unref();
+  }
   if (cue === "mcp") {
     const [socket = "", ...line] = words;
     void openDeck(socket, bridge?.token)
@@ -237,9 +292,10 @@ if (child) cues.on("close", () => process.exit(0));
 
 if (!child && !flag("--unbound")) {
   // A CLI's session hooks: the conversation bound, then the agent at its
-  // prompt with nothing running.
+  // prompt with nothing running — or waiting on a permission.
+  const coming = flag("--waiting") ? { event: "waiting", reason: "permission" } : { event: "ready" };
   await post({ type: "session.bound", payload: { sessionId, ...(transcript !== undefined && { transcriptPath: transcript }) } })
-    .then(() => post({ type: "agent.status", payload: { event: "ready" } }))
+    .then(() => post({ type: "agent.status", payload: coming }))
     .catch((error) => print(`stub: report failed: ${String(error)}`));
 }
 // A CLI waits for its person: so does this, until a cue or a stop ends it.

@@ -17,8 +17,8 @@
 # into the one bit it needs — a fresh start against a mid-life swap. A CLI
 # that reports none simply omits it.
 #
-# Speaks bridge protocol v2: the spawn's single KEEPDECK_BRIDGE env var
-# carries {v, dir, pane, token, url}; the hook payload arrives as JSON on
+# Speaks bridge protocol v3: the spawn's single KEEPDECK_BRIDGE env var
+# carries {v, dir, pane, token, socket}; the hook payload arrives as JSON on
 # stdin. The payload's session_id becomes a `session.bound` envelope posted
 # to the deck. SessionStart also fires for resume, /clear and compaction, so
 # a mid-life session swap rebinds the pane automatically.
@@ -35,7 +35,7 @@ case $agent in
 esac
 
 # @include lib/reporter-bridge.sh
-[ -n "$url" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
+[ -n "$socket" ] && [ -n "$pane" ] && [ -n "$token" ] || exit 0
 
 # @include lib/reporter-identity.sh
 
@@ -150,6 +150,6 @@ body=$(printf '{"agent":"%s","sessionId":"%s"' "$agent" "$sid")
 [ -n "$facts" ] && body=$(printf '%s,"facts":{%s}' "$body" "$facts")
 body="$body}"
 
-send_envelope "$(printf '{"v":2,"type":"session.bound","paneId":"%s","token":"%s","payload":%s}' \
+send_envelope "$(printf '{"v":3,"type":"session.bound","paneId":"%s","token":"%s","payload":%s}' \
   "$pane" "$token" "$body")"
 exit 0

@@ -34,7 +34,7 @@ import {
   usageReport,
 } from "./pane-report.js";
 
-/** @typedef {{ dir: string, pane: string, token: string, url: string }} Bridge */
+/** @typedef {{ dir: string, pane: string, token: string, socket: string }} Bridge */
 /** @typedef {{ root: string | undefined, left: string | undefined, bound: boolean, classify: (id: string) => Promise<"root" | "child" | "unknown">, rootOf: (id: string) => string, chain: (id: string) => Array<[string, string]>, note: (child: string, parent: string) => void, newGeneration: (id: string) => boolean, bindFromChain: (id: string, keep?: Array<[string, string]>) => boolean, concernsPane: (id: string) => boolean, detach: () => boolean }} Pane */
 /** @typedef {{ id?: string, providerID?: string }} Model */
 /** @typedef {{ input?: number, output?: number, reasoning?: number, cache?: { read?: number, write?: number } }} Tokens */

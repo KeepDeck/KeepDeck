@@ -55,22 +55,24 @@ describe("building one plan through the agent hook", () => {
       v: BRIDGE_PROTOCOL_VERSION,
       dir: "/bridge/run-1/pane-1",
       pane: "pane-1",
-      // The address is the only lane a reporter has; the directory beside it
-      // carries the doorbell, which runs the other way.
-      url: "http://127.0.0.1:51611/envelope",
+      // The door's socket is the only lane a reporter has; the directory
+      // beside it carries the doorbell, which runs the other way.
+      socket: "/bridge/a1b2c",
     });
+    expect(bridge).not.toHaveProperty("url");
     expect(plan.token).toBe(bridge.token);
   });
 
-  it("arms nothing at all when the bridge has no surface", async () => {
-    // The address is the only lane a reporter has since the cutoff, so a
-    // pane armed without one would spend its whole life reporting into
-    // nowhere and looking alive doing it. No var at all is what says so:
-    // a reporter finds nothing and stays inert.
+  it("arms nothing at all when the bridge has no door", async () => {
+    // The socket is the only lane a reporter has, so a pane armed without
+    // one would spend its whole life reporting into nowhere and looking
+    // alive doing it — a door that could not open leaves the app running and
+    // its panes unarmed. No var at all is what says so: a reporter finds
+    // nothing and stays inert.
     h.register(adopting);
     await h.mount(ws([{ id: "pane-1", agentType: "claude" }]), {
       ...ctx,
-      bridgeUrl: "",
+      bridgeSocket: "",
     });
     await settle();
 
