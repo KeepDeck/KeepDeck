@@ -1,7 +1,7 @@
 import type { UnconnectedLaunch } from "../domain/agents";
 
-/** What a pane whose agent runs without KeepDeck's setup says about it —
- * the header's dot and the bell's entry both read these words (task-572).
+/** What a pane whose agent the deck cannot hear says about it — the
+ * header's dot and the bell's entry both read these words (task-572).
  * The state is named by what a person sees (no status, no mail, no resume),
  * not by the mechanism that caused it. */
 export interface UnconnectedLaunchView {

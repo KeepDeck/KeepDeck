@@ -4,6 +4,7 @@ import { useHost } from "../testing/host/host";
 import { startDeck, type AgentAsk, type Deck } from "../testing/host/deck";
 import type { StubAgentControl } from "../testing/host/stubPlugin";
 import { present } from "@keepdeck/plugin-api/testing";
+import { BRIDGE_ENV } from "./spawnSpecs/plans";
 
 /**
  * What a pane's agent says through the deck's bridge, end to end on the app
@@ -174,6 +175,22 @@ describe("a pane's reports through the bridge, on the host", () => {
         expect(await d.report(paneId, unbound)).toBe(204);
         expect(usageOf(d, paneId)?.context?.usedPct).toBe(40);
       }
+    });
+  });
+
+  describe("the bridge", () => {
+    it("comes up with the app, its door open, and every pane is armed with it", async () => {
+      // The door opens once the sessions machine is managed — it judges every
+      // sender by it — and before any pane is spawned. Out of that order the
+      // app's setup has no machine to ask, or a pane has no door to report
+      // through and says the deck cannot hear it.
+      const d = await open();
+      const { paneId } = await d.agentUp();
+      const plan = present(d.plan(paneId), "the pane's plan");
+      const armed = plan.env.find(([key]) => key === BRIDGE_ENV)?.[1];
+      const bridge: unknown = JSON.parse(present(armed, "the bridge in the pane's environment"));
+      expect(bridge).toMatchObject({ socket: expect.stringMatching(/\/bridge\/[0-9a-f]{5}$/) });
+      expect(plan.unconnected).toBeUndefined();
     });
   });
 

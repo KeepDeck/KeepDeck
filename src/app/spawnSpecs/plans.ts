@@ -120,9 +120,10 @@ export interface SpawnPlan {
    * was built. An exit with the count still here means the resume never
    * became a session (see [`resumeDiedSilently`]). */
   postbackMark?: number;
-  /** Why this plan runs its agent without KeepDeck's setup — set only on a
-   * launch that fell back to the bare floor (the plugin's plan threw, or an
-   * external plan named a program it may not run). Absent = connected. */
+  /** Why the deck cannot hear this plan's agent — set on a launch that fell
+   * back to the bare floor (the plugin's plan threw, or an external plan
+   * named a program it may not run), and on one given no bridge to report
+   * through, whose setup it otherwise has. Absent = connected. */
   unconnected?: UnconnectedLaunch;
 }
 
