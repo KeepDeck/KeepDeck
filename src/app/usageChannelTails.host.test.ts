@@ -118,6 +118,33 @@ describe("following a pane's file, on the host", () => {
     });
   });
 
+  describe("letting an arming go", () => {
+    it("sends no watch for an arming let go of while the ledger answered, and lets each go by its name", async () => {
+      const d = await open();
+      const { paneId } = await followedUp(d);
+      const first = field(tailsOf(host(), paneId)[0], "arm");
+      const asking = host().hold({ reply: "usage_since" });
+      const moved = mark();
+      // The person cleared the conversation: its file is armed afresh, and
+      // the ledger is asked from when its calls are not booked yet.
+      const file = storeFile(d, "s-next.jsonl", { type: "usage" });
+      expect(await d.report(paneId, { type: "session.bound", payload: { sessionId: "s-next", source: "clear", transcriptPath: file } })).toBe(204);
+      await asking.caught;
+      // The pane goes before the ledger answers.
+      await d.closeAgent(paneId);
+      asking.release();
+      await aWhile();
+      const letGo = callsOf(host(), "usage_unwatch_session_file", moved)
+        .filter((args) => field(args, "paneId") === paneId)
+        .map((args) => field(args, "arm"));
+      // The first as the second armed, then the second as the pane went —
+      // named, so a let-go that overtakes its arming refuses it in the core.
+      expect(letGo).toEqual([first, expect.any(String)]);
+      expect(letGo[1]).not.toBe(first);
+      expect(tailsOf(host(), paneId, moved)).toEqual([]);
+    });
+  });
+
   describe("against its plugin's own search", () => {
     it("leaves a binding's follow alone when a search racing it finds nothing", async () => {
       const { paneId } = await quitAfter(host(), (d) => d.agentUp(), (onDisk, up) => onDisk.includes(up.session));

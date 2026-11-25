@@ -34,10 +34,9 @@ mod route;
 #[cfg(test)]
 mod test_support;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
@@ -45,7 +44,6 @@ use serde::Deserialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::bridge::{Report, AGENT_STATUS_EVENT, USAGE_REPORT_EVENT};
-use crate::fswatch;
 
 use dialects::{
     calls_since, drop_superseded, last_of_each, last_status_of_each, sibling_paths, TailLane,
@@ -116,22 +114,110 @@ impl TailState {
     }
 }
 
-/// The live session-file tails, keyed by pane id — a shared
-/// [`fswatch::WatchRegistry`] like every other watcher family
-/// (`HeadWatchers`, `ProjectFsWatchers`), over [`TailPoller`] (see the
-/// module doc for why not an OS watcher). The poller's closure owns the
-/// tail state via its `Arc`; replace/remove stops the poller and the tail.
+/// The live session-file tails, by pane, each under the arm the webview named
+/// it by — and the arms it let go of before their tail arrived.
+///
+/// Its own registry, not the shared `fswatch::WatchRegistry` the other
+/// watcher families use: a tail is told from the one before it by its arm,
+/// and the commands naming arms can reach here out of the order the webview
+/// sent them in — a watch is sent after an await, and an async command can be
+/// overtaken by a sync one. A let-go whose watch is still on its way leaves
+/// that watch refused when it comes; a late one never takes a newer tail.
+/// Without that, an arm the webview had already let go of followed the pane
+/// for good, under the identity of whatever ran in it next.
 #[derive(Default)]
-pub struct UsageTails(fswatch::WatchRegistry<TailPoller>);
+pub struct UsageTails(Mutex<Tails>);
+
+#[derive(Default)]
+struct Tails {
+    live: HashMap<String, TailPoller>,
+    /// Per pane, arms let go of before their tail was here, newest last.
+    retired: HashMap<String, VecDeque<String>>,
+}
+
+/// How many let-go arms a pane remembers. Only an arming still on its way
+/// can be one, and the webview has one on its way at a time; the few spare
+/// bound what a let-go of an arm already replaced leaves behind.
+const RETIRED_KEPT: usize = 4;
+
+impl UsageTails {
+    fn lock(&self) -> MutexGuard<'_, Tails> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Take `tail` as the pane's, letting go of the one before it — unless the
+    /// webview let go of its arm already. Whether it was taken.
+    fn arm(&self, pane: &str, tail: TailPoller) -> bool {
+        let mut tails = self.lock();
+        if let Some(retired) = tails.retired.get_mut(pane) {
+            if let Some(at) = retired.iter().position(|arm| *arm == tail.arm) {
+                retired.remove(at);
+                return false;
+            }
+        }
+        tails.live.insert(pane.to_string(), tail);
+        true
+    }
+
+    /// Let go of the pane's tail armed as `arm`: now, if it is the pane's; as
+    /// it arrives, if its arming is still on its way. Another arm's tail is
+    /// left alone.
+    fn retire(&self, pane: &str, arm: &str) {
+        let mut tails = self.lock();
+        if tails.live.get(pane).is_some_and(|tail| tail.arm == arm) {
+            tails.live.remove(pane);
+            return;
+        }
+        let retired = tails.retired.entry(pane.to_string()).or_default();
+        retired.push_back(arm.to_string());
+        if retired.len() > RETIRED_KEPT {
+            retired.pop_front();
+        }
+    }
+
+    /// Run `f` on the pane's tail, if it has one.
+    fn with<T>(&self, pane: &str, f: impl FnOnce(&TailPoller) -> T) -> Option<T> {
+        self.lock().live.get(pane).map(f)
+    }
+}
 
 /// Production poll cadence: two seconds keeps "near-realtime" honest at a
 /// negligible one-file stat per tick. Tests pass something tighter.
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
-/// A dedicated poll thread for one tail. Dropping it (registry replace or
-/// remove) raises the stop flag; the thread exits within one interval.
+/// Whether a tail may still be heard. A report goes out only while it is
+/// open — checked and sent under one lock — and closing takes the same lock,
+/// so once a tail is let go of nothing of it reaches the page again: not the
+/// rest of a drain under way, nor the catch-up of an arming the let-go
+/// overtook.
+#[derive(Default)]
+struct Voice(Mutex<bool>);
+
+impl Voice {
+    /// Send `report` through `deliver`, unless the tail was let go of.
+    fn say(&self, deliver: &dyn Fn(Report), report: Report) {
+        let closed = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if !*closed {
+            deliver(report);
+        }
+    }
+
+    /// Never send again. Returns once a send under way is over.
+    fn close(&self) {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = true;
+    }
+
+    fn closed(&self) -> bool {
+        *self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// A dedicated poll thread for one tail, under the arm the webview named it
+/// by. Dropping it (replaced or let go of) closes its voice; the thread exits
+/// within one interval, and says nothing more meanwhile.
 pub struct TailPoller {
-    stop: Arc<AtomicBool>,
+    arm: String,
+    voice: Arc<Voice>,
     state: Arc<Mutex<TailState>>,
 }
 
@@ -154,7 +240,7 @@ impl TailPoller {
 
 impl Drop for TailPoller {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
+        self.voice.close();
     }
 }
 
@@ -241,24 +327,26 @@ fn deliver_routed<R: tauri::Runtime>(app: &AppHandle<R>, report: Report) {
     }
 }
 
-/// Start the poll thread for one tail. Delivery is a plain closure so the
-/// pipeline is testable without a Tauri app handle. `drain` already
-/// no-ops when the file is missing or unchanged, so a tick is one cheap
-/// open+stat.
+/// Start the poll thread for one tail, armed as `arm`. Delivery is a plain
+/// closure so the pipeline is testable without a Tauri app handle; every
+/// report goes through the tail's voice. `drain` already no-ops when the file
+/// is missing or unchanged, so a tick is one cheap open+stat.
 fn spawn_tailer(
     state: Arc<Mutex<TailState>>,
+    arm: String,
     interval: Duration,
     deliver: impl Fn(Report) + Send + 'static,
 ) -> Result<TailPoller, String> {
-    let stop = Arc::new(AtomicBool::new(false));
-    let flag = stop.clone();
+    let voice = Arc::new(Voice::default());
+    let heard = Arc::clone(&voice);
     let shared = state.clone();
     thread::Builder::new()
         .name("keepdeck usage tail".to_string())
         .spawn(move || {
-            while !flag.load(Ordering::Relaxed) {
+            let deliver = |report| heard.say(&deliver, report);
+            while !heard.closed() {
                 thread::sleep(interval);
-                if flag.load(Ordering::Relaxed) {
+                if heard.closed() {
                     break;
                 }
                 let Ok(mut s) = state.lock() else { break };
@@ -321,7 +409,8 @@ fn spawn_tailer(
         })
         .map_err(|e| format!("usage tail thread failed to start: {e}"))?;
     Ok(TailPoller {
-        stop,
+        arm,
+        voice,
         state: shared,
     })
 }
@@ -335,6 +424,9 @@ fn spawn_tailer(
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TailArming {
+    /// This arming's own name, minted by the webview — no secret, only what
+    /// its let-go names it by ([`usage_unwatch_session_file`]).
+    arm: String,
     path: String,
     agent: String,
     /// The session the binding named for this store.
@@ -357,10 +449,19 @@ pub fn usage_watch_session_file<R: tauri::Runtime>(
     pane_id: String,
     tail: TailArming,
 ) -> Result<(), String> {
-    // Replace-first: the OLD tail must be gone before the new watcher arms,
-    // or a same-path rebind briefly runs two tails and duplicates events.
-    tails.0.remove(&pane_id);
+    arm_tail(&tails, pane_id, tail, POLL_INTERVAL, move |report| deliver_routed(&app, report))
+}
 
+/// Arm one pane's tail: registered first, then caught up through its own
+/// voice. A let-go that comes while the catch-up reads finds it and silences
+/// it there; one that came before refuses it outright.
+fn arm_tail(
+    tails: &UsageTails,
+    pane_id: String,
+    tail: TailArming,
+    interval: Duration,
+    deliver: impl Fn(Report) + Clone + Send + 'static,
+) -> Result<(), String> {
     let path = tail.path;
     let agent = tail.agent;
     let state = Arc::new(Mutex::new(TailState {
@@ -382,10 +483,17 @@ pub fn usage_watch_session_file<R: tauri::Runtime>(
     // reverse order lost any append between drain and arm until the NEXT
     // fs event. Lines the watcher wins ride as live reports; the catch-up
     // summary is marked catchUp so a replay can never outrank them.
-    let emitter = app.clone();
-    let watcher = spawn_tailer(state.clone(), POLL_INTERVAL, move |payload| {
-        deliver_routed(&emitter, payload);
-    })?;
+    let watcher = spawn_tailer(state.clone(), tail.arm, interval, deliver.clone())?;
+    let voice = Arc::clone(&watcher.voice);
+    // Registered BEFORE the catch-up, replacing — and so silencing — the tail
+    // before it, whose thread first sleeps a whole interval: no event is
+    // carried twice. Registered after, a let-go that came while the catch-up
+    // read would find nothing, and this tail would follow the pane for good.
+    if !tails.arm(&pane_id, watcher) {
+        log::info!("usage tail: pane={pane_id} arm let go of before it arrived — not followed");
+        return Ok(());
+    }
+    let deliver = |report| voice.say(&deliver, report);
     let (caught_up, reconciled, position) = {
         let mut s = state.lock().expect("tail state poisoned");
         let (drained, _) = drain_all(&mut s);
@@ -405,14 +513,14 @@ pub fn usage_watch_session_file<R: tauri::Runtime>(
             let report = wrap(&s.origin(), event, true);
             // Through the SAME router as the live path. Opted-in decoder
             // metadata is marked context-only there.
-            deliver_routed(&app, report);
+            deliver(report);
         }
         // The file's latest turn boundaries, as one reconcile: a turn that
         // ended before this tail armed — while the pane's hook had already
         // said "working" — must still be able to end. The tracker uses a
         // reconcile only to END a turn it shows running, never to start one.
         if let Some(report) = batch_status(reconcile) {
-            deliver_routed(&app, report);
+            deliver(report);
         }
         // Where the follower now stands, against how long the file is: a
         // tail that later "stops" can be told apart from one that never
@@ -428,7 +536,6 @@ pub fn usage_watch_session_file<R: tauri::Runtime>(
         position.0,
         position.1.map_or_else(|| "?".to_string(), |size| size.to_string()),
     );
-    tails.0.insert(pane_id, watcher);
     Ok(())
 }
 
@@ -439,10 +546,7 @@ pub fn usage_watch_session_file<R: tauri::Runtime>(
 /// to add it to; adding a file twice is a no-op.
 #[tauri::command]
 pub fn usage_link_session_file(tails: State<UsageTails>, pane_id: String, path: String) -> bool {
-    tails
-        .0
-        .with(&pane_id, |tail| tail.link(PathBuf::from(path)))
-        .unwrap_or(false)
+    tails.with(&pane_id, |tail| tail.link(PathBuf::from(path))).unwrap_or(false)
 }
 
 /// Change what a pane's armed tail carries, from where it stands — the
@@ -455,17 +559,15 @@ pub fn usage_retarget_session_file(
     pane_id: String,
     watches: Vec<TailWatch>,
 ) -> bool {
-    tails
-        .0
-        .with(&pane_id, |tail| tail.retarget(watches))
-        .unwrap_or(false)
+    tails.with(&pane_id, |tail| tail.retarget(watches)).unwrap_or(false)
 }
 
-/// Stop following a pane's session file (pane closed / rebind cleanup).
-/// Unknown panes are a no-op.
+/// Stop following a pane's session file under the arm `arm` (pane closed,
+/// plan retired, rebind cleanup) — at once, or as its arming arrives. Another
+/// arm's tail is left alone.
 #[tauri::command]
-pub fn usage_unwatch_session_file(tails: State<UsageTails>, pane_id: String) {
-    tails.0.remove(&pane_id);
+pub fn usage_unwatch_session_file(tails: State<UsageTails>, pane_id: String, arm: String) {
+    tails.retire(&pane_id, &arm);
 }
 
 /// One carried record of a cold read, with the instant it claims for itself.
@@ -1138,7 +1240,7 @@ mod tests {
         let state = Arc::new(Mutex::new(state));
         let guard = state.lock().unwrap();
         let (tx, rx) = mpsc::channel();
-        let watcher = spawn_tailer(state.clone(), Duration::from_millis(20), move |r| {
+        let watcher = spawn_tailer(state.clone(), "arm-1".into(), Duration::from_millis(20), move |r| {
             let _ = tx.send(route(r));
         })
         .unwrap();
@@ -1245,7 +1347,7 @@ mod tests {
             .unwrap();
         let state = Arc::new(Mutex::new(tail(path)));
         let (tx, rx) = mpsc::channel::<Report>();
-        let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
+        let _watcher = spawn_tailer(state, "arm-1".into(), Duration::from_millis(150), move |r| {
             let _ = tx.send(r);
         })
         .expect("watch");
@@ -1273,7 +1375,7 @@ mod tests {
         state.watches = vec![watch(vec![equals("type", "usage.record")], &["usage"], TailLane::Usage)];
         let state = Arc::new(Mutex::new(state));
         let (tx, rx) = mpsc::channel::<Report>();
-        let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
+        let _watcher = spawn_tailer(state, "arm-1".into(), Duration::from_millis(150), move |r| {
             let _ = tx.send(r);
         })
         .expect("watch");
@@ -1300,7 +1402,7 @@ mod tests {
         state.watches = kimi_calls();
         let state = Arc::new(Mutex::new(state));
         let (tx, rx) = mpsc::channel::<Report>();
-        let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
+        let _watcher = spawn_tailer(state, "arm-1".into(), Duration::from_millis(150), move |r| {
             let _ = tx.send(r);
         })
         .expect("watch");
@@ -1326,7 +1428,7 @@ mod tests {
         let (tx, rx) = mpsc::channel::<Report>();
 
         // Armed BEFORE the file exists — the dir watch catches its creation.
-        let _watcher = spawn_tailer(state, Duration::from_millis(150), move |r| {
+        let _watcher = spawn_tailer(state, "arm-1".into(), Duration::from_millis(150), move |r| {
             let _ = tx.send(r);
         })
         .expect("watch");
@@ -1351,6 +1453,155 @@ mod tests {
             .expect("the appended event within 10s");
         assert_eq!(second.payload["event"]["record"]["type"], "turn_context");
 
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    fn a_report() -> Report {
+        Report { pane_id: "pane-1".into(), reporter: None, payload: serde_json::json!({}) }
+    }
+
+    // The order a let-go rests on: once a voice is closed nothing more is
+    // said through it, and closing waits out a send already under way — or
+    // that send would land after the let-go returned.
+    #[test]
+    fn a_closed_voice_says_nothing_and_its_closing_waits_out_a_send_under_way() {
+        let voice = Arc::new(Voice::default());
+        let (entered, under_way) = mpsc::channel();
+        let (finish, finished) = mpsc::channel::<()>();
+        let speaking = {
+            let voice = Arc::clone(&voice);
+            thread::spawn(move || {
+                voice.say(
+                    &|_| {
+                        entered.send(()).unwrap();
+                        finished.recv().unwrap();
+                    },
+                    a_report(),
+                )
+            })
+        };
+        under_way.recv().unwrap();
+        let closing = {
+            let voice = Arc::clone(&voice);
+            thread::spawn(move || voice.close())
+        };
+        thread::sleep(Duration::from_millis(50));
+        assert!(!closing.is_finished(), "closed while a send was still under way");
+        finish.send(()).unwrap();
+        speaking.join().unwrap();
+        closing.join().unwrap();
+        let said = Mutex::new(0);
+        voice.say(&|_| *said.lock().unwrap() += 1, a_report());
+        assert_eq!(*said.lock().unwrap(), 0, "a closed voice spoke");
+    }
+
+    /// A tail with no thread behind it, armed as `arm`, and its voice.
+    fn armed(arm: &str) -> (TailPoller, Arc<Voice>) {
+        let voice = Arc::new(Voice::default());
+        let state = Arc::new(Mutex::new(tail(PathBuf::from("/x/rollout.jsonl"))));
+        (TailPoller { arm: arm.into(), voice: Arc::clone(&voice), state }, voice)
+    }
+
+    /// The arm the pane's tail runs under, if it has one.
+    fn live_arm(tails: &UsageTails) -> Option<String> {
+        tails.with("pane-1", |tail| tail.arm.clone())
+    }
+
+    // The webview's let-go and arm commands can reach the tails out of the
+    // order it sent them in: each names its arm, so a let-go takes only its
+    // own, and one that overtook its arming leaves that arming refused.
+    #[test]
+    fn a_let_go_takes_only_its_own_arm_and_refuses_the_arming_it_overtook() {
+        let tails = UsageTails::default();
+        let (first, first_voice) = armed("first");
+        assert!(tails.arm("pane-1", first));
+        // A late let-go of an arm that is not this one leaves it alone.
+        tails.retire("pane-1", "earlier");
+        assert_eq!(live_arm(&tails).as_deref(), Some("first"));
+        assert!(!first_voice.closed());
+        // Its own takes it, and it is silent from then on.
+        tails.retire("pane-1", "first");
+        assert_eq!(live_arm(&tails), None);
+        assert!(first_voice.closed());
+        // Let go of while its arming was on its way: refused as it arrives.
+        tails.retire("pane-1", "second");
+        let (second, second_voice) = armed("second");
+        assert!(!tails.arm("pane-1", second), "an arming its let-go overtook followed the pane");
+        assert!(second_voice.closed());
+        assert_eq!(live_arm(&tails), None);
+        // A newer arming replaces the tail before it, and silences it.
+        let (third, third_voice) = armed("third");
+        assert!(tails.arm("pane-1", third));
+        let (fourth, _) = armed("fourth");
+        assert!(tails.arm("pane-1", fourth));
+        assert!(third_voice.closed());
+        assert_eq!(live_arm(&tails).as_deref(), Some("fourth"));
+    }
+
+    #[test]
+    fn a_pane_remembers_only_its_latest_let_goes_of_arms_that_never_came() {
+        let tails = UsageTails::default();
+        for n in 0..10 {
+            tails.retire("pane-1", &format!("gone-{n}"));
+        }
+        assert_eq!(tails.lock().retired["pane-1"].len(), RETIRED_KEPT);
+        let (latest, _) = armed("gone-9");
+        assert!(!tails.arm("pane-1", latest), "the latest let-go is still remembered");
+        let (oldest, _) = armed("gone-0");
+        assert!(tails.arm("pane-1", oldest), "a let-go past the few kept is forgotten");
+    }
+
+    /// An arming of a store holding one usage record.
+    fn arming_of(arm: &str, path: &std::path::Path) -> TailArming {
+        TailArming {
+            arm: arm.into(),
+            path: path.to_string_lossy().into_owned(),
+            agent: "codex".into(),
+            session: "ses-1".into(),
+            watches: serde_json::from_value(serde_json::json!([
+                { "match": [{ "key": "type", "equals": "usage" }], "keep": ["type"], "lane": "usage" }
+            ]))
+            .unwrap(),
+            siblings: None,
+            since: None,
+        }
+    }
+
+    // A tail is the pane's before its catch-up says anything: a let-go that
+    // comes while the catch-up reads finds it, and silences it there.
+    #[test]
+    fn an_arming_is_the_panes_tail_before_its_catch_up_says_anything() {
+        let dir = temp_dir();
+        let path = dir.join("rollout.jsonl");
+        fs::write(&path, "{\"type\":\"usage\"}\n").unwrap();
+        let tails = Arc::new(UsageTails::default());
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (looking, heard) = (Arc::clone(&tails), Arc::clone(&seen));
+        arm_tail(&tails, "pane-1".into(), arming_of("a", &path), Duration::from_secs(60), move |_| {
+            heard.lock().unwrap().push(live_arm(&looking));
+        })
+        .unwrap();
+        assert_eq!(*seen.lock().unwrap(), vec![Some("a".to_string())]);
+        tails.retire("pane-1", "a");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_arming_let_go_of_before_it_arrived_reads_and_says_nothing() {
+        let dir = temp_dir();
+        let path = dir.join("rollout.jsonl");
+        fs::write(&path, "{\"type\":\"usage\"}\n").unwrap();
+        let tails = UsageTails::default();
+        tails.retire("pane-1", "a");
+        let said = Arc::new(Mutex::new(0));
+        let counted = Arc::clone(&said);
+        arm_tail(&tails, "pane-1".into(), arming_of("a", &path), Duration::from_millis(20), move |_| {
+            *counted.lock().unwrap() += 1;
+        })
+        .unwrap();
+        thread::sleep(Duration::from_millis(100));
+        assert_eq!(*said.lock().unwrap(), 0);
+        assert_eq!(live_arm(&tails), None);
         fs::remove_dir_all(&dir).ok();
     }
 }

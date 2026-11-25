@@ -42,6 +42,12 @@ export function mintBridgeToken(): string {
   return crypto.randomUUID();
 }
 
+/** Mint a tail's arm — the name one arming of a pane's session-file tail
+ * goes by, so its let-go can name it to the core: no secret, unique only. */
+export function mintTailArm(): string {
+  return crypto.randomUUID();
+}
+
 /** Mint a task uid — the task's own identity, global and permanent
  * (`Task.uid`): a whole UUID, since tasks of every workspace share its
  * space and none is ever handed out twice. */

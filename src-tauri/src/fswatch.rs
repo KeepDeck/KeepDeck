@@ -7,10 +7,9 @@
 //! The `watch_dir*` primitives are passive: the OS notifies us (FSEvents on
 //! macOS, inotify on Linux), and we hold NO handle on the watched files —
 //! a watched directory (a gitdir, a project folder open in the tree) is
-//! never blocked or slowed. The REGISTRY below is broader than the passive
-//! family: it also hosts the session-tail pollers (`session_tail`), which
-//! actively stat one file per tick because OS events are blind to appends
-//! on a still-open file — see that module's doc for the reproduced why.
+//! never blocked or slowed. The session-tail pollers (`session_tail`) keep a
+//! registry of their own: a tail is told from the one before it by the arm
+//! that armed it, which a key alone cannot say.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -64,9 +63,8 @@ fn watch(
 /// under a key that already exists REPLACES (and thereby stops) the prior
 /// watcher; removing stops it (the watcher drops). Thread-safe and
 /// `Default` — designed to sit behind Tauri managed state, wrapped in a
-/// newtype so distinct call sites (`HeadWatchers`, `ProjectFsWatchers`,
-/// `UsageTails`) get distinct managed types. Generic over the watcher kind
-/// so the polling family shares it too.
+/// newtype so distinct call sites (`HeadWatchers`, `ProjectFsWatchers`) get
+/// distinct managed types. Generic over the watcher kind.
 pub struct WatchRegistry<W = RecommendedWatcher> {
     inner: Mutex<HashMap<String, W>>,
 }
@@ -90,11 +88,6 @@ impl<W> WatchRegistry<W> {
     /// Stop and forget the watcher under `key`; an unknown key is a no-op.
     pub fn remove(&self, key: &str) {
         self.lock().remove(key);
-    }
-
-    /// Run `f` on the watcher under `key`, if there is one.
-    pub fn with<T>(&self, key: &str, f: impl FnOnce(&W) -> T) -> Option<T> {
-        self.lock().get(key).map(f)
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<String, W>> {
@@ -173,13 +166,5 @@ mod tests {
         registry.remove("k");
         registry.remove("k"); // unknown key now — no panic
         fs::remove_dir_all(&dir).ok();
-    }
-
-    #[test]
-    fn registry_reaches_the_watcher_under_a_key_and_only_that_one() {
-        let registry: WatchRegistry<u32> = WatchRegistry::default();
-        registry.insert("k".to_string(), 7);
-        assert_eq!(registry.with("k", |watcher| watcher + 1), Some(8));
-        assert_eq!(registry.with("other", |watcher| watcher + 1), None);
     }
 }
