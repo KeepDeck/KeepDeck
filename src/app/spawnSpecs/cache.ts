@@ -204,4 +204,3 @@ export function hasPaneSpawnSpec(paneId: string): boolean {
 export function isPaneSpawnSpecPending(paneId: string): boolean {
   return pending.has(paneId);
 }
-

@@ -87,7 +87,8 @@ pub fn shim_mode(args: impl IntoIterator<Item = String>) -> Option<ShimMode> {
 /// the injected flag instead.
 ///
 /// Parsed rather than pattern-matched because the value is KeepDeck's own
-/// JSON. Any failure yields None, which is simply an anonymous session.
+/// JSON. Any failure yields None: the connection names no pane, and the deck
+/// refuses its every request as no-secret.
 fn bridge_secret() -> Option<String> {
     let raw = std::env::var("KEEPDECK_BRIDGE").ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
@@ -128,9 +129,10 @@ pub fn run(mode: ShimMode) -> i32 {
         }
     };
     // Introduce ourselves before a single byte of the client's own traffic:
-    // the deck binds the name to THIS connection, and a request that arrived
-    // first would be attributed to nobody. A failure here is not fatal — an
-    // anonymous session still works, it just cannot be told apart.
+    // the deck binds the name to THIS connection, and refuses a request that
+    // came before it as no-secret. A failed greeting does not stop the pump:
+    // the client then hears the deck refuse each request and why, rather
+    // than a pipe that went dead.
     // The injected flag first, the inherited environment second: an explicit
     // argument is the deck naming this invocation, and it must win over a
     // variable a whole process tree shares.

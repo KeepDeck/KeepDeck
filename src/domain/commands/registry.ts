@@ -38,8 +38,8 @@ export interface CommandInfo {
 /** Who asked. Journaled with every call — the voice history reads it, and
  * an audit trail needs it verbatim. The `external` arm arrived WITH its
  * transport, as its removal note asked: the MCP socket mints it, and
- * nothing else may (`client` is that transport's name, and it is what a
- * future per-connection gate will scope). */
+ * nothing else may (`client` is that transport's name). Its door admits a
+ * caller per request, by the pane it runs in. */
 export type CommandSource =
   | { kind: "host" }
   | { kind: "plugin"; pluginId: string }

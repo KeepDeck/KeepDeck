@@ -92,7 +92,7 @@ describe("KeepDeck's own server as a bundled contributor", () => {
     expect(connection).toHaveBeenCalledWith("pane-3-secret");
   });
 
-  it("asks for an ANONYMOUS invocation when the pane cannot carry a secret", async () => {
+  it("asks for an invocation without a secret when the pane cannot carry one: its shim names it by the bridge secret", async () => {
     const connection = vi.fn(async () => invocation);
     const contributor = server(connection);
 
