@@ -3,6 +3,9 @@ name = "keepdeck"
 version = "0.34.11"
 description = "Desktop deck for a fleet of coding agents."
 edition = "2021"
+# The app is what `cargo run` (and so `tauri dev`) starts: kd-host, the
+# test harness beside it, would otherwise make the choice ambiguous.
+default-run = "keepdeck"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
